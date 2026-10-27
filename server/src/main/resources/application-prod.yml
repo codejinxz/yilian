@@ -37,6 +37,11 @@ management:
       show-details: never
 
 logging:
+  # 结构化 JSON 日志仅在 prod 启用（供日志采集器解析，含 traceId 等 MDC 字段）；
+  # local 控制台保持 Spring Boot 默认的人类可读格式。
+  structured:
+    format:
+      console: logstash
   level:
     root: INFO
     io.github.codejinxz.yilian: INFO

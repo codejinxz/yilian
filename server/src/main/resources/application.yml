@@ -116,9 +116,6 @@ springdoc:
     enabled: false
 
 logging:
-  structured:
-    format:
-      console: logstash
   level:
     root: INFO
     io.github.codejinxz.yilian: INFO

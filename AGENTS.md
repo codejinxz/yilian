@@ -88,7 +88,7 @@
 
 ### 3.6 日志与异常
 
-- JSON 结构化日志，字段含 `traceId`、脱敏 `userId`、`clientIp`、`module`、`action`、`durationMs`。
+- 结构化日志（logstash JSON，字段含 `traceId`、脱敏 `userId`、`clientIp`、`module`、`action`、`durationMs`）仅在 prod 启用；local 控制台保持人类可读格式。
 - 统一响应为 `common/api/ApiResponse<T>` + `ApiCode`：成功用 `success(...)`，失败用 `fail(...)`；成功 `code=0`、`message="success"`；失败返回对应业务码与中文文案，`data` 默认 `null`（参数校验失败等场景可携带明细）。
 - HTTP 状态码仍保留，表示成功/失败类别（2xx / 4xx / 5xx）；错误同样返回 `ApiResponse` 信封，不再使用 `ProblemDetail`。
 - 需要审计的写接口标注 `@OperationLog(module, action)`，由 AOP 统一记录操作者、客户端 IP、结果与耗时；读接口默认不标，且切面不读取参数/请求体。
