@@ -112,6 +112,7 @@ CI（`.github/workflows/ci.yml`）在 push 时自动执行后端测试与前端�
 | [docs/DATA-MODEL.md](docs/DATA-MODEL.md) | 数据模型与迁移约定 |
 | [docs/RESEARCH.md](docs/RESEARCH.md) | 设计决策（教学法/架构取舍） |
 | [docs/GAP-ANALYSIS.md](docs/GAP-ANALYSIS.md) | 待办与优先级、当前状态 |
+| [docs/练习主链路_切片设计.md](docs/练习主链路_切片设计.md) | 下一阶段切片执行稿：#8 练习主链路 + upload 收尾 + 前端切换 |
 | [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) | 新机从零启动手册 |
 | [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) | 验收与手工检查清单 |
 | [docs/NAMING.md](docs/NAMING.md) | 命名与工程结构 |
