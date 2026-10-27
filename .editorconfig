@@ -1,0 +1,23 @@
+# 译练仓库统一编辑器约定（AGENTS.md §3.2）。
+# 与 Checkstyle / google-java-format(AOSP) / Biome 的最小公共交集保持一致。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Java 使用 AOSP 风格：4 空格缩进（行宽由 google-java-format 统一）。
+[*.java]
+indent_size = 4
+
+# Checkstyle 配置与常用标记/数据文件沿用 2 空格缩进。
+[*.{xml,yml,yaml,json,jsonc,ts,tsx,js,jsx,css,html}]
+indent_size = 2
+
+# Markdown 的行尾双空格用于换行，不做裁剪。
+[*.md]
+trim_trailing_whitespace = false

@@ -1,0 +1,27 @@
+{
+  "id": "/",
+  "name": "译练",
+  "short_name": "译练",
+  "description": "面向中文母语者的中译英刻意练习：一屏一句，语块填空或整句翻译，即时批改，错题复习。",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f2e9",
+  "theme_color": "#b23a2e",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

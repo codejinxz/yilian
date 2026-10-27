@@ -1,0 +1,53 @@
+# ---------------------------------------------------------------------------
+# 本机开发配置模板（application-local.yml.example）
+#
+# 使用方式：
+#   1. 复制为同目录下的 application-local.yml：
+#        Copy-Item server/src/main/resources/application-local.yml.example `
+#          server/src/main/resources/application-local.yml
+#   2. 至少把 spring.datasource.password 改成你本机 MySQL 的真实密码。
+#   3. 真实的 application-local.yml 已被 .gitignore 忽略，禁止提交，也不要复制到
+#      共享环境或 prod；prod 只从环境变量 / secret 读取密钥。
+#
+# 下面的值是占位示例，其中 local-dev-only 的 JWT 密钥仅 local profile 可启动，
+# 不能复用到任何共享环境。
+# ---------------------------------------------------------------------------
+spring:
+  datasource:
+    # 本机 MySQL 开发库；账号 root 只用于本机，密码需改成真实值。
+    url: jdbc:mysql://localhost:3306/yilian?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&allowPublicKeyRetrieval=true&useSSL=false
+    username: root
+    password: change-me-local-db-password
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: ""
+
+server:
+  servlet:
+    session:
+      cookie:
+        # 本地 HTTP 调试使用非 Secure Cookie；prod 在 application-prod.yml 强制 true。
+        secure: false
+
+yilian:
+  security:
+    jwt:
+      # local 可启动的开发示例；prod 会拒绝 local-dev-only 前缀，必须换成随机环境变量。
+      secret: local-dev-only-yilian-jwt-secret-0123456789abcdef-fedcba9876543210
+  bootstrap-admin:
+    enabled: true
+    username: admin
+    # 文档化的本地默认密码；prod 会拒绝该值。
+    password: change-me-now
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+logging:
+  level:
+    io.github.codejinxz.yilian: DEBUG

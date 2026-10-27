@@ -1,0 +1,15 @@
+<!-- 译练应用图标：朱红印面 + 纸色「译」字，视觉语言对齐「稿纸与朱笔」（最小可用版，用系统衬线字体渲染）。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>译练</title>
+  <rect width="512" height="512" rx="108" fill="#b23a2e" />
+  <text
+    x="256"
+    y="368"
+    font-family="Georgia, 'Songti SC', 'Noto Serif SC', serif"
+    font-size="300"
+    text-anchor="middle"
+    fill="#f7f3ea"
+  >
+    译
+  </text>
+</svg>

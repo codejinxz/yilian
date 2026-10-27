@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+    "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+    "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+  译练 Java 最小风格规则（AGENTS.md §3.2）。
+
+  这里只保留「任何一行代码都应当满足」的通用约束，作为 CI 的阻断门禁；
+  命名、Javadoc、复杂度等更细的规则留给后续按模块逐步启用，避免存量代码
+  一次性产生大量违规而让门禁失去意义。google-java-format 的格式校验由
+  fmt-maven-plugin 的 `fmt:check` 单独负责。
+-->
+<module name="Checker">
+  <property name="charset" value="UTF-8"/>
+  <property name="severity" value="error"/>
+  <property name="fileExtensions" value="java"/>
+
+  <!-- 缩进统一用空格，禁止 tab。 -->
+  <module name="FileTabCharacter">
+    <property name="eachLine" value="true"/>
+  </module>
+
+  <!-- 行尾不允许空白字符，避免无意义 diff。 -->
+  <module name="RegexpSingleline">
+    <property name="format" value="[ \t]+$"/>
+    <property name="message" value="行尾不允许空白字符"/>
+  </module>
+
+  <!-- 文件必须以 LF 结尾，且只能有一个换行；与 .editorconfig 保持一致。 -->
+  <module name="NewlineAtEndOfFile">
+    <property name="lineSeparator" value="lf"/>
+  </module>
+</module>

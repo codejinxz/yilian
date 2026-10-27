@@ -1,0 +1,15 @@
+<!-- 译练自适应图标（maskable）：满版朱红底，「译」字收进中央安全区（直径 80%），避免被系统裁切成圆角/圆形时缺角。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>译练</title>
+  <rect width="512" height="512" fill="#b23a2e" />
+  <text
+    x="256"
+    y="341"
+    font-family="Georgia, 'Songti SC', 'Noto Serif SC', serif"
+    font-size="224"
+    text-anchor="middle"
+    fill="#f7f3ea"
+  >
+    译
+  </text>
+</svg>

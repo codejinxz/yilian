@@ -1,0 +1,4125 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="paper">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>译练 · 原型</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&family=Noto+Serif+SC:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f6f2e9; --surface:#fffdf8; --ink:#1c1b18; --ink2:#6b665c; --ink3:#a8a29a;
+  --rule:#e2dacb; --vermilion:#b23a2e; --moss:#4a6b4f;
+  --serif:"Newsreader","Iowan Old Style","Source Serif 4",Georgia,"Songti SC","Noto Serif CJK SC","Noto Serif SC",serif;
+  --sans:"Inter",-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Consolas,monospace;
+  --kb:0px;
+}
+[data-theme="night"]{
+  --paper:#16150f; --surface:#1c1b14; --ink:#e8e2d5; --ink2:#a9a190; --ink3:#6f6858;
+  --rule:#2e2b22; --vermilion:#d4665a; --moss:#7d9b82;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper);color:var(--ink);font-family:var(--sans);
+  -webkit-font-smoothing:antialiased;min-height:100dvh;
+  transition:background .25s ease,color .25s ease;
+}
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.35;
+  background-image:radial-gradient(rgba(28,27,24,.05) 1px,transparent 1px);
+  background-size:4px 4px;
+}
+[data-theme="night"] body::before{background-image:radial-gradient(rgba(232,226,213,.06) 1px,transparent 1px)}
+
+.progress{position:fixed;top:0;left:0;height:2px;width:100%;z-index:20;transition:opacity .2s ease}
+.progress i{display:block;height:100%;width:0;background:var(--vermilion);transition:width .4s cubic-bezier(.2,.8,.2,1)}
+
+.topbar{position:relative;z-index:10;display:flex;align-items:center;gap:34px;height:56px;padding:0 40px;border-bottom:1px solid var(--rule)}
+.brand{font-family:var(--serif);font-size:19px;letter-spacing:.12em;display:flex;align-items:center;gap:9px;white-space:nowrap}
+.brand::before{content:"";width:6px;height:6px;background:var(--vermilion);display:block}
+.brand .sub{font-family:var(--sans);font-size:10px;letter-spacing:.16em;color:var(--ink3);border:1px solid var(--rule);padding:2px 5px;border-radius:2px}
+
+.nav{display:flex;gap:22px}
+.nav a{font-size:13px;color:var(--ink3);text-decoration:none;letter-spacing:.04em;padding-bottom:3px;border-bottom:1px solid transparent}
+.nav a:hover{color:var(--ink2)}
+.nav a.on{color:var(--ink);border-bottom-color:var(--vermilion)}
+
+.meta{margin-left:auto;display:flex;align-items:center;gap:16px;font-size:12px;color:var(--ink3);letter-spacing:.04em}
+.icon{background:none;border:1px solid var(--rule);color:var(--ink2);width:28px;height:28px;border-radius:2px;cursor:pointer;font-size:13px;line-height:1}
+.icon:hover{border-color:var(--ink3);color:var(--ink)}
+.avatar{width:28px;height:28px;border-radius:50%;border:1px solid var(--rule);background:none;color:var(--ink2);font:12px var(--sans);cursor:pointer;line-height:1}
+.avatar:hover{border-color:var(--ink3);color:var(--ink)}
+.avatar.on{border-color:rgba(178,58,46,.5);color:var(--vermilion)}
+
+.page{position:relative;z-index:1;padding:0 40px calc(64px + env(safe-area-inset-bottom) + var(--kb))}
+
+.view{max-width:1000px;margin:0 auto;padding-top:80px}
+.page-title{font-family:var(--serif);font-size:30px;font-weight:500;line-height:1.3;margin:0 0 10px;letter-spacing:.01em}
+.page-sub{font-size:13px;color:var(--ink2);margin:0 0 40px;line-height:1.75;max-width:540px}
+.section{margin-top:52px}
+.section-title{font:10px var(--mono);letter-spacing:.18em;color:var(--ink3);margin-bottom:16px}
+
+.stage{max-width:1000px;margin:0 auto;display:grid;grid-template-columns:minmax(0,640px) 236px;gap:72px;align-items:start}
+.practice-head{display:flex;align-items:center;justify-content:space-between;gap:22px;flex-wrap:wrap}
+.modes{display:flex;gap:20px}
+.modes button{background:none;border:none;padding:0 0 3px;font:13px var(--sans);color:var(--ink3);cursor:pointer;letter-spacing:.06em;border-bottom:1px solid transparent}
+.modes button.on{color:var(--ink);border-bottom-color:var(--vermilion)}
+.session-bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;row-gap:10px;padding-bottom:14px;margin-bottom:26px;border-bottom:1px solid var(--rule);font:10px var(--mono);letter-spacing:.1em}
+.session-chip{background:none;border:none;padding:0;font:10px var(--mono);letter-spacing:.1em;color:var(--ink3);cursor:pointer}
+.session-chip b{color:var(--vermilion);font-weight:500;margin-right:3px}
+.session-chip:hover{color:var(--ink)}
+.session-goal{color:var(--ink3)}
+.session-bar .linkish{margin-left:auto;font-size:11px}
+.bank-select{padding:4px 8px;font-size:11px;letter-spacing:.02em}
+.explain{margin-top:18px;padding-top:16px;border-top:1px solid var(--rule)}
+.explain .label{margin-bottom:8px}
+.explain p{margin:0;font-size:13px;line-height:1.8;color:var(--ink2)}
+.note-input{width:100%;min-height:96px;border:1px solid var(--rule);background:transparent;padding:10px;font:inherit;font-size:13px;line-height:1.7;color:var(--ink);border-radius:6px;resize:vertical}
+.peek-row{display:flex;justify-content:space-between;gap:16px;width:100%;text-align:left;padding:12px 0;border:0;border-bottom:1px solid var(--rule);background:transparent;cursor:pointer;font:inherit;color:var(--ink)}
+.peek-row.cur .peek-zh{color:var(--vermilion)}
+.peek-zh{font-size:14px;line-height:1.5}
+.peek-meta{flex:none;font-size:11px;color:var(--ink2);opacity:.75;letter-spacing:.04em}
+.review-note{margin-top:14px;font-size:12px;line-height:1.7;color:var(--vermilion)}
+.word-group{display:inline-flex;align-items:baseline;gap:1px;position:relative;white-space:nowrap}
+.blank-no{display:inline-block;font:600 9px var(--mono);color:var(--paper);background:var(--vermilion);border-radius:2px;padding:1px 3px;margin-right:4px;vertical-align:2px}
+.word-space{display:inline-block;width:.35ch}
+.zh-blank{position:relative;border-bottom:1.5px solid var(--vermilion);padding:0 2px 3px;margin:0 2px}
+.zh-blank i{display:inline-block;font:600 9px var(--mono);font-style:normal;color:var(--paper);background:var(--vermilion);border-radius:2px;padding:1px 3px;margin-right:3px;vertical-align:2px}
+.retry{margin-top:26px;padding-top:22px;border-top:1px solid var(--rule)}
+.retry-desc{font-size:12px;color:var(--ink2);margin:8px 0 14px;line-height:1.7}
+.retry-input{width:100%;background:transparent;border:none;border-bottom:1px solid var(--rule);padding:9px 0;font:17px var(--serif);color:var(--ink)}
+.retry-input:focus{outline:none;border-bottom-color:var(--vermilion)}
+.retry-row{display:flex;align-items:center;gap:14px;margin-top:14px;flex-wrap:wrap}
+.retry-row .linkish{font-size:11px}
+.drill{margin-top:22px;font-size:12px;color:var(--ink2);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.invite{display:flex;align-items:center;gap:20px;padding:18px 0 22px;border-bottom:1px solid var(--rule);margin-bottom:18px;flex-wrap:wrap}
+.invite-title{font-size:13px;color:var(--ink)}
+.invite-codes{display:flex;gap:10px;flex-wrap:wrap;margin-left:auto}
+.invite-code{font:11px var(--mono);letter-spacing:.08em;border:1px solid var(--rule);padding:5px 9px;border-radius:2px;color:var(--ink2)}
+.invite-code.used{color:var(--ink3);text-decoration:line-through;opacity:.6}
+
+.qmeta{font:11px var(--mono);letter-spacing:.12em;color:var(--ink3);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.qmeta .dot{width:3px;height:3px;background:var(--ink3);border-radius:50%}
+.prompt{font-family:var(--serif);font-weight:500;font-size:clamp(24px,3.4vw,34px);line-height:1.55;letter-spacing:.02em;margin:22px 0 44px}
+
+.skeleton{font-family:var(--serif);font-size:20px;line-height:2.5;margin:0;color:var(--ink)}
+.slot{display:inline}
+.skeleton input{
+  font:inherit;color:var(--ink);background:transparent;border:none;
+  border-bottom:1px solid rgba(28,27,24,.32);padding:0 4px 1px;margin:0 1px;
+  text-align:left;transition:border-color .15s ease;
+}
+.skeleton input:focus{outline:none;border-bottom-color:var(--vermilion);background:transparent}
+.skeleton input.hit{border-bottom-color:var(--moss);color:var(--moss)}
+.skeleton input.miss{border-bottom-color:var(--vermilion);text-decoration:line-through;text-decoration-thickness:1px;color:var(--ink3)}
+.fix{font-family:var(--sans);font-size:.7em;color:var(--vermilion);margin-left:7px;letter-spacing:.01em}
+.sup{font:500 10px var(--mono);color:var(--vermilion);vertical-align:super;margin-left:3px}
+.sup:empty,.fix:empty{display:none}
+
+.actions{display:flex;align-items:center;gap:14px;margin-top:36px}
+.btn{font:13px var(--sans);letter-spacing:.06em;padding:11px 22px;border-radius:2px;cursor:pointer;transition:.18s ease}
+.btn.primary{background:var(--vermilion);color:#fff;border:1px solid var(--vermilion)}
+.btn.primary:hover{filter:brightness(.92)}
+.btn.ghost{background:none;border:1px solid var(--rule);color:var(--ink2)}
+.btn.ghost:hover{border-color:var(--ink3);color:var(--ink)}
+kbd{font:10px var(--mono);opacity:.65;border:1px solid currentColor;border-radius:2px;padding:1px 4px;margin-left:8px;vertical-align:1px}
+.hintline{font:12px var(--mono);color:var(--ink3);letter-spacing:.08em}
+
+.freeinput{width:100%;min-height:132px;background:transparent;border:none;border-bottom:1px solid var(--rule);font:20px/1.9 var(--serif);color:var(--ink);padding:4px 0;resize:none}
+.freeinput:focus{outline:none;border-bottom-color:var(--vermilion)}
+.freeinput::placeholder{color:var(--ink3);font-style:italic}
+.counter{font:11px var(--mono);color:var(--ink3);letter-spacing:.08em}
+
+.result:focus{outline:none}
+.result{margin-top:40px;animation:rise .3s cubic-bezier(.2,.8,.2,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.scoreline{display:flex;align-items:baseline;gap:12px;padding-bottom:22px;border-bottom:1px solid var(--rule)}
+.score{font-family:var(--serif);font-size:44px;line-height:1;letter-spacing:-.01em}
+.score small{font-size:13px;color:var(--ink3);margin-left:4px;font-family:var(--mono)}
+.scorenote{font-size:13px;color:var(--ink2);letter-spacing:.04em}
+.refblock{margin-top:26px}
+.label{font:10px var(--mono);letter-spacing:.18em;color:var(--ink3)}
+.ref{font-family:var(--serif);font-size:19px;line-height:1.75;margin:10px 0 0}
+.ref-actions{display:flex;gap:16px;margin-top:12px}
+.ipa{font:13px/1.8 var(--mono);color:var(--ink2);margin:8px 0 0;letter-spacing:.02em}
+
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.chip{font:12px var(--sans);padding:4px 9px;border-radius:2px;border:1px solid var(--rule);color:var(--ink2);letter-spacing:.02em}
+.chip.hit{border-color:rgba(74,107,79,.5);color:var(--moss)}
+.chip.miss{border-color:rgba(178,58,46,.5);color:var(--vermilion)}
+
+.margin{border-left:1px solid var(--rule);padding-left:28px;min-height:240px}
+.margin-title{font:10px var(--mono);letter-spacing:.18em;color:var(--ink3);margin-bottom:20px}
+#notelist{list-style:none;margin:0;padding:0}
+#notelist li{font-size:12.5px;line-height:1.8;color:var(--ink2);margin-bottom:18px;padding-left:22px;position:relative}
+#notelist li b{position:absolute;left:0;top:1px;font:500 10px var(--mono);color:var(--vermilion)}
+#notelist li em{font-style:normal;color:var(--ink);font-family:var(--serif);font-size:13.5px}
+#notelist li.empty{color:var(--ink3);padding-left:0;font-size:12px}
+#notelist li.disputed{opacity:.42}
+#notelist li.disputed em{text-decoration:line-through}
+.note-tag{display:inline-block;font:9px var(--mono);letter-spacing:.08em;border:1px solid var(--rule);padding:1px 5px;border-radius:2px;color:var(--ink3);margin-right:6px}
+.appeal{display:inline;background:none;border:none;padding:0;margin-left:4px;font:11px var(--sans);color:var(--vermilion);border-bottom:1px solid rgba(178,58,46,.35);cursor:pointer}
+
+.row-list{list-style:none;margin:0;padding:0}
+.row-list li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:20px;align-items:center;padding:18px 0;border-bottom:1px solid var(--rule)}
+.row-main{font-family:var(--serif);font-size:16px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row-meta{font:10px var(--mono);letter-spacing:.1em;color:var(--ink3);margin-top:7px}
+.row-state{font:10px var(--mono);letter-spacing:.1em;padding:4px 8px;border:1px solid var(--rule);border-radius:2px;color:var(--ink3);white-space:nowrap}
+.row-state.urgent{color:var(--vermilion);border-color:rgba(178,58,46,.4)}
+.row-state.mastered{color:var(--moss);border-color:rgba(74,107,79,.4)}
+.row-act{background:none;border:none;font:12px var(--sans);color:var(--ink2);cursor:pointer;letter-spacing:.05em;padding:0;white-space:nowrap}
+.row-act:hover{color:var(--vermilion)}
+.row-empty{color:var(--ink3);font-size:12px;padding:40px 0;text-align:center}
+
+.backlog-bar{border:1px solid rgba(178,58,46,.35);padding:14px 16px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--ink2)}
+.backlog-bar b{font-weight:500;color:var(--ink)}
+.review-sum{display:flex;gap:48px;padding:24px 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.review-sum b{display:block;font-family:var(--serif);font-size:28px;font-weight:500;line-height:1}
+.review-sum span{display:block;font:10px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-top:9px}
+.filters{display:flex;gap:20px;margin:30px 0 6px}
+.filters button{background:none;border:none;padding:0 0 3px;font:12px var(--sans);color:var(--ink3);cursor:pointer;letter-spacing:.05em;border-bottom:1px solid transparent}
+.filters button.on{color:var(--ink);border-bottom-color:var(--vermilion)}
+
+.bignums{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;padding:6px 0 34px;border-bottom:1px solid var(--rule)}
+.bignum b{display:block;font-family:var(--serif);font-size:48px;font-weight:500;line-height:.95}
+.bignum b small{font-size:14px;font-family:var(--mono);color:var(--ink3);margin-left:3px}
+.bignum span{display:block;font:10px var(--mono);letter-spacing:.16em;color:var(--ink3);margin-top:12px}
+.bars{display:flex;align-items:flex-end;gap:5px;height:92px}
+.bars i{flex:1;background:var(--rule);min-height:2px;transition:height .5s cubic-bezier(.2,.8,.2,1)}
+.bars i.has{background:rgba(178,58,46,.35)}
+.bars i.today{background:var(--vermilion)}
+.bars-cap{display:flex;justify-content:space-between;font:9px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-top:10px}
+.dist{display:flex;flex-direction:column;gap:16px}
+.dist-row{display:grid;grid-template-columns:72px 1fr 36px;gap:16px;align-items:center;font-size:12px;color:var(--ink2)}
+.dist-bar{height:5px;background:var(--rule);position:relative}
+.dist-bar i{position:absolute;inset:0 auto 0 0;background:var(--vermilion);opacity:.7}
+.dist-num{font:10px var(--mono);color:var(--ink3);text-align:right}
+
+.admin-badge{font:9px var(--mono);letter-spacing:.16em;color:var(--vermilion);border:1px solid rgba(178,58,46,.4);padding:3px 6px;border-radius:2px;vertical-align:6px;margin-left:8px}
+.import-box{border:1px dashed var(--rule);padding:24px;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.import-title{font-size:13px;color:var(--ink)}
+.import-hint{font:11px var(--mono);letter-spacing:.06em;color:var(--ink3);margin-top:8px}
+.validation-table{width:100%;border-collapse:collapse;margin-top:20px}
+.validation-table th{font:9px var(--mono);letter-spacing:.16em;color:var(--ink3);text-align:left;padding:0 12px 10px 0;border-bottom:1px solid var(--rule);font-weight:400}
+.validation-table td{font-size:13px;color:var(--ink2);padding:13px 12px 13px 0;border-bottom:1px solid var(--rule);vertical-align:top;line-height:1.6}
+.validation-table td:first-child{font-family:var(--mono);font-size:10px;color:var(--ink3);width:36px}
+.validation-table tr.bad td{color:var(--vermilion)}
+.status-ok{color:var(--moss)}
+.import-foot{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-top:24px;flex-wrap:wrap}
+.model-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.model-card{border:1px solid var(--rule);padding:18px;border-radius:2px}
+.model-card.on{border-color:rgba(74,107,79,.42)}
+.model-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.model-name{font-size:13px;color:var(--ink)}
+.model-meta{font:10px var(--mono);color:var(--ink3);margin-top:8px;letter-spacing:.04em;line-height:1.6}
+.model-balance{font-family:var(--serif);font-size:20px;margin-top:18px}
+.model-balance small{font:10px var(--mono);color:var(--ink3);margin-left:5px}
+.model-actions{display:flex;gap:14px;margin-top:14px;flex-wrap:wrap}
+.model-actions .linkish{font-size:11px}
+.model-select{width:100%;margin-top:14px;background:transparent;border:1px solid var(--rule);border-radius:2px;padding:7px 8px;font:11px var(--mono);color:var(--ink2)}
+.model-select:focus{outline:none;border-color:var(--ink3)}
+.route-select{font-size:11px;font-family:var(--mono);max-width:230px}
+.modal.wide{width:760px}
+.prompt-label{display:block;font:9px var(--mono);letter-spacing:.16em;color:var(--ink3);margin:18px 0 8px}
+.prompt-area{width:100%;background:var(--surface);border:1px solid var(--rule);border-radius:2px;padding:12px;font:12px/1.7 var(--mono);color:var(--ink);resize:vertical}
+.prompt-area:focus{outline:none;border-color:var(--ink3)}
+.vars{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.var{font:10px var(--mono);border:1px solid var(--rule);padding:3px 7px;border-radius:2px;color:var(--ink2);cursor:pointer;background:none}
+.var:hover{border-color:var(--vermilion);color:var(--vermilion)}
+.preview-box{margin-top:14px;background:var(--surface);border-left:2px solid var(--vermilion);padding:12px 14px;font:11px/1.7 var(--mono);color:var(--ink2);white-space:pre-wrap;display:none}
+.preview-box.on{display:block}
+.budget-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.budget-row label{font-size:12px;color:var(--ink2)}
+.budget-row .search{flex:0 0 110px;min-width:110px}
+.budget-row span{font:11px var(--mono);color:var(--ink3)}
+
+.setting{display:grid;grid-template-columns:170px minmax(0,1fr);gap:28px;padding:24px 0;border-bottom:1px solid var(--rule)}
+.setting-label{font-size:13px;color:var(--ink);line-height:1.5}
+.setting-desc{font:11px var(--mono);letter-spacing:.04em;color:var(--ink3);margin-top:6px;line-height:1.7}
+.radio{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--ink2);cursor:pointer;margin-bottom:14px;line-height:1.5}
+.radio:last-child{margin-bottom:0}
+.radio input{accent-color:var(--vermilion);margin:3px 0 0}
+.radio b{font-weight:400;color:var(--ink)}
+.radio small{display:block;font:11px var(--sans);color:var(--ink3);margin-top:4px;line-height:1.65}
+.kbd-table{width:100%;border-collapse:collapse;font-size:12px;color:var(--ink2)}
+.kbd-table td{padding:8px 0;border-bottom:1px solid var(--rule)}
+.kbd-table tr:last-child td{border-bottom:none}
+.kbd-table td:last-child{text-align:right;font:11px var(--mono);color:var(--ink3)}
+.linkish{background:none;border:none;padding:0;font:12px var(--sans);color:var(--vermilion);border-bottom:1px solid rgba(178,58,46,.35);cursor:pointer;text-decoration:none}
+
+.auth{max-width:360px;margin:4vh auto 0}
+.auth h1{font-family:var(--serif);font-size:32px;font-weight:500;margin:0 0 10px}
+.auth > p{font-size:13px;color:var(--ink2);line-height:1.75;margin:0 0 30px}
+.auth-tabs{display:flex;gap:22px;margin-bottom:26px;border-bottom:1px solid var(--rule)}
+.auth-tabs button{background:none;border:none;padding:0 0 10px;font:12px var(--sans);color:var(--ink3);cursor:pointer;letter-spacing:.06em;border-bottom:1px solid transparent;margin-bottom:-1px}
+.auth-tabs button.on{color:var(--ink);border-bottom-color:var(--vermilion)}
+.field{margin-bottom:20px}
+.field label{display:block;font:9px var(--mono);letter-spacing:.18em;color:var(--ink3);margin-bottom:9px}
+.field input{width:100%;background:transparent;border:none;border-bottom:1px solid var(--rule);padding:8px 0;font:15px var(--sans);color:var(--ink)}
+.field input:focus{outline:none;border-bottom-color:var(--vermilion)}
+.auth .btn{width:100%;margin-top:8px}
+.auth .alt{text-align:center;font-size:12px;color:var(--ink3);margin-top:24px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+
+.foot{max-width:1000px;margin:96px auto 0;display:flex;gap:10px;justify-content:center;font:11px var(--mono);color:var(--ink3);letter-spacing:.1em}
+
+.sysbar{position:fixed;left:0;right:0;top:56px;z-index:45;background:var(--ink);color:var(--paper);font:11px var(--mono);letter-spacing:.06em;padding:8px 20px;display:flex;align-items:center;justify-content:center;gap:12px}
+.sysbar button{background:none;border:1px solid currentColor;color:inherit;font:inherit;padding:2px 8px;border-radius:2px;cursor:pointer}
+.toast{position:fixed;left:50%;bottom:32px;transform:translate(-50%,12px);background:var(--ink);color:var(--paper);font-size:12.5px;padding:9px 16px;border-radius:2px;opacity:0;pointer-events:none;transition:.22s ease;z-index:60}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+
+.tabbar{display:none}
+
+.admin-tabs{display:flex;gap:24px;border-bottom:1px solid var(--rule);margin-bottom:36px}
+.admin-tabs button{background:none;border:none;padding:0 0 10px;font:12px var(--sans);color:var(--ink3);cursor:pointer;letter-spacing:.06em;border-bottom:1px solid transparent;margin-bottom:-1px}
+.admin-tabs button.on{color:var(--ink);border-bottom-color:var(--vermilion)}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;padding:4px 0 30px;border-bottom:1px solid var(--rule)}
+.metric b{display:block;font-family:var(--serif);font-size:34px;font-weight:500;line-height:1}
+.metric b small{font-size:12px;font-family:var(--mono);color:var(--ink3);margin-left:4px}
+.metric span{display:block;font:10px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-top:11px}
+.toolbar{display:flex;gap:14px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.search{flex:1;min-width:180px;background:transparent;border:none;border-bottom:1px solid var(--rule);padding:8px 0;font:13px var(--sans);color:var(--ink)}
+.search:focus{outline:none;border-bottom-color:var(--vermilion)}
+.select{background:transparent;border:1px solid var(--rule);border-radius:2px;padding:7px 10px;font:12px var(--sans);color:var(--ink2)}
+.select:focus{outline:none;border-color:var(--ink3)}
+.row-list li.user-row{grid-template-columns:minmax(0,1fr) 84px 78px 92px 58px;cursor:pointer}
+.row-list li.user-row:hover .user-name{color:var(--vermilion)}
+.user-cell{display:flex;gap:12px;align-items:center;min-width:0}
+.avatar-sm{width:28px;height:28px;border-radius:50%;border:1px solid var(--rule);display:flex;align-items:center;justify-content:center;font:11px var(--sans);color:var(--ink2);flex:none}
+.user-name{font-size:13px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color .15s ease}
+.user-mail{font:10px var(--mono);color:var(--ink3);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.badge{font:9px var(--mono);letter-spacing:.12em;padding:3px 6px;border:1px solid var(--rule);border-radius:2px;color:var(--ink3);white-space:nowrap;text-align:center}
+.badge.admin{color:var(--vermilion);border-color:rgba(178,58,46,.4)}
+.live{display:inline-flex;align-items:center;gap:6px;font:10px var(--mono);color:var(--ink3);white-space:nowrap}
+.live::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--moss)}
+.live.off::before{background:var(--ink3);opacity:.5}
+.num{font:11px var(--mono);color:var(--ink2);text-align:right;white-space:nowrap}
+
+.drawer-wrap{position:fixed;inset:0;z-index:70;display:flex;justify-content:flex-end}
+.drawer-mask{position:absolute;inset:0;background:rgba(20,19,16,.36);animation:fade .2s ease both}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.drawer{position:relative;width:440px;max-width:94vw;height:100%;overflow:auto;background:var(--paper);border-left:1px solid var(--rule);padding:34px 32px 64px;animation:slide .26s cubic-bezier(.2,.8,.2,1) both}
+@keyframes slide{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+.drawer-close{position:absolute;top:20px;right:20px;background:none;border:none;font:18px var(--sans);color:var(--ink3);cursor:pointer;line-height:1}
+.drawer h2{font-family:var(--serif);font-size:26px;font-weight:500;margin:0 0 5px}
+.drawer .mail{font:11px var(--mono);color:var(--ink3);letter-spacing:.04em}
+.drawer-actions{display:flex;gap:16px;flex-wrap:wrap;margin:22px 0 0}
+.mini-metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;padding:22px 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin-top:24px}
+.mini-metrics b{display:block;font-family:var(--serif);font-size:24px;font-weight:500;line-height:1}
+.mini-metrics span{font:9px var(--mono);letter-spacing:.14em;color:var(--ink3);margin-top:7px;display:block}
+.record{display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:11px 0;border-bottom:1px solid var(--rule);font-size:12px;color:var(--ink2)}
+.record em{font-style:normal;font-family:var(--serif);font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.record b{font:11px var(--mono);color:var(--ink3);font-weight:400;white-space:nowrap}
+.drawer .section-title{margin-top:30px}
+.drawer .dist-row{grid-template-columns:64px 1fr 30px;gap:12px}
+.drawer-kicker{font:9px var(--mono);letter-spacing:.18em;color:var(--ink3);margin-bottom:10px}
+.heat{display:grid;grid-template-columns:repeat(15,1fr);gap:4px;margin-top:14px}
+.heat i{aspect-ratio:1/1;background:var(--rule);border-radius:1px}
+.heat i.l1{background:rgba(178,58,46,.18)}
+.heat i.l2{background:rgba(178,58,46,.36)}
+.heat i.l3{background:rgba(178,58,46,.56)}
+.heat i.l4{background:var(--vermilion)}
+.record-zh{font-family:var(--serif);font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.record-meta{font:9.5px var(--mono);letter-spacing:.06em;color:var(--ink3);margin-top:5px}
+.record .linkish{flex:none;font-size:11px}
+.drawer-field{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:16px}
+.drawer-field span{font-size:12px;color:var(--ink2)}
+.audit-mini{list-style:none;margin:0;padding:0}
+.audit-mini li{display:flex;justify-content:space-between;gap:12px;font-size:11.5px;color:var(--ink2);padding:9px 0;border-bottom:1px solid var(--rule)}
+.audit-mini b{font:9.5px var(--mono);color:var(--ink3);font-weight:400;white-space:nowrap}
+.linkish[disabled]{opacity:.4;cursor:not-allowed}
+.modal-wrap{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:24px}
+.modal-mask{position:absolute;inset:0;background:rgba(20,19,16,.42)}
+.modal{position:relative;width:430px;max-width:100%;background:var(--paper);border:1px solid var(--rule);padding:26px 26px 22px;animation:rise .22s ease both}
+.modal h3{font-family:var(--serif);font-size:20px;font-weight:500;margin:0 0 8px}
+.modal p{font-size:12.5px;color:var(--ink2);line-height:1.75;margin:0 0 18px}
+.modal .radio{margin-bottom:10px}
+.modal-actions{display:flex;gap:12px;justify-content:flex-end;margin-top:22px}
+
+.today-wrap{max-width:560px;margin:0 auto;padding-top:8vh}
+.today-title{font-family:var(--serif);font-size:clamp(40px,8vw,64px);font-weight:500;line-height:1.05;margin:18px 0 12px;letter-spacing:-.01em}
+.today-title small{font-size:.26em;font-family:var(--mono);color:var(--ink3);letter-spacing:.12em;margin-left:10px}
+.today-sub{font:12px var(--mono);color:var(--ink3);letter-spacing:.06em;margin:0 0 34px}
+.today-cta{width:100%;justify-content:center;padding:17px;font-size:14px}
+.today-queues{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.today-queue{background:none;border:1px solid var(--rule);border-radius:2px;padding:7px 11px;font:11px var(--mono);color:var(--ink2);cursor:pointer;letter-spacing:.02em}
+.today-queue:hover{border-color:var(--vermilion);color:var(--vermilion)}
+.today-continue{margin-top:28px;padding-top:20px;border-top:1px solid var(--rule);font-size:12px;color:var(--ink2);display:flex;align-items:center;justify-content:space-between;gap:14px}
+.today-continue span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--serif)}
+.today-week{display:flex;gap:8px;margin-top:36px}
+.today-week i{width:8px;height:8px;border-radius:50%;background:var(--rule)}
+.today-week i.on{background:var(--vermilion)}
+
+.gen-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px}
+.gen-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.bulkbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:10px 0 14px;border-bottom:1px solid var(--rule);font:11px var(--mono);color:var(--ink2)}
+.row-list li.q-row{grid-template-columns:22px minmax(0,1fr) auto auto;gap:14px}
+.q-check{accent-color:var(--vermilion);width:15px;height:15px}
+.pager{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:20px;font-size:12px;color:var(--ink2)}
+.pager-total{margin-right:auto;letter-spacing:.04em}
+.pager-size{display:inline-flex;align-items:center;gap:4px}
+.pager-size select{border:1px solid var(--rule);background:transparent;color:var(--ink2);border-radius:4px;padding:2px 4px;font:inherit}
+.pager-btn{border:1px solid var(--rule);background:transparent;color:var(--ink2);padding:4px 9px;border-radius:5px;cursor:pointer;font:inherit}
+.pager-btn.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.pager-btn:disabled{opacity:.35;cursor:default}
+.stack{white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.7 var(--mono);background:var(--surface);border:1px solid var(--rule);padding:14px;margin-top:14px;color:var(--ink2);overflow:auto;max-height:320px}
+.import-target{display:flex;align-items:center;gap:10px;margin-bottom:16px;font-size:12px;color:var(--ink2)}
+.gen-foot{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:12px;flex-wrap:wrap}
+.var.on{border-color:var(--vermilion);color:var(--vermilion);background:rgba(178,58,46,.06)}
+.admin-tabs{overflow-x:auto;scrollbar-width:none}
+.admin-tabs::-webkit-scrollbar{display:none}
+@media (max-width:900px){.gen-grid{grid-template-columns:1fr}}
+
+@media (max-width:900px){
+  .topbar{padding:0 20px;gap:18px}
+  .page{padding-left:20px;padding-right:20px}
+  .view{padding-top:52px}
+  .stage{grid-template-columns:1fr;gap:40px}
+  .margin{border-left:none;border-top:1px solid var(--rule);padding-left:0;padding-top:22px}
+  .prompt{margin-bottom:32px}
+  .stage{padding-top:0}
+}
+@media (max-width:760px){
+  .nav{display:none}
+  .meta .streak{display:none}
+  .setting{grid-template-columns:1fr;gap:12px}
+  .bignums{gap:14px}
+  .bignum b{font-size:34px}
+  .review-sum{gap:26px}
+  .metrics{grid-template-columns:repeat(2,1fr);gap:14px}
+  .model-grid{grid-template-columns:1fr}
+  .metric b{font-size:26px}
+  .row-list li.user-row{grid-template-columns:minmax(0,1fr) auto auto}
+  .row-list li.user-row .col-last{display:none}
+  .drawer{width:100%;max-width:100vw;padding:28px 22px 56px}
+  .row-list li{grid-template-columns:minmax(0,1fr) auto;gap:10px 14px}
+  .row-list li .row-act{grid-column:2}
+  .tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:40;background:var(--paper);border-top:1px solid var(--rule);padding-bottom:env(safe-area-inset-bottom)}
+  .tabbar a{flex:1;text-align:center;padding:10px 0 9px;text-decoration:none;color:var(--ink3);font-size:10px;letter-spacing:.08em}
+  .tabbar a b{display:block;font-family:var(--serif);font-size:15px;font-weight:400;margin-bottom:3px;letter-spacing:0}
+  .tabbar a.on{color:var(--vermilion)}
+  .page{padding-bottom:calc(104px + env(safe-area-inset-bottom) + var(--kb))}
+}
+@media (max-width:520px){
+  .brand .sub{display:none}
+  .skeleton{font-size:17px;line-height:2.7}
+  .prompt{font-size:23px}
+  .actions{margin-top:28px}
+  .view{padding-top:40px}
+  .page-title{font-size:26px}
+  .bignum b{font-size:28px}
+  .bars{height:72px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001ms!important;transition-duration:.001ms!important}
+}
+</style>
+</head>
+<body>
+<div class="progress"><i id="progressbar"></i></div>
+
+<header class="topbar">
+  <div class="brand">译练 <span class="sub">原型</span></div>
+  <nav class="nav" id="nav">
+    <a href="#/today" data-nav="today">今日</a>
+    <a href="#/review" data-nav="review">复习</a>
+    <a href="#/stats" data-nav="stats">统计</a>
+    <a href="#/admin" data-nav="admin">管理</a>
+  </nav>
+  <div class="meta">
+    <span class="streak">连续 12 天</span>
+    <button class="icon" id="theme" title="夜读 / 稿纸">☾</button>
+    <button class="avatar" id="avatar" title="设置">游</button>
+  </div>
+</header>
+
+<main class="page">
+
+  <section class="view" id="view-placement" hidden>
+    <div class="today-wrap">
+      <div class="qmeta"><span>定级</span><span class="dot"></span><span id="plStep">1 / 3</span></div>
+      <h1 class="prompt" id="plZh"></h1>
+      <input class="freeinput" id="plInput" style="min-height:auto" placeholder="写下英文译文…" autocomplete="off">
+      <div class="actions">
+        <button class="btn primary" id="plSubmit">提交</button>
+        <button class="linkish" id="plSkipOne">跳过这题</button>
+        <button class="linkish" id="plSkipAll">先开始，稍后再测</button>
+      </div>
+      <div id="plResult" hidden>
+        <div class="section-title">起点</div>
+        <p class="ref" id="plSummary"></p>
+        <div class="field">
+          <label>每天几题</label>
+          <select id="plGoal" class="select">
+            <option value="1">1 题</option>
+            <option value="3" selected>3 题</option>
+            <option value="5">5 题</option>
+          </select>
+        </div>
+        <button class="btn primary" id="plDone">开始</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="view-today" hidden>
+    <div class="today-wrap">
+      <div class="qmeta"><span>今日</span><span class="dot"></span><span id="todayDate"></span></div>
+      <h1 class="today-title"><span id="todayDue">0</span> 句到期<small>今天</small></h1>
+      <p class="today-sub" id="todaySub">已练 0 / 3 · 连续 0 天</p>
+      <button class="btn primary today-cta" id="todayStart">开始</button>
+      <div class="today-queues" id="todayQueues"></div>
+      <div class="today-continue" id="todayContinue" hidden></div>
+      <div class="today-week" id="todayWeek"></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-practice">
+    <div class="stage">
+      <div class="sheet">
+        <div class="session-bar">
+          <select id="bankSelect" class="select bank-select" title="选择题库">
+            <option value="official">官方题库</option>
+            <option value="errors">错题集</option>
+            <option value="custom">自建题库</option>
+          </select>
+          <button class="session-chip" id="dueChip"><b id="dueNum">0</b> 句到期</button>
+          <span class="session-goal" id="goalText">本轮 0 / 3</span>
+          <button class="linkish" id="endSession">今天到此</button>
+        </div>
+
+        <div class="practice-head">
+          <div class="modes">
+            <button id="modeCloze" class="on">填空</button>
+            <button id="modeFree">整句</button>
+          </div>
+          <div class="qmeta">
+            <span id="level">TEM8</span>
+            <span class="dot"></span>
+            <span id="tags">副词结构</span>
+            <span class="dot"></span>
+            <span id="qidx">01 / 08</span>
+            <span class="dot"></span>
+            <button class="linkish" id="peekBank">题库</button>
+          </div>
+        </div>
+
+        <h1 class="prompt" id="zh"></h1>
+
+        <div id="clozePane">
+          <p class="skeleton" id="skeleton"></p>
+          <div class="actions">
+            <button class="btn primary" id="submit">提交 <kbd>⌘↵</kbd></button>
+            <button class="btn ghost" id="hint">首字母</button>
+            <button class="btn ghost" id="showAnswer">看答案</button>
+            <span class="hintline" id="hintline"></span>
+          </div>
+        </div>
+
+        <div id="freePane" hidden>
+          <textarea class="freeinput" id="freeinput" placeholder="写下你的英文译文…" spellcheck="true"></textarea>
+          <div class="actions">
+            <button class="btn primary" id="submitFree">提交 <kbd>⌘↵</kbd></button>
+            <span class="counter" id="counter">0 words</span>
+          </div>
+        </div>
+
+        <div class="result" id="result" hidden role="status" tabindex="-1" aria-live="polite">
+          <div class="scoreline">
+            <div class="score"><span id="score">0</span><small>/100</small></div>
+            <div class="scorenote" id="scorenote"></div>
+          </div>
+          <div class="chips" id="chips" hidden></div>
+          <div class="refblock">
+            <div class="label">参考译文</div>
+            <p class="ref" id="ref"></p>
+            <div class="ref-actions">
+              <button class="linkish" id="speakRef">朗读</button>
+              <button class="linkish" id="ipaToggle">音标</button>
+            </div>
+            <p class="ipa" id="ipaText" hidden></p>
+          </div>
+
+          <div class="explain" id="explainBlock">
+            <div class="label">解析</div>
+            <p id="explainText"></p>
+          </div>
+
+          <div class="retry" id="retry" hidden>
+            <div class="label">改对才过</div>
+            <div class="retry-desc">把参考译文重打一遍，确认自己真的会了。错题明天还会出现。</div>
+            <input class="retry-input" id="retryInput" placeholder="重打参考译文…" autocomplete="off">
+            <div class="retry-row">
+              <button class="btn ghost" id="retryBtn">核对</button>
+              <button class="linkish" id="skipRetry">看答案，记为学习中</button>
+              <span class="hintline" id="retryMsg"></span>
+            </div>
+          </div>
+
+          <div class="drill" id="nextDrill" hidden></div>
+
+          <div class="review-note" id="reviewNote" hidden></div>
+
+          <div class="actions">
+            <button class="linkish" id="reviewBtn" hidden>让模型复核</button>
+            <button class="btn primary" id="next">下一句 <kbd>⌘↵</kbd></button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="margin">
+        <div class="margin-title">批注</div>
+        <ol id="notelist"></ol>
+      </aside>
+    </div>
+  </section>
+
+  <section class="view" id="view-review" hidden>
+    <h1 class="page-title">复习</h1>
+    <p class="page-sub">按到期时间排列。答错的句子会自动进来，连续两次全对就归档。</p>
+    <div class="backlog-bar" id="backlogBar" hidden></div>
+    <div class="review-sum" id="reviewSum"></div>
+    <div class="filters" id="reviewFilters">
+      <button data-f="all" class="on">全部</button>
+      <button data-f="due">到期</button>
+      <button data-f="learning">学习中</button>
+      <button data-f="mastered">已掌握</button>
+    </div>
+    <ul class="row-list" id="reviewList"></ul>
+    <div class="import-hint" style="margin-top:18px"><button class="linkish" id="demoOverloadBtn">演示：模拟 14 句积压</button></div>
+  </section>
+
+  <section class="view" id="view-stats" hidden>
+    <h1 class="page-title">统计</h1>
+    <p class="page-sub">只留三个数，和一条趋势。指标多了会开始骗自己。</p>
+    <div class="bignums" id="bigNums"></div>
+    <div class="section">
+      <div class="section-title">最近 14 天</div>
+      <div class="bars" id="bars"></div>
+      <div class="bars-cap"><span>14 天前</span><span>今天</span></div>
+    </div>
+    <div class="section">
+      <div class="section-title">错误集中在</div>
+      <div class="dist" id="dist"></div>
+    </div>
+    <div class="section">
+      <div class="section-title">最近记录</div>
+      <ul class="row-list" id="recentList"></ul>
+    </div>
+  </section>
+
+  <section class="view" id="view-admin" hidden>
+    <h1 class="page-title">管理<span class="admin-badge">ADMIN</span></h1>
+    <p class="page-sub">用户、题库、出题、模型、日志。单人运营，只看该看的。</p>
+
+    <div class="admin-tabs" id="adminTabs">
+      <button data-tab="overview" class="on">概览</button>
+      <button data-tab="users">用户</button>
+      <button data-tab="questions">题目</button>
+      <button data-tab="banks">题库</button>
+      <button data-tab="gen">出题</button>
+      <button data-tab="models">模型</button>
+      <button data-tab="audit">操作日志</button>
+      <button data-tab="errors">异常</button>
+      <button data-tab="ops">运维</button>
+    </div>
+
+    <div id="adminPane-overview">
+      <div class="metrics" id="metrics"></div>
+      <div class="section">
+        <div class="section-title">近 7 天活跃</div>
+        <div class="bars" id="activeBars"></div>
+        <div class="bars-cap"><span>7 天前</span><span>今天</span></div>
+      </div>
+      <div class="section">
+        <div class="section-title">待处理</div>
+        <ul class="row-list" id="todoList"></ul>
+      </div>
+      <div class="section">
+        <div class="section-title">最近活动</div>
+        <ul class="row-list" id="activityList"></ul>
+      </div>
+      <div class="section">
+        <div class="section-title">权限边界</div>
+        <ul class="row-list" id="permList"></ul>
+      </div>
+    </div>
+
+    <div id="adminPane-users" hidden>
+      <div class="invite">
+        <div>
+          <div class="invite-title">邀请码</div>
+          <div class="import-hint">内测期间凭码注册，一码一人。</div>
+        </div>
+        <div class="invite-codes" id="inviteCodes"></div>
+        <button class="btn ghost" id="newInvite">生成</button>
+      </div>
+      <div class="toolbar">
+        <input id="userSearch" class="search" placeholder="搜索用户名或邮箱" autocomplete="off">
+        <select id="roleFilter" class="select">
+          <option value="all">全部角色</option>
+          <option value="USER">用户</option>
+          <option value="ADMIN">管理员</option>
+        </select>
+        <select id="statusFilter" class="select">
+          <option value="all">全部状态</option>
+          <option value="active">正常</option>
+          <option value="disabled">已禁用</option>
+        </select>
+      </div>
+      <ul class="row-list" id="userList"></ul>
+      <div class="pager" id="userPager"></div>
+      <div class="import-hint" style="margin-top:20px">管理员能看到练习记录与答题原文，但看不到密码；导出、删除、禁用都会记进操作日志。</div>
+    </div>
+
+    <div id="adminPane-questions" hidden>
+      <div class="toolbar">
+        <input id="qSearch" class="search" placeholder="搜索中文或译文" autocomplete="off">
+        <select id="qBankFilter" class="select"></select>
+        <select id="qLevelFilter" class="select"></select>
+        <select id="qStatusFilter" class="select">
+          <option value="all">全部状态</option>
+          <option value="published">正常</option>
+          <option value="disabled">已停用</option>
+          <option value="deleted">回收站</option>
+        </select>
+      </div>
+      <div class="bulkbar" id="bulkBar" hidden>
+        <span id="bulkCount">已选 0 句</span>
+        <button class="linkish" data-bulk="disable">停用</button>
+        <button class="linkish" data-bulk="enable">启用</button>
+        <select id="bulkMove" class="select"></select>
+        <button class="linkish" data-bulk="delete">删除</button>
+      </div>
+      <ul class="row-list" id="questionList"></ul>
+      <div class="pager" id="qPager"></div>
+      <div class="import-hint" id="qSum" style="margin-top:16px"></div>
+    </div>
+
+    <div id="adminPane-banks" hidden>
+      <div class="section">
+        <div class="section-title">现有题库 <button class="linkish" id="newBank">新建</button></div>
+        <ul class="row-list" id="bankList"></ul>
+        <div class="pager" id="bankPager"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">难度配置</div>
+        <div class="vars" id="levelChips"></div>
+        <div class="gen-foot">
+          <input id="newLevel" class="search" placeholder="新增难度，如 GRE" autocomplete="off">
+          <button class="btn ghost" id="addLevel">添加</button>
+        </div>
+        <div class="import-hint" style="margin-top:10px">难度会出现在出题表单与导入校验里；还有句子在用的时候不能删。</div>
+      </div>
+      <div class="section">
+        <div class="section-title">导入</div>
+        <div class="import-target">
+          <span>导入到</span>
+          <select id="importTarget" class="select">
+            <option value="official">官方题库</option>
+            <option value="custom" selected>自建题库</option>
+          </select>
+        </div>
+        <div class="import-box">
+          <div>
+            <div class="import-title">拖入 JSON / CSV，或点右侧选择文件</div>
+            <div class="import-hint">单文件上限 5MB · 先校验再入库</div>
+          </div>
+          <button class="btn ghost" id="pickFile">选择文件</button>
+        </div>
+        <table class="validation-table">
+          <thead><tr><th>行</th><th>中文</th><th>解析</th><th>校验结果</th></tr></thead>
+          <tbody id="validationBody"></tbody>
+        </table>
+        <div class="import-foot">
+          <span class="import-hint" id="importSum"></span>
+          <button class="btn primary" id="doImport">导入通过的句子</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="adminPane-gen" hidden>
+      <div class="gen-grid">
+        <div>
+          <div class="section-title">出题需求</div>
+          <div class="field">
+            <label>目标 / 场景</label>
+            <input id="genTarget" placeholder="例：大学生英语四级、出国旅游、高中英语" autocomplete="off">
+          </div>
+          <div class="gen-row">
+            <div class="field">
+              <label>难度</label>
+              <select id="genLevel" class="select"></select>
+            </div>
+            <div class="field">
+              <label>数量</label>
+              <select id="genCount" class="select">
+                <option value="10">10 句</option>
+                <option value="20" selected>20 句</option>
+                <option value="30">30 句</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label>考点</label>
+            <div class="vars" id="genTags"></div>
+          </div>
+          <div class="field">
+            <label>补充要求（可选）</label>
+            <textarea id="genExtra" class="prompt-area" rows="3" placeholder="例：偏商务场景，句子短一点，少用生僻词"></textarea>
+          </div>
+          <div class="actions" style="margin-top:8px">
+            <button class="btn primary" id="genPromptBtn">生成 Prompt</button>
+            <button class="btn ghost" id="genModelBtn">用当前模型生成</button>
+          </div>
+        </div>
+        <div>
+          <div class="section-title">Prompt 预览</div>
+          <textarea class="prompt-area" id="genPrompt" rows="18" readonly placeholder="填好左侧，点「生成 Prompt」"></textarea>
+          <div class="gen-foot">
+            <span class="hintline" id="genMeta"></span>
+            <button class="btn ghost" id="genCopy">复制</button>
+          </div>
+          <div class="import-hint" style="margin-top:14px">复制到任意免费 AI，拿到 JSON 后粘贴到下方校验。也可以点「用当前模型生成」直接出题。</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">粘贴 AI 返回的 JSON</div>
+        <textarea class="prompt-area" id="genPaste" rows="6" placeholder='[{"zh":"…","ref":"…","chunks":[…],"blank":[1],"tags":["搭配"],"level":"CET4"}]'></textarea>
+        <div class="gen-foot">
+          <button class="btn ghost" id="genValidate">校验并预览</button>
+          <span class="hintline" id="genResult"></span>
+        </div>
+        <table class="validation-table">
+          <thead><tr><th>行</th><th>中文</th><th>解析</th><th>校验结果</th></tr></thead>
+          <tbody id="genTable"></tbody>
+        </table>
+        <div class="import-target">
+          <span>导入到</span>
+          <select id="genTargetBank" class="select">
+            <option value="official">官方题库</option>
+            <option value="custom" selected>自建题库</option>
+          </select>
+        </div>
+        <div class="import-foot">
+          <span class="import-hint" id="genSum"></span>
+          <button class="btn primary" id="genImport" disabled>导入通过的句子</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">最近导入</div>
+        <ul class="row-list" id="batchList"></ul>
+        <div class="pager" id="batchPager"></div>
+      </div>
+    </div>
+
+    <div id="adminPane-models" hidden>
+      <div class="model-grid" id="modelList"></div>
+      <div class="import-hint" style="margin-top:16px">配置存数据库、保存即热更新，不用改代码重启。API Key 加密存储，只写不回显，改动写入审计。</div>
+
+      <div class="section">
+        <div class="section-title">任务路由</div>
+        <ul class="row-list" id="routeList"></ul>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Prompt 模板</div>
+        <ul class="row-list" id="promptList"></ul>
+        <div class="import-hint" style="margin-top:14px">变量在调用时注入；保存即新版本，可回滚。用户答案一律当数据，不当指令。</div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">本月用量</div>
+        <div class="metrics" id="usageMetrics"></div>
+        <div class="bars" id="usageBars"></div>
+        <div class="bars-cap"><span>14 天前</span><span>今天</span></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">预算</div>
+        <div class="budget-row">
+          <label for="budgetInput">月度上限</label>
+          <input id="budgetInput" class="search" type="number" min="0" step="1" value="30">
+          <span>元</span>
+          <button class="btn ghost" id="saveBudget">保存</button>
+        </div>
+        <div class="import-hint" style="margin-top:12px">到 80% 提醒，到 100% 自动降级为本地批改，不会静默扣费。</div>
+      </div>
+    </div>
+
+    <div id="adminPane-errors" hidden>
+      <div class="toolbar">
+        <input id="errSearch" class="search" placeholder="搜索异常类、消息或 traceId" autocomplete="off">
+        <select id="errModule" class="select">
+          <option value="all">全部模块</option>
+          <option value="practice">practice</option>
+          <option value="content">content</option>
+          <option value="ai">ai</option>
+          <option value="account">account</option>
+          <option value="admin">admin</option>
+        </select>
+        <select id="errTime" class="select">
+          <option value="all">全部时间</option>
+          <option value="today">今天</option>
+          <option value="7d">近 7 天</option>
+          <option value="30d">近 30 天</option>
+        </select>
+      </div>
+      <ul class="row-list" id="errorList"></ul>
+      <div class="pager" id="errPager"></div>
+      <div class="import-hint" id="errSum" style="margin-top:16px"></div>
+    </div>
+
+    <div id="adminPane-ops" hidden>
+      <div class="section">
+        <div class="section-title">会话</div>
+        <ul class="row-list" id="sessionList"></ul>
+        <div class="import-hint" style="margin-top:12px">改密或停用会吊销该用户全部会话，旧 Cookie 立即 401。</div>
+      </div>
+      <div class="section">
+        <div class="section-title">限流</div>
+        <div class="dist" id="rateList"></div>
+      </div>
+      <div class="section">
+        <div class="section-title">备份与恢复</div>
+        <ul class="row-list" id="backupList"></ul>
+        <div class="import-hint" id="drillMsg" style="margin-top:12px"></div>
+        <div class="actions"><button class="btn ghost" id="opsDrillBtn">跑一次恢复演练</button></div>
+      </div>
+      <div class="section">
+        <div class="section-title">判分版本</div>
+        <ul class="row-list" id="versionList"></ul>
+        <div class="import-hint" style="margin-top:12px">每条答题记录都绑定这些版本；改判写新记录，不覆盖旧分。</div>
+        <div class="actions"><button class="btn ghost" id="replayBtn">重放最近 100 条</button></div>
+      </div>
+    </div>
+
+    <div id="adminPane-audit" hidden>
+      <div class="toolbar">
+        <input id="auditSearch" class="search" placeholder="搜索操作、对象或操作者" autocomplete="off">
+        <select id="auditAction" class="select">
+          <option value="all">全部操作</option>
+          <option value="查看作答">查看作答</option>
+          <option value="停用账号">停用账号</option>
+          <option value="导入题库">导入题库</option>
+          <option value="变更角色">变更角色</option>
+          <option value="删除账号">删除账号</option>
+        </select>
+        <select id="auditTime" class="select">
+          <option value="all">全部时间</option>
+          <option value="today">今天</option>
+          <option value="7d">近 7 天</option>
+          <option value="30d">近 30 天</option>
+        </select>
+      </div>
+      <ul class="row-list" id="auditList"></ul>
+      <div class="pager" id="auditPager"></div>
+      <div class="import-hint" style="margin-top:20px">审计日志保留 1 年；答题流水只留 90 天，聚合统计长期保留。查看原文必须填原因。</div>
+    </div>
+  </section>
+
+  <section class="view" id="view-denied" hidden>
+    <div class="auth" style="text-align:center">
+      <div class="drawer-kicker">403 · 无权访问</div>
+      <h1>这个页面只对管理员开放</h1>
+      <p>当前身份：<span id="deniedRole">游客</span>。管理员入口在登录页。</p>
+      <div style="display:flex;gap:14px;justify-content:center;margin-top:26px">
+        <a class="btn ghost" href="#/today">返回今日</a>
+        <a class="btn primary" href="#/login">去登录</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="view-settings" hidden>
+    <h1 class="page-title">设置</h1>
+    <p class="page-sub">本地优先。能离线的都离线，需要模型的地方才联网。</p>
+    <div id="settingsBody"></div>
+  </section>
+
+  <section class="view" id="view-login" hidden>
+    <div class="auth">
+      <h1 id="authTitle">登录</h1>
+      <p id="authSub">登录后，错题和进度跟着账号走。不登录也能练，数据留在这台设备。</p>
+      <div class="auth-tabs">
+        <button data-a="login" class="on">登录</button>
+        <button data-a="register">注册</button>
+      </div>
+      <div class="import-hint" style="margin-bottom:20px">原型演示：可切换游客、普通用户、管理员三种身份。</div>
+      <div class="field">
+        <label>邮箱</label>
+        <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>密码</label>
+        <input id="authPass" type="password" placeholder="至少 8 位" autocomplete="off">
+      </div>
+      <div class="field" id="inviteField" hidden>
+        <label>邀请码</label>
+        <input id="authInvite" placeholder="YL-XXXX" autocomplete="off">
+      </div>
+      <button class="btn primary" id="authSubmit">登录</button>
+      <div class="alt">
+        <button class="linkish" id="asGuest">以游客身份继续</button>
+        <span>·</span>
+        <button class="linkish" id="asAdmin">以管理员身份体验（演示）</button>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span>⌘K 命令面板</span><span>·</span><span>原型 · 交互演示</span>
+  </footer>
+</main>
+
+<nav class="tabbar" id="tabbar">
+  <a href="#/today" data-nav="today"><b>今</b>今日</a>
+  <a href="#/review" data-nav="review"><b>复</b>复习</a>
+  <a href="#/settings" data-nav="settings"><b>我</b>我的</a>
+</nav>
+
+<div class="drawer-wrap" id="drawerWrap" hidden>
+  <div class="drawer-mask" id="drawerMask"></div>
+  <aside class="drawer" id="drawer"></aside>
+</div>
+
+<div class="modal-wrap" id="modalWrap" hidden>
+  <div class="modal-mask" id="modalMask"></div>
+  <div class="modal" id="modal"></div>
+</div>
+
+<div class="sysbar" id="offlineBar" hidden>离线 · 练习记录会在联网后同步</div>
+<div class="sysbar" id="updateBar" hidden>有新版本可用 <button id="reloadBtn">刷新</button></div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store = {
+  get(k, d){ try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch(e){ return d; } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+};
+
+/* ---------------- 句库 ---------------- */
+const DATA = [
+  {
+    id:'s1', level:'TEM8', tags:['副词结构','搭配'],
+    zh:'他越来越重视这件事。',
+    ref:'He is paying more and more attention to this.',
+    chunks:[
+      {zh:'他', answers:['He']},
+      {zh:'越来越', answers:['more and more','increasingly'], note:'more and more 偏口语，increasingly 更书面；考场上后者加分'},
+      {zh:'重视', answers:['pay attention to','attach importance to'], note:'attach importance to 比 pay attention to 正式，适合书面语'},
+      {zh:'这件事', answers:['this','this matter']}
+    ],
+    blank:[1,2]
+  },
+  {
+    id:'s2', level:'TEM8', tags:['倒装句'],
+    zh:'直到看见那份报告，他才意识到问题的严重性。',
+    ref:'Not until he saw the report did he realize the seriousness of the problem.',
+    chunks:[
+      {zh:'直到看见那份报告', answers:['Not until he saw the report'], note:'Not until 置于句首时，主句必须部分倒装'},
+      {zh:'他才意识到', answers:['did he realize'], note:'不能写 he realized，倒装正是这句的考点'},
+      {zh:'问题的严重性', answers:['the seriousness of the problem']}
+    ],
+    blank:[0,1]
+  },
+  {
+    id:'s3', level:'CET6', tags:['搭配'],
+    zh:'这本书值得一读。',
+    ref:'This book is worth reading.',
+    chunks:[
+      {zh:'这本书', answers:['This book']},
+      {zh:'值得', answers:['is worth'], note:'worth 后接动名词：worth reading，不是 worth to read'},
+      {zh:'一读', answers:['reading'], note:'也可说 deserves a read，但句式不同，别混着用'}
+    ],
+    blank:[1,2]
+  },
+  {
+    id:'s4', level:'TEM4', tags:['固定搭配'],
+    zh:'我们应当采取措施防止类似事件再次发生。',
+    ref:'We should take measures to prevent similar incidents from happening again.',
+    chunks:[
+      {zh:'我们应当', answers:['We should']},
+      {zh:'采取措施', answers:['take measures','take steps'], note:'动词是 take，不是 make；measures 用复数'},
+      {zh:'防止', answers:['prevent'], note:'prevent A from doing，from 不能省'},
+      {zh:'类似事件', answers:['similar incidents','similar events']},
+      {zh:'再次发生', answers:['from happening again'], note:'prevent 和 from 是一套结构，不要拆开记'}
+    ],
+    blank:[1,2,4]
+  },
+  {
+    id:'s5', level:'TEM8', tags:['名词化','时态'],
+    zh:'随着科技的发展，人们的生活方式发生了巨大变化。',
+    ref:"With the development of technology, people's way of life has undergone dramatic changes.",
+    chunks:[
+      {zh:'随着科技的发展', answers:['With the development of technology'], punct:',', note:'with + 名词短语作状语，比 as technology develops 更常用于书面'},
+      {zh:'人们的生活方式', answers:["people's way of life","people's lifestyle"]},
+      {zh:'发生了', answers:['has undergone'], note:'“发生”别直译成 happen；undergo 才地道，且要用完成时'},
+      {zh:'巨大变化', answers:['dramatic changes','great changes'], note:'dramatic changes 是固定搭配，比 big changes 高一档'}
+    ],
+    blank:[0,1,3]
+  },
+  {
+    id:'s6', level:'CET6', tags:['句式'],
+    zh:'他宁愿辞职也不愿违背自己的原则。',
+    ref:'He would rather resign than go against his principles.',
+    chunks:[
+      {zh:'他宁愿', answers:['He would rather'], note:'would rather ... than ... 前后都接动词原形'},
+      {zh:'辞职', answers:['resign']},
+      {zh:'也不愿', answers:['than'], note:'than 后面直接跟动词原形，不加 to'},
+      {zh:'违背自己的原则', answers:['go against his principles','violate his principles']}
+    ],
+    blank:[0,2,3]
+  },
+  {
+    id:'s7', level:'TEM8', tags:['比较级','语序'],
+    zh:'这个问题比我们预想的要复杂得多。',
+    ref:'This problem is far more complicated than we expected.',
+    chunks:[
+      {zh:'这个问题', answers:['This problem']},
+      {zh:'要复杂得多', answers:['is far more complicated','is much more complicated'], note:'比较级前用 far / much 加强语气，不能用 very'},
+      {zh:'比我们预想的', answers:['than we expected'], note:'比较对象要完整：than we expected，不是 than expected'}
+    ],
+    blank:[1,2]
+  },
+  {
+    id:'s8', level:'TEM8', tags:['倒装句'],
+    zh:'只有亲身经历，你才能理解其中的艰辛。',
+    ref:'Only by experiencing it yourself can you understand the hardships involved.',
+    chunks:[
+      {zh:'只有亲身经历', answers:['Only by experiencing it yourself'], punct:',', note:'Only + 方式状语置于句首，主句倒装'},
+      {zh:'你才能理解', answers:['can you understand'], note:'不能写 you can understand'},
+      {zh:'其中的艰辛', answers:['the hardships involved']}
+    ],
+    blank:[0,1]
+  }
+];
+
+DATA.forEach(s => { s.bankId = s.bankId || 'official'; });
+
+DATA.push({
+  id:'s9', bankId:'custom', level:'CUSTOM', tags:['商务'],
+  zh:'这次会议将讨论明年的预算安排。',
+  ref:'This meeting will discuss the budget for next year.',
+  chunks:[
+    { zh:'这次会议', answers:['This meeting'] },
+    { zh:'将讨论', answers:['will discuss'] },
+    { zh:'明年的预算安排', answers:['the budget for next year'] }
+  ],
+  blank:[1,2]
+});
+DATA.push({
+  id:'s10', bankId:'custom', level:'CUSTOM', tags:['商务'],
+  zh:'请把文件发给所有相关人员。',
+  ref:'Please send the file to everyone involved.',
+  chunks:[
+    { zh:'请把文件发给', answers:['Please send the file to'] },
+    { zh:'所有相关人员', answers:['everyone involved'] }
+  ],
+  blank:[1]
+});
+
+const EXPLAIN = {
+  s1: '「越来越」用 more and more 或 increasingly；「重视」用 attach importance to 比 pay attention to 更书面。整句可用现在进行时，表示正在持续的变化。',
+  s2: 'Not until 置于句首时，主句必须部分倒装，助动词 did 提前。这是全句唯一的硬考点，其它部分按陈述语序写。',
+  s3: 'worth 后接动名词，不能接不定式；主语是物时用 is worth doing。不要写成 worth to read。',
+  s4: 'take measures 是固定搭配，动词用 take；prevent A from doing 的 from 不能省，类似事件用复数 incidents。',
+  s5: 'with + 名词短语作状语，比 as 从句更书面；「发生」用 undergo 更地道，且与 has 构成现在完成时。',
+  s6: 'would rather ... than ... 前后都接动词原形；than 后面不加 to，也不改成 rather than。',
+  s7: '比较级前用 far / much 加强语气，不能用 very；比较对象要完整，写成 than we expected。',
+  s8: 'Only + 方式状语置于句首，主句部分倒装，把 can 提到主语前；不能写 you can understand。',
+  s9: '一般将来时用 will discuss；「预算安排」译成 the budget for next year 即可，不必逐字对应「安排」。',
+  s10: '祈使句 Please + 动词原形；「相关人员」用 everyone involved，involved 作后置定语。'
+};
+DATA.forEach(s => { s.note = EXPLAIN[s.id] || ''; });
+
+const IPA = {
+  s1: '/hiː ɪz ˈpeɪɪŋ mɔːr ənd mɔːr əˈtenʃən tə ðɪs/',
+  s2: '/nɒt ʌnˈtɪl hiː sɔː ðə rɪˈpɔːrt dɪd hiː ˈrɪəlaɪz ðə ˈsɪəriəsnəs əv ðə ˈprɒbləm/',
+  s3: '/ðɪs bʊk ɪz wɜːrθ ˈriːdɪŋ/',
+  s4: '/wiː ʃʊd teɪk ˈmeʒərz tə prɪˈvent ˈsɪmələr ˈɪnsɪdənts frəm ˈhæpənɪŋ əˈɡen/',
+  s5: '/wɪð ðə dɪˈveləpmənt əv tekˈnɒlədʒi, ˈpiːplz weɪ əv laɪf həz ˌʌndərˈɡɒn drəˈmætɪk ˈtʃeɪndʒɪz/',
+  s6: '/hiː wʊd ˈræðər rɪˈzaɪn ðæn ɡoʊ əˈɡenst hɪz ˈprɪnsəpəlz/',
+  s7: '/ðɪs ˈprɒbləm ɪz fɑːr mɔːr ˈkɒmplɪkeɪtɪd ðæn wiː ɪkˈspektɪd/',
+  s8: '/ˈoʊnli baɪ ɪkˈspɪəriənsɪŋ ɪt jɔːrˈself kæn juː ˌʌndərˈstænd ðə ˈhɑːrdʃɪps ɪnˈvɑːlvd/',
+  s9: '/ðɪs ˈmiːtɪŋ wɪl dɪˈskʌs ðə ˈbʌdʒɪt fɔːr ˈnekst jɪr/',
+  s10: '/pliːz send ðə faɪl tə ˈevriwʌn ɪnˈvɑːlvd/'
+};
+DATA.forEach(s => { s.ipa = IPA[s.id] || ''; });
+DATA.forEach(s => { s.status = s.status || 'published'; });
+
+/* ---------------- 全局状态 ---------------- */
+const app = {
+  view: 'practice',
+  user: store.get('yl-user', null),
+  grading: store.get('yl-grading', 'auto'),
+  themeMode: store.get('yl-theme-mode', 'paper'),
+  reviewFilter: 'all',
+  demoOverload: false,
+  authMode: 'login',
+  adminTab: 'overview',
+  adminQuery: '',
+  adminRole: 'all',
+  adminStatus: 'all',
+  goal: store.get('yl-goal', 3),
+  rubric: store.get('yl-rubric', 'tem8'),
+  budget: store.get('yl-budget', 30),
+  localOnly: store.get('yl-local-only', false),
+  tz: store.get('yl-tz', 'Asia/Shanghai'),
+  session: { done: 0, correct: 0, tags: {} },
+  batches: [],
+  invites: [
+    { code: 'YL-8F2K', used: false },
+    { code: 'YL-3QX7', used: true }
+  ],
+  attempts: [],
+  reviews: [
+    { sid:'s2', mode:'cloze', state:'learning', due:0 },
+    { sid:'s4', mode:'cloze', state:'learning', due:0 },
+    { sid:'s7', mode:'free',  state:'learning', due:1 },
+    { sid:'s5', mode:'cloze', state:'learning', due:3 },
+    { sid:'s3', mode:'cloze', state:'mastered', due:null },
+    { sid:'s1', mode:'free',  state:'mastered', due:null }
+  ]
+};
+
+/* 演示用历史数据，固定种子，保证每次打开一致 */
+function mulberry32(a){
+  return function(){
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function seedHistory(){
+  const rnd = mulberry32(20261023);
+  const out = [];
+  for (let d = 0; d < 12; d++) {
+    const n = 9 + Math.floor(rnd() * 6);
+    for (let k = 0; k < n; k++) {
+      const s = DATA[Math.floor(rnd() * DATA.length)];
+      const mode = rnd() > 0.35 ? 'cloze' : 'free';
+      const base = mode === 'cloze' ? 68 : 55;
+      let score = Math.round(base + rnd() * 38);
+      if (rnd() > 0.85) score = 100;
+      score = Math.min(100, Math.max(20, score));
+      const at = Date.now() - d * 86400000 - Math.floor(rnd() * 6 * 3600000) - 60000;
+      out.push({ sid: s.id, mode, score, at });
+    }
+  }
+  return out.sort((a, b) => b.at - a.at);
+}
+app.attempts = seedHistory();
+
+/* ---------------- 工具 ---------------- */
+function norm(s){
+  return String(s || '')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\uFF01-\uFF5E]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/\u3002/g, '.')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[.,;:!?'"]+$/, '')
+    .trim();
+}
+function hasPhrase(text, phrase){
+  const p = norm(phrase);
+  if (!p) return false;
+  const q = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('(^|[^a-z0-9])' + q + '($|[^a-z0-9])', 'i').test(text);
+}
+function toast(msg){
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('on');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('on'), 1800);
+}
+function byId(id){ return DATA.find(s => s.id === id); }
+function dayKey(ts){
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: app.tz, year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(new Date(ts));
+  } catch (e) {
+    const d = new Date(ts);
+    return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+  }
+}
+function fmtWhen(ts){
+  const diff = Math.floor((Date.now() - ts) / 86400000);
+  if (diff <= 0) return '今天';
+  if (diff === 1) return '昨天';
+  return diff + ' 天前';
+}
+function modeLabel(m){ return m === 'cloze' ? '填空' : '整句'; }
+
+/* ---------------- 练习 ---------------- */
+const state = { i: 0, mode: 'cloze', graded: false, bank: 'official' };
+const drafts = store.get('yl-drafts', {});
+const saveDrafts = () => store.set('yl-drafts', drafts);
+
+function pool(){
+  if (state.bank === 'errors') {
+    const ids = app.reviews.filter(r => r.state !== 'mastered').map(r => r.sid);
+    return DATA.filter(x => ids.indexOf(x.id) >= 0 && x.status !== 'disabled' && x.status !== 'deleted');
+  }
+  return DATA.filter(x => x.bankId === state.bank && x.status !== 'disabled' && x.status !== 'deleted');
+}
+
+const PL_IDS = ['s3', 's5', 's8'];
+const pl = { i: 0, correct: 0, missed: [] };
+
+function renderPlacement(){
+  const s = byId(PL_IDS[pl.i]);
+  if (!s) { store.set('yl-placed', true); navigate('today'); return; }
+  $('#plStep').textContent = (pl.i + 1) + ' / 3';
+  $('#plZh').textContent = s.zh;
+  $('#plInput').hidden = false;
+  $('#plInput').value = '';
+  $('#plSubmit').hidden = false;
+  $('#plSkipOne').hidden = false;
+  $('#plSkipAll').hidden = false;
+  $('#plResult').hidden = true;
+  $('#plInput').focus({ preventScroll: true });
+}
+
+function plNext(isSkip){
+  const s = byId(PL_IDS[pl.i]);
+  if (isSkip) pl.missed.push(s.tags[0]);
+  pl.i++;
+  if (pl.i < 3) renderPlacement();
+  else showPlacementResult();
+}
+
+function plSubmitAnswer(){
+  const s = byId(PL_IDS[pl.i]);
+  const v = norm($('#plInput').value);
+  if (!v) { toast('先写一句，或者跳过'); return; }
+  if (v === norm(s.ref)) pl.correct++;
+  else pl.missed.push(s.tags[0]);
+  plNext(false);
+}
+
+function showPlacementResult(){
+  $('#plStep').textContent = '完成';
+  $('#plZh').textContent = '先从「' + (pl.correct >= 2 ? '中级' : '初级') + '·日常」开始';
+  $('#plInput').hidden = true;
+  $('#plSubmit').hidden = true;
+  $('#plSkipOne').hidden = true;
+  $('#plSkipAll').hidden = true;
+  $('#plResult').hidden = false;
+  $('#plSummary').textContent = '不贴等级标签，10 题后自动校准。' +
+    (pl.missed.length ? '先补「' + pl.missed[0] + '」。' : '');
+}
+
+$('#plSubmit').addEventListener('click', plSubmitAnswer);
+$('#plInput').addEventListener('keydown', e => {
+  if (e.isComposing) return;
+  if (e.key === 'Enter') { e.preventDefault(); plSubmitAnswer(); }
+});
+$('#plSkipOne').addEventListener('click', () => plNext(true));
+$('#plSkipAll').addEventListener('click', () => {
+  store.set('yl-placed', true);
+  navigate('today');
+});
+$('#plDone').addEventListener('click', () => {
+  store.set('yl-placed', true);
+  app.goal = Number($('#plGoal').value);
+  store.set('yl-goal', app.goal);
+  navigate('today');
+  toast('起点已记录，之后会自动校准');
+});
+
+function countBank(id){
+  if (id === 'errors') {
+    return DATA.filter(s => s.status !== 'disabled' && s.status !== 'deleted' && app.reviews.some(r => r.sid === s.id && r.state !== 'mastered')).length;
+  }
+  return DATA.filter(s => s.bankId === id && s.status !== 'disabled' && s.status !== 'deleted').length;
+}
+
+function renderToday(){
+  const due = dueCount();
+  const d = new Date();
+  $('#todayDate').textContent = (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日';
+  $('#todayDue').textContent = due;
+  $('#todaySub').textContent = '已练 ' + app.session.done + ' / ' + app.goal + ' · 连续 ' + calcStreak() + ' 天';
+  $('#todayStart').innerHTML = (app.session.done > 0
+    ? '继续第 ' + (app.session.done + 1) + ' 句'
+    : (due > 0 ? '开始 ' + due + ' 句' : '做 10 句热身')) + ' <kbd>↵</kbd>';
+
+  $('#todayQueues').innerHTML =
+    BANKS.filter(b => b.id !== 'errors' && b.status !== 'disabled').map(b =>
+      '<button class="today-queue" data-bank="' + b.id + '">' + esc(b.name.split(' · ')[0]) + ' ' + countBank(b.id) + '</button>'
+    ).join('') +
+    '<button class="today-queue" data-bank="errors">错题 ' + countBank('errors') + '</button>';
+
+  const cont = $('#todayContinue');
+  if (app.session.done > 0) {
+    cont.hidden = false;
+    cont.innerHTML = '<span>上次停在「' + esc(DATA[state.i].zh.slice(0, 14)) + '…」</span>' +
+      '<button class="linkish" id="todayResume">继续</button>';
+    $('#todayResume').onclick = () => navigate('practice');
+  } else {
+    cont.hidden = true;
+    cont.innerHTML = '';
+  }
+
+  $('#todayWeek').innerHTML = lastDays(7).map(x =>
+    '<i class="' + (app.attempts.some(a => dayKey(a.at) === x.key) ? 'on' : '') + '"></i>'
+  ).join('');
+}
+
+function startToday(bank){
+  if (bank) state.bank = bank;
+  const p = pool();
+  if (!p.length) { toast('这个题库还没有句子'); return; }
+  if (!p.some(x => x.id === DATA[state.i].id)) state.i = DATA.indexOf(p[0]);
+  navigate('practice');
+}
+
+$('#todayStart').addEventListener('click', () => startToday());
+$('#todayQueues').addEventListener('click', e => {
+  const b = e.target.closest('button[data-bank]');
+  if (b) startToday(b.dataset.bank);
+});
+
+function renderZh(s){
+  let out = '', pos = 0;
+  s.chunks.forEach((c, idx) => {
+    const i = s.zh.indexOf(c.zh, pos);
+    if (i < 0) { out += esc(s.zh.slice(pos)); pos = s.zh.length; return; }
+    out += esc(s.zh.slice(pos, i));
+    if (s.blank.includes(idx)) {
+      const n = s.blank.indexOf(idx) + 1;
+      out += '<span class="zh-blank"><i>' + n + '</i>' + esc(c.zh) + '</span>';
+    } else {
+      out += esc(c.zh);
+    }
+    pos = i + c.zh.length;
+  });
+  out += esc(s.zh.slice(pos));
+  return out;
+}
+
+function renderPractice(){
+  let p = pool();
+  const curBank = BANKS.find(b => b.id === state.bank);
+  if (!curBank || curBank.status === 'disabled') { state.bank = 'official'; p = pool(); }
+  else if (!p.length) { state.bank = 'official'; p = pool(); }
+  if (!p.some(x => x.id === DATA[state.i].id)) state.i = DATA.indexOf(p[0]);
+  const pos = p.findIndex(x => x.id === DATA[state.i].id) + 1;
+  const sel = $('#bankSelect');
+  if (sel) sel.value = state.bank;
+
+  const s = DATA[state.i];
+  state.graded = false;
+  state.hint = 0;
+  state.needRetry = false;
+  $('#retry').hidden = true;
+  $('#nextDrill').hidden = true;
+  $('#next').disabled = false;
+  $('#submit').disabled = false;
+  $('#retryMsg').textContent = '';
+  updateSessionBar();
+  $('#level').textContent = levelLabel(s.level);
+  $('#tags').textContent = s.tags.join(' · ');
+  $('#qidx').textContent = String(pos).padStart(2, '0') + ' / ' + String(p.length).padStart(2, '0');
+  $('#zh').innerHTML = renderZh(s);
+  $('#result').hidden = true;
+  $('#chips').hidden = true;
+  $('#ipaText').hidden = true;
+  $('#ipaText').textContent = '';
+  $('#notelist').innerHTML = '<li class="empty">提交后，这里会出现批注。</li>';
+  $('#reviewBtn').hidden = true;
+  $('#reviewNote').hidden = true;
+  $('#reviewNote').textContent = '';
+  $('#hintline').textContent = '';
+  $('#progressbar').style.width = ((pos - 1) / p.length * 100) + '%';
+
+  $('#clozePane').hidden = state.mode !== 'cloze';
+  $('#freePane').hidden = state.mode !== 'free';
+  $('#modeCloze').classList.toggle('on', state.mode === 'cloze');
+  $('#modeFree').classList.toggle('on', state.mode === 'free');
+
+  if (state.mode === 'cloze') {
+    const refLen = (s.ref || '').length;
+    $('#skeleton').style.fontSize = refLen > 70 ? '15px' : refLen > 50 ? '17px' : '20px';
+    renderCloze(s);
+  } else {
+    $('#skeleton').style.fontSize = '';
+    renderFree(s);
+  }
+}
+
+function renderCloze(s){
+  const el = $('#skeleton');
+  el.innerHTML = '';
+  const saved = drafts[s.id] || {};
+  let no = 0;
+
+  s.chunks.forEach((c, idx) => {
+    const isBlank = s.blank.includes(idx);
+    if (!isBlank) {
+      el.appendChild(document.createTextNode(c.answers[0] + (c.punct || '')));
+      el.appendChild(document.createTextNode(' '));
+      return;
+    }
+
+    no++;
+    const words = c.answers[0].split(/\s+/);
+    const group = document.createElement('span');
+    group.className = 'word-group';
+    group.dataset.i = idx;
+
+    const badge = document.createElement('span');
+    badge.className = 'blank-no';
+    badge.textContent = no;
+    group.appendChild(badge);
+
+    const old = saved[idx];
+    words.forEach((w, k) => {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.autocomplete = 'off';
+      inp.spellcheck = false;
+      inp.dataset.i = idx;
+      inp.dataset.w = k;
+      inp.style.width = Math.max(5, w.length + 1) + 'ch';
+      if (old && typeof old === 'object') inp.value = old[k] || '';
+      else if (k === 0 && typeof old === 'string') inp.value = old;
+      inp.setAttribute('aria-label', c.zh + ' 第 ' + (k + 1) + ' 个词');
+      inp.addEventListener('input', () => {
+        const rec = drafts[s.id] || (drafts[s.id] = {});
+        if (!rec[idx] || typeof rec[idx] !== 'object') rec[idx] = {};
+        rec[idx][k] = inp.value;
+        inp.style.width = Math.max(5, w.length + 1, inp.value.length + 1) + 'ch';
+        saveDrafts();
+      });
+      inp.addEventListener('keydown', e => {
+        if (e.isComposing || e.keyCode === 229) return;
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const all = $$('#skeleton input');
+          const at = all.indexOf(inp);
+          if (at >= 0 && at < all.length - 1) all[at + 1].focus();
+          else gradeCloze();
+        }
+      });
+
+      group.appendChild(inp);
+      if (k < words.length - 1) {
+        const sp = document.createElement('span');
+        sp.className = 'word-space';
+        sp.textContent = ' ';
+        group.appendChild(sp);
+      }
+    });
+
+    const fix = document.createElement('span');
+    fix.className = 'fix';
+    group.appendChild(fix);
+
+    el.appendChild(group);
+    el.appendChild(document.createTextNode(' '));
+  });
+
+  const tail = el.lastChild;
+  if (tail && tail.nodeType === 3) tail.nodeValue = tail.nodeValue.replace(/\s+$/, '');
+  if (/[.!?]$/.test(s.ref)) el.appendChild(document.createTextNode(s.ref.slice(-1)));
+
+  const first = $('#skeleton input');
+  if (first && window.innerWidth > 900) first.focus({ preventScroll: true });
+}
+
+function revealCloze(){
+  if (state.graded) return;
+  const s = DATA[state.i];
+  $$('#skeleton .word-group').forEach(g => {
+    const idx = Number(g.dataset.i);
+    const words = s.chunks[idx].answers[0].split(/\s+/);
+    g.querySelectorAll('input').forEach((inp, k) => {
+      inp.value = words[k] || '';
+      inp.readOnly = true;
+      inp.classList.add('hit');
+      inp.style.width = Math.max(5, (words[k] || '').length + 1) + 'ch';
+    });
+  });
+
+  state.graded = true;
+  $('#submit').disabled = true;
+  $('#result').hidden = false;
+  $('#score').textContent = '—';
+  $('#scorenote').textContent = '已看答案，本题记为学习中，不计入正确率。';
+  $('#ref').textContent = s.ref;
+  $('#explainText').textContent = s.note || '';
+  $('#notelist').innerHTML = '<li class="empty">看答案不计入批注。</li>';
+  $('#retry').hidden = true;
+  $('#nextDrill').hidden = true;
+  $('#next').disabled = false;
+  $('#reviewBtn').hidden = true;
+
+  app.attempts.unshift({ sid: s.id, mode: 'cloze', score: 0, at: Date.now(), revealed: true });
+  const rec = app.reviews.find(r => r.sid === s.id && r.mode === 'cloze');
+  if (rec) { rec.state = 'learning'; rec.due = 1; }
+  else app.reviews.push({ sid: s.id, mode: 'cloze', state: 'learning', due: 1 });
+  app.session.done++;
+  updateSessionBar();
+  renderDrill(s.tags);
+  toast('已看答案，记为学习中');
+}
+
+$('#showAnswer').addEventListener('click', revealCloze);
+
+function renderFree(s){
+  const ta = $('#freeinput');
+  ta.value = drafts[s.id + '-free'] || '';
+  updateCounter();
+  ta.oninput = () => {
+    drafts[s.id + '-free'] = ta.value;
+    saveDrafts();
+    updateCounter();
+  };
+}
+function updateCounter(){
+  const v = $('#freeinput').value.trim();
+  $('#counter').textContent = (v ? v.split(/\s+/).length : 0) + ' words';
+}
+
+function renderNotes(notes){
+  const ol = $('#notelist');
+  if (!notes.length) {
+    ol.innerHTML = '<li class="empty">全对，没有批注。</li>';
+    return;
+  }
+  ol.innerHTML = notes.map(n => {
+    const body = n.note ? esc(n.note) : '正确写法：<em>' + esc(n.answer) + '</em>';
+    const tag = n.tag ? '<span class="note-tag">' + esc(n.tag) + '</span>' : '';
+    const actions = n.appeal
+      ? ' <button class="appeal" data-act="appeal">我觉得也对</button><button class="appeal" data-act="dispute">不认同</button>'
+      : '';
+    return '<li data-tag="' + esc(n.tag || '') + '"><b>' + n.n + '</b>' +
+      (n.zh ? '<em>' + esc(n.zh) + '</em> · ' : '') + tag + body + actions + '</li>';
+  }).join('');
+  $$('#notelist .appeal').forEach(btn => btn.addEventListener('click', () => {
+    const li = btn.closest('li');
+    if (btn.dataset.act === 'dispute') {
+      li.classList.add('disputed');
+      const tag = li.dataset.tag;
+      if (tag && app.session.tags[tag]) app.session.tags[tag] = Math.max(0, app.session.tags[tag] - 1);
+      toast('已标记不认同，这条不计入错题（演示）');
+    } else {
+      toast('已提交申诉，等待裁决（原型不调用模型）');
+    }
+  }));
+}
+
+function gradeCloze(){
+  if (state.graded) return;
+  const s = DATA[state.i];
+  const groups = $$('#skeleton .word-group');
+  const notes = [];
+  let hit = 0, total = 0;
+
+  groups.forEach(g => {
+    const idx = Number(g.dataset.i);
+    const chunk = s.chunks[idx];
+    const inputs = Array.from(g.querySelectorAll('input'));
+    const vals = inputs.map(i => i.value.trim());
+    const joined = vals.filter(Boolean).join(' ');
+    const words = chunk.answers[0].split(/\s+/);
+    total += words.length;
+
+    const full = !!joined && chunk.answers.some(a => norm(a) === norm(joined));
+    if (full) {
+      hit += words.length;
+      inputs.forEach(i => { i.classList.add('hit'); i.readOnly = true; });
+      return;
+    }
+
+    let missed = 0;
+    const missing = [];
+    vals.forEach((v, k) => {
+      const expected = words[k] || '';
+      const alts = chunk.answers
+        .filter(a => a.split(/\s+/).length === words.length)
+        .map(a => a.split(/\s+/)[k])
+        .filter(Boolean);
+      const ok = !!v && (norm(v) === norm(expected) || alts.some(a => norm(a) === norm(v)));
+      inputs[k].classList.add(ok ? 'hit' : 'miss');
+      inputs[k].readOnly = true;
+      if (ok) hit++; else { missed++; missing.push(expected); }
+    });
+
+    if (missed) {
+      const n = s.blank.indexOf(idx) + 1;
+      g.querySelector('.fix').textContent = missing.join(' ');
+      notes.push({ n, zh: chunk.zh, note: chunk.note, answer: chunk.answers[0], appeal: true, tag: s.tags[0] });
+    }
+  });
+
+  finish(total ? Math.round(hit / total * 100) : 0, notes);
+}
+
+function gradeFree(){
+  if (state.graded) return;
+  const s = DATA[state.i];
+  const text = norm($('#freeinput').value);
+  if (!text) { toast('先写一句再提交'); return; }
+
+  const results = s.chunks.map(c => ({
+    zh: c.zh, answer: c.answers[0], note: c.note,
+    ok: c.answers.some(a => hasPhrase(text, a))
+  }));
+
+  const hits = results.filter(r => r.ok).length;
+  const chips = $('#chips');
+  chips.hidden = false;
+  chips.innerHTML = results
+    .map(r => '<span class="chip ' + (r.ok ? 'hit' : 'miss') + '">' + esc(r.zh) + '</span>')
+    .join('');
+
+  const notes = results.filter(r => !r.ok)
+    .map((r, k) => ({ n: k + 1, zh: r.zh, note: r.note, answer: r.answer, appeal: true, tag: s.tags[0] }));
+
+  finish(Math.round(hits / results.length * 100), notes);
+}
+
+function finish(score, notes){
+  state.graded = true;
+  const s = DATA[state.i];
+
+  app.attempts.unshift({ sid: s.id, mode: state.mode, score, at: Date.now() });
+  const rec = app.reviews.find(r => r.sid === s.id && r.mode === state.mode);
+  if (score < 100) {
+    if (rec) { rec.state = 'learning'; rec.due = 1; }
+    else app.reviews.push({ sid: s.id, mode: state.mode, state: 'learning', due: 1 });
+  } else if (rec && rec.state === 'learning') {
+    rec.due = Math.min(7, (rec.due || 0) + 2);
+    if (rec.due >= 5) { rec.state = 'mastered'; rec.due = null; }
+  }
+
+  app.session.done++;
+  if (score === 100) app.session.correct++;
+  if (score < 100) {
+    const tag = s.tags[0];
+    app.session.tags[tag] = (app.session.tags[tag] || 0) + 1;
+  }
+  updateSessionBar();
+
+  $('#result').hidden = false;
+  $('#score').textContent = score;
+  $('#scorenote').textContent =
+    score === 100 ? '全对。这一句可以进复习队列了。'
+    : (notes.length ? '还差 ' + notes.length + ' 处。先看批注，再重写一遍。' : '细节还要收一收。');
+  $('#ref').textContent = s.ref;
+  $('#explainText').textContent = s.note || '这道题还没有解析。';
+  $('#ipaText').textContent = s.ipa || '';
+  $('#ipaText').hidden = true;
+  $('#ipaToggle').style.display = s.ipa ? '' : 'none';
+  renderNotes(notes);
+  setupRetry(score);
+  setupReview(s, score, notes);
+  renderDrill(score < 100 ? s.tags : []);
+  const fp = pool();
+  const fpos = fp.findIndex(x => x.id === s.id) + 1;
+  $('#progressbar').style.width = (fpos / Math.max(1, fp.length) * 100) + '%';
+  $('#result').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  $('#result').focus({ preventScroll: true });
+}
+
+function dueCount(){
+  return app.reviews.filter(r => r.state === 'learning' && r.due === 0).length;
+}
+function updateSessionBar(){
+  const d = $('#dueNum');
+  if (d) d.textContent = dueCount();
+  const g = $('#goalText');
+  if (g) g.textContent = '本轮 ' + app.session.done + ' / ' + app.goal;
+}
+
+function setupRetry(score){
+  const box = $('#retry');
+  if (score >= 100) {
+    box.hidden = true;
+    state.needRetry = false;
+    $('#next').disabled = false;
+    return;
+  }
+  box.hidden = false;
+  state.needRetry = true;
+  $('#next').disabled = true;
+  $('#retryInput').value = '';
+  $('#retryMsg').textContent = '';
+  $('#retryMsg').style.color = '';
+  setTimeout(() => $('#retryInput').focus({ preventScroll: true }), 120);
+}
+
+function checkRetry(){
+  const s = DATA[state.i];
+  const v = norm($('#retryInput').value);
+  if (!v) return;
+  if (v === norm(s.ref)) {
+    state.needRetry = false;
+    $('#next').disabled = false;
+    $('#retryMsg').textContent = '已修复';
+    $('#retryMsg').style.color = 'var(--moss)';
+    toast('已修复，可以下一句了');
+  } else {
+    $('#retryMsg').textContent = '还有差异，再对照一遍';
+    $('#retryMsg').style.color = 'var(--vermilion)';
+  }
+}
+
+function setupReview(s, score, notes){
+  const btn = $('#reviewBtn');
+  if (!btn) return;
+  const can = score < 100;
+  btn.hidden = !can;
+  if (!can) return;
+  btn.onclick = () => {
+    const target = Math.min(100, score + 10);
+    const miss = notes && notes.length ? '「' + notes[0].zh + '」这一处' : '部分表达';
+    $('#score').textContent = target;
+    $('#scorenote').textContent = '模型复核：整体可懂，' + miss + '建议按参考译文调整语序或搭配。';
+    $('#reviewNote').hidden = false;
+    $('#reviewNote').textContent = '复核 +' + (target - score) + ' 分 · 追加一条记录，不覆盖原判分。';
+    btn.hidden = true;
+    app.attempts.unshift({ sid: s.id, mode: state.mode, score: target, at: Date.now(), reviewed: true });
+    toast('已复核，原分保留');
+  };
+}
+
+function renderDrill(tags){
+  const el = $('#nextDrill');
+  if (!tags || !tags.length) { el.hidden = true; return; }
+  const tag = tags[0];
+  el.hidden = false;
+  el.innerHTML = '下一步：再练 2 句「' + esc(tag) + '」<button class="linkish" id="drillBtn">开始</button>';
+  $('#drillBtn').onclick = () => {
+    for (let k = 1; k <= DATA.length; k++) {
+      const idx = (state.i + k) % DATA.length;
+      if (DATA[idx].tags.indexOf(tag) >= 0) {
+        state.i = idx;
+        state.bank = DATA[idx].bankId || 'official';
+        renderPractice();
+        return;
+      }
+    }
+  };
+}
+
+function submit(){
+  if (state.mode === 'cloze') gradeCloze();
+  else gradeFree();
+}
+function next(){
+  if (state.needRetry) { toast('先把这句改对，或点「稍后再练」'); return; }
+  const p = pool();
+  if (!p.length) { toast('这个题库还没有句子'); return; }
+  const cur = p.findIndex(x => x.id === DATA[state.i].id);
+  const nxt = p[(cur + 1) % p.length];
+  state.i = DATA.indexOf(nxt);
+  renderPractice();
+  const first = $('#skeleton input');
+  if (first && state.mode === 'cloze') first.focus({ preventScroll: true });
+}
+function startReview(sid, mode){
+  const i = DATA.findIndex(s => s.id === sid);
+  if (i < 0) return;
+  state.i = i;
+  state.mode = mode;
+  state.bank = DATA[i].bankId || 'official';
+  navigate('practice');
+}
+
+$('#submit').addEventListener('click', submit);
+$('#submitFree').addEventListener('click', submit);
+$('#next').addEventListener('click', next);
+$('#hint').addEventListener('click', () => {
+  const s = DATA[state.i];
+  const idxs = s.blank;
+  const step = state.hint || 0;
+  if (step === 0) {
+    $('#hintline').textContent = '首字母：' + idxs.map((idx, k) =>
+      (k + 1) + '. ' + s.chunks[idx].answers[0].slice(0, 1) + '…').join('   ');
+  } else if (step === 1) {
+    $('#hintline').textContent = '词数：' + idxs.map((idx, k) =>
+      (k + 1) + '. ' + s.chunks[idx].answers[0].split(/\s+/).length + ' 词').join('   ');
+  } else {
+    $('#hintline').textContent = '答案：' + idxs.map((idx, k) =>
+      (k + 1) + '. ' + s.chunks[idx].answers[0]).join('   ');
+  }
+  state.hint = Math.min(2, step + 1);
+});
+$('#modeCloze').addEventListener('click', () => { state.mode = 'cloze'; renderPractice(); });
+$('#modeFree').addEventListener('click', () => { state.mode = 'free'; renderPractice(); });
+
+$('#bankSelect').addEventListener('change', e => {
+  const v = e.target.value;
+  const old = state.bank;
+  state.bank = v;
+  const p = pool();
+  if (!p.length) {
+    state.bank = old;
+    e.target.value = old;
+    toast('这个题库还没有句子');
+    return;
+  }
+  state.i = DATA.indexOf(p[0]);
+  renderPractice();
+});
+
+function speak(text){
+  if (!('speechSynthesis' in window)) { toast('当前浏览器不支持朗读'); return; }
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'en-US';
+  u.rate = 0.9;
+  window.speechSynthesis.speak(u);
+}
+$('#speakRef').addEventListener('click', () => speak(DATA[state.i].ref));
+$('#ipaToggle').addEventListener('click', () => {
+  const el = $('#ipaText');
+  if (!el.textContent) { toast('这句还没有音标'); return; }
+  el.hidden = !el.hidden;
+});
+
+$('#retryBtn').addEventListener('click', checkRetry);
+$('#retryInput').addEventListener('keydown', e => {
+  if (e.isComposing || e.keyCode === 229) return;
+  if (e.key === 'Enter') { e.preventDefault(); checkRetry(); }
+});
+$('#skipRetry').addEventListener('click', () => {
+  state.needRetry = false;
+  $('#next').disabled = false;
+  toast('已记为学习中，明天再来');
+});
+$('#dueChip').addEventListener('click', () => {
+  app.reviewFilter = 'due';
+  navigate('review');
+});
+$('#endSession').addEventListener('click', showSummary);
+
+function showSummary(){
+  const sess = app.session;
+  const rate = sess.done ? Math.round(sess.correct / sess.done * 100) : 0;
+  const tags = Object.keys(sess.tags).sort((a, b) => sess.tags[b] - sess.tags[a]).slice(0, 2);
+  $('#modal').innerHTML =
+    '<button class="drawer-close" id="sumClose">×</button>' +
+    '<div class="drawer-kicker">本轮结束</div>' +
+    '<h3>今天练了 ' + sess.done + ' 句</h3>' +
+    '<p>' + (tags.length
+      ? '最需要补的是「' + esc(tags[0]) + '」，明天会优先排给你。'
+      : '这一轮没有明显短板。') + '</p>' +
+    '<div class="mini-metrics">' +
+      '<div><b>' + sess.done + '</b><span>完成</span></div>' +
+      '<div><b>' + sess.correct + '</b><span>全对</span></div>' +
+      '<div><b>' + rate + '%</b><span>正确率</span></div>' +
+      '<div><b>' + dueCount() + '</b><span>当前到期</span></div>' +
+    '</div>' +
+    '<div class="modal-actions"><button class="btn ghost" id="sumHome">回到今日</button>' +
+    '<button class="btn ghost" id="sumLater">关闭</button>' +
+    '<button class="btn primary" id="sumAgain">再来一句</button></div>';
+  $('#modalWrap').hidden = false;
+  document.body.style.overflow = 'hidden';
+  $('#sumClose').onclick = closeModal;
+  $('#sumLater').onclick = closeModal;
+  $('#sumHome').onclick = () => { closeModal(); navigate('today'); };
+  $('#sumAgain').onclick = () => { closeModal(); next(); };
+}
+
+document.addEventListener('keydown', e => {
+  if (e.isComposing) return;
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && app.view === 'practice') {
+    e.preventDefault();
+    if (state.graded) next();
+    else submit();
+  }
+  if (app.view === 'practice' && !e.metaKey && !e.ctrlKey && (e.key === '1' || e.key === '2')) {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return;
+    state.mode = e.key === '1' ? 'cloze' : 'free';
+    renderPractice();
+  }
+});
+
+/* ---------------- 复习 ---------------- */
+function renderReview(){
+  $$('#reviewFilters button').forEach(b => b.classList.toggle('on', b.dataset.f === app.reviewFilter));
+  const due = app.reviews.filter(r => r.state === 'learning' && r.due === 0).length;
+  const virtualDue = due + (app.demoOverload ? 12 : 0);
+  const overloaded = virtualDue > 8;
+  const bar = $('#backlogBar');
+  bar.hidden = !overloaded;
+  if (overloaded) {
+    bar.innerHTML = '<div><b>到期 ' + virtualDue + ' 句，已进入降载模式</b>' +
+      '<div class="row-meta" style="margin-top:5px">只推 5 句最紧急的，其余可以顺延 3 天。</div></div>' +
+      '<div style="display:flex;gap:14px"><button class="linkish" id="postponeBtn">顺延其余</button>' +
+      '<button class="linkish" id="dismissBtn">关闭降载</button></div>';
+    $('#postponeBtn').onclick = () => {
+      app.reviews.forEach(r => { if (r.state === 'learning' && r.due === 0) r.due = 3; });
+      app.demoOverload = false;
+      toast('已帮你减负 ' + Math.max(0, virtualDue - 5) + ' 句，顺延 3 天');
+      renderReview();
+    };
+    $('#dismissBtn').onclick = () => { app.demoOverload = false; renderReview(); };
+  }
+  const learning = app.reviews.filter(r => r.state === 'learning').length;
+  const mastered = app.reviews.filter(r => r.state === 'mastered').length;
+
+  $('#reviewSum').innerHTML =
+    '<div><b>' + due + '</b><span>今日到期</span></div>' +
+    '<div><b>' + learning + '</b><span>学习中</span></div>' +
+    '<div><b>' + mastered + '</b><span>已掌握</span></div>';
+
+  const f = app.reviewFilter;
+  const rows = app.reviews
+    .filter(r => f === 'all' ? true : f === 'due' ? (r.state === 'learning' && r.due === 0) : r.state === f)
+    .sort((a, b) => (a.due === null ? 99 : a.due) - (b.due === null ? 99 : b.due));
+  const shown = overloaded ? rows.slice(0, 5) : rows;
+
+  const list = $('#reviewList');
+  if (!shown.length) {
+    list.innerHTML = '<li class="row-empty">这里还是空的。去练几句，答错的会自动进来。</li>';
+    return;
+  }
+  list.innerHTML = shown.map(r => {
+    const s = byId(r.sid);
+    const urgent = r.state === 'learning' && r.due === 0;
+    const stateText = r.state === 'mastered' ? '已掌握' : r.due === 0 ? '今天' : r.due === 1 ? '明天' : r.due + ' 天后';
+    return '<li>' +
+      '<div><div class="row-main">' + esc(s.zh) + '</div>' +
+      '<div class="row-meta">' + modeLabel(r.mode) + ' · ' + s.tags.join(' / ') + '</div></div>' +
+      '<span class="row-state ' + (urgent ? 'urgent' : r.state === 'mastered' ? 'mastered' : '') + '">' + stateText + '</span>' +
+      '<button class="row-act" data-sid="' + r.sid + '" data-mode="' + r.mode + '">' + (r.state === 'mastered' ? '重练' : '开始') + '</button>' +
+    '</li>';
+  }).join('');
+}
+$('#reviewList').addEventListener('click', e => {
+  const b = e.target.closest('button[data-sid]');
+  if (b) startReview(b.dataset.sid, b.dataset.mode);
+});
+$('#reviewFilters').addEventListener('click', e => {
+  const b = e.target.closest('button[data-f]');
+  if (!b) return;
+  app.reviewFilter = b.dataset.f;
+  $$('#reviewFilters button').forEach(x => x.classList.toggle('on', x === b));
+  renderReview();
+});
+$('#demoOverloadBtn').addEventListener('click', () => {
+  app.demoOverload = !app.demoOverload;
+  renderReview();
+});
+
+/* ---------------- 统计 ---------------- */
+function lastDays(n){
+  const out = [];
+  for (let d = n - 1; d >= 0; d--) {
+    const ts = Date.now() - d * 86400000;
+    out.push({ key: dayKey(ts), today: d === 0 });
+  }
+  return out;
+}
+function calcStreak(){
+  let n = 0;
+  for (let d = 0; d < 365; d++) {
+    const key = dayKey(Date.now() - d * 86400000);
+    if (app.attempts.some(a => dayKey(a.at) === key)) n++;
+    else break;
+  }
+  return n;
+}
+function renderStats(){
+  const a = app.attempts;
+  const total = a.length;
+  const avg = total ? Math.round(a.reduce((s, x) => s + x.score, 0) / total) : 0;
+  const streak = calcStreak();
+
+  $('#bigNums').innerHTML =
+    '<div class="bignum"><b>' + streak + '<small>天</small></b><span>连续</span></div>' +
+    '<div class="bignum"><b>' + total + '<small>句</small></b><span>累计</span></div>' +
+    '<div class="bignum"><b>' + avg + '<small>分</small></b><span>平均</span></div>';
+
+  const days = lastDays(14);
+  const counts = days.map(d => a.filter(x => dayKey(x.at) === d.key).length);
+  const max = Math.max(1, Math.max.apply(null, counts));
+  $('#bars').innerHTML = days.map((d, i) => {
+    const pct = counts[i] ? Math.max(6, Math.round(counts[i] / max * 100)) : 2;
+    const cls = counts[i] ? (d.today ? 'today' : 'has') : '';
+    return '<i class="' + cls + '" style="height:' + pct + '%" title="' + counts[i] + ' 句"></i>';
+  }).join('');
+
+  const tagCount = {};
+  a.filter(x => x.score < 100).forEach(x => {
+    const s = byId(x.sid);
+    if (!s) return;
+    s.tags.forEach(t => { tagCount[t] = (tagCount[t] || 0) + 1; });
+  });
+  const top = Object.keys(tagCount).map(k => [k, tagCount[k]]).sort((x, y) => y[1] - x[1]).slice(0, 5);
+  const topMax = top.length ? top[0][1] : 1;
+  $('#dist').innerHTML = top.map(([k, v]) =>
+    '<div class="dist-row"><span>' + esc(k) + '</span>' +
+    '<span class="dist-bar"><i style="width:' + Math.round(v / topMax * 100) + '%"></i></span>' +
+    '<span class="dist-num">' + v + '</span></div>'
+  ).join('');
+
+  $('#recentList').innerHTML = a.slice(0, 5).map(x => {
+    const s = byId(x.sid);
+    return '<li><div><div class="row-main">' + esc(s.zh) + '</div>' +
+      '<div class="row-meta">' + modeLabel(x.mode) + ' · ' + fmtWhen(x.at) + '</div></div>' +
+      '<span class="row-state ' + (x.score === 100 ? 'mastered' : '') + '">' + x.score + ' 分</span>' +
+      '<span></span></li>';
+  }).join('');
+}
+
+/* ---------------- 题库 ---------------- */
+const BANKS = [
+  { id: 'official', name: '官方题库 · TEM8 翻译', count: 8, meta: 'v3 · 公开', act: '查看' },
+  { id: 'errors', name: '我的错题集', count: 4, meta: '自动同步', act: '查看' },
+  { id: 'custom', name: '自建题库', count: 2, meta: '私有', act: '管理' }
+];
+BANKS.forEach(b => { b.status = b.status || 'published'; });
+
+let LEVELS = [
+  { id: 'CET4', label: '四级' },
+  { id: 'CET6', label: '六级' },
+  { id: 'TEM4', label: '专四' },
+  { id: 'TEM8', label: '专八' },
+  { id: 'IELTS', label: '雅思' },
+  { id: 'TOEFL', label: '托福' },
+  { id: 'CUSTOM', label: '自建' }
+];
+
+function levelLabel(id){
+  const l = LEVELS.find(x => x.id === id);
+  return l ? l.label : id;
+}
+
+function renderLevels(){
+  const box = $('#levelChips');
+  if (box) {
+    box.innerHTML = LEVELS.map(l =>
+      '<button class="var" data-level="' + l.id + '">' + esc(l.label) + (l.id === 'CUSTOM' ? '' : ' ×') + '</button>'
+    ).join('');
+  }
+  const sel = $('#genLevel');
+  if (sel) {
+    const cur = sel.value;
+    sel.innerHTML = LEVELS.map(l => '<option value="' + l.id + '">' + esc(l.label) + '</option>').join('');
+    if (cur) sel.value = cur;
+  }
+}
+
+function renderBankSelects(){
+  const bs = $('#bankSelect');
+  if (bs) {
+    const cur = bs.value || state.bank;
+    bs.innerHTML = BANKS.filter(b => b.status !== 'disabled').map(b =>
+      '<option value="' + b.id + '">' + esc(b.name.split(' · ')[0]) + '</option>'
+    ).join('');
+    if (BANKS.some(b => b.id === cur)) bs.value = cur;
+  }
+  ['#importTarget', '#genTargetBank'].forEach(sel => {
+    const el = $(sel);
+    if (!el) return;
+    const cur = el.value || 'custom';
+    el.innerHTML = BANKS.filter(b => b.id !== 'errors' && b.status !== 'disabled').map(b =>
+      '<option value="' + b.id + '">' + esc(b.name.split(' · ')[0]) + '</option>'
+    ).join('');
+    if (BANKS.some(b => b.id === cur)) el.value = cur;
+  });
+}
+const IMPORT_ROWS = [
+  { row: 1, zh: '他越来越重视这件事。', note: '「越来越」用 more and more；「重视」用 attach importance to。', ok: true },
+  { row: 2, zh: '直到看见那份报告，他才意识到问题的严重性。', note: 'Not until 置首，主句部分倒装。', ok: false, why: 'chunks 拼接与 ref 不一致' },
+  { row: 3, zh: '他越来越重视这件事。', note: '与 s1 重复，未导入。', ok: false, why: '题库中已存在（与 s1 重复）' },
+  { row: 4, zh: '我们应当采取措施防止类似事件再次发生。', note: 'take measures；prevent A from doing。', ok: true },
+  { row: 5, zh: '只有亲身经历，你才能理解其中的艰辛。', note: '', ok: false, why: '缺解析' }
+];
+function renderBanks(){
+  const info = paginate('banks', BANKS);
+  $('#bankList').innerHTML = info.rows.map(b =>
+    '<li><div><div class="row-main">' + esc(b.name) + '</div>' +
+    '<div class="row-meta">' + esc(countBank(b.id) + ' 句 · ' + b.meta) + '</div></div>' +
+    '<span class="row-state ' + (b.status === 'disabled' ? 'urgent' : b.id === 'official' ? 'mastered' : '') + '">' +
+      (b.status === 'disabled' ? '已停用' : b.id === 'official' ? '公开' : '私有') + '</span>' +
+    '<button class="row-act" data-bank="' + b.id + '">' + esc(b.act) + '</button></li>'
+  ).join('');
+  $('#bankPager').innerHTML = pagerHtml('banks', info);
+
+  $('#validationBody').innerHTML = IMPORT_ROWS.map(r =>
+    '<tr class="' + (r.ok ? '' : 'bad') + '">' +
+    '<td>' + r.row + '</td>' +
+    '<td>' + esc(r.zh) + '</td>' +
+    '<td>' + (r.note ? esc(r.note) : '<span style="color:var(--vermilion)">缺解析</span>') + '</td>' +
+    '<td>' + (r.ok ? '<span class="status-ok">通过</span>' : esc(r.why)) + '</td>' +
+    '</tr>'
+  ).join('');
+
+  $('#importSum').textContent = '5 行 · 2 行通过 · 3 行需修正';
+  renderLevels();
+  renderBankSelects();
+}
+function openBank(id){
+  const b = BANKS.find(x => x.id === id);
+  if (!b) return;
+  const items = id === 'errors'
+    ? DATA.filter(s => app.reviews.some(r => r.sid === s.id && r.state !== 'mastered'))
+    : DATA.filter(s => s.bankId === id);
+
+  const rows = items.length
+    ? items.map(s =>
+      '<div class="record"><div style="min-width:0">' +
+      '<div class="record-zh">' + esc(s.zh) + '</div>' +
+      '<div class="record-meta">' + esc(levelLabel(s.level)) + ' · ' + esc(s.tags.join(' / ')) + ' · 挖 ' + s.blank.length + ' 空' +
+      (s.status === 'disabled' ? ' · 已停用' : '') + '</div>' +
+      '</div><div style="display:flex;gap:12px;flex:none">' +
+      '<button class="linkish" data-open="' + s.id + '">练习</button>' +
+      '<button class="linkish" data-manage="' + s.id + '">管理</button></div></div>'
+    ).join('')
+    : '<div class="import-hint">这个题库还没有句子。</div>';
+
+  $('#drawer').innerHTML =
+    '<button class="drawer-close" id="bankClose">×</button>' +
+    '<div class="drawer-kicker">题库 · ' + esc(b.id) + '</div>' +
+    '<h2>' + esc(b.name) + '</h2>' +
+    '<div class="mail">' + countBank(b.id) + ' 句 · ' + esc(b.meta) + (b.status === 'disabled' ? ' · 已停用' : '') + '</div>' +
+    '<div class="drawer-actions">' +
+      '<button class="linkish" id="bankPractice">在这个题库练习</button>' +
+      (b.id === 'official' ? '' :
+        '<button class="linkish" id="bankEdit">编辑</button>' +
+        '<button class="linkish" id="bankToggle">' + (b.status === 'disabled' ? '恢复' : '停用') + '</button>' +
+        '<button class="linkish" id="bankDelete">删除</button>') +
+    '</div>' +
+    '<div class="section-title">题目</div>' + rows;
+
+  $('#drawerWrap').hidden = false;
+  document.body.style.overflow = 'hidden';
+  $('#bankClose').addEventListener('click', closeDrawer);
+  $('#bankPractice').addEventListener('click', () => {
+    state.bank = b.id;
+    const p = pool();
+    if (!p.length) { toast('这个题库还没有句子'); return; }
+    state.i = DATA.indexOf(p[0]);
+    closeDrawer();
+    navigate('practice');
+  });
+  $$('#drawer [data-open]').forEach(btn => btn.addEventListener('click', () => {
+    const i = DATA.findIndex(x => x.id === btn.dataset.open);
+    if (i < 0) return;
+    state.i = i;
+    state.bank = DATA[i].bankId || 'official';
+    closeDrawer();
+    navigate('practice');
+  }));
+  $$('#drawer [data-manage]').forEach(btn => btn.addEventListener('click', () => openSentence(btn.dataset.manage)));
+  const be = $('#bankEdit');
+  if (be) be.addEventListener('click', () => editBank(b.id));
+  const bt = $('#bankToggle');
+  if (bt) bt.addEventListener('click', () => toggleBank(b.id));
+  const bd = $('#bankDelete');
+  if (bd) bd.addEventListener('click', () => deleteBank(b.id));
+}
+
+function openSentence(id){
+  const s = DATA.find(x => x.id === id);
+  if (!s) return;
+  const bankId = s.bankId || 'official';
+  $('#modal').className = 'modal';
+  $('#modal').innerHTML =
+    '<button class="drawer-close" id="sqClose">×</button>' +
+    '<div class="drawer-kicker">编辑题目 · ' + esc(s.id) + '</div>' +
+    '<h3>' + esc(s.zh.slice(0, 18)) + (s.zh.length > 18 ? '…' : '') + '</h3>' +
+    '<div class="field"><label>中文</label><input id="sqZh" value="' + esc(s.zh) + '"></div>' +
+    '<div class="field"><label>难度</label><select id="sqLevel" class="select">' +
+      LEVELS.map(l => '<option value="' + l.id + '"' + (l.id === s.level ? ' selected' : '') + '>' + esc(l.label) + '</option>').join('') +
+    '</select></div>' +
+    '<div class="field"><label>标签（逗号分隔）</label><input id="sqTags" value="' + esc(s.tags.join('，')) + '"></div>' +
+    '<div class="field"><label>所属题库</label><select id="sqBank" class="select">' +
+      BANKS.filter(b => b.id !== 'errors').map(b =>
+        '<option value="' + b.id + '"' + (b.id === bankId ? ' selected' : '') + '>' + esc(b.name) + '</option>').join('') +
+    '</select></div>' +
+    '<div class="field"><label>状态</label><select id="sqStatus" class="select">' +
+      '<option value="published"' + (s.status !== 'disabled' ? ' selected' : '') + '>正常</option>' +
+      '<option value="disabled"' + (s.status === 'disabled' ? ' selected' : '') + '>停用</option>' +
+    '</select></div>' +
+    '<div class="field"><label>解析（导入时填写）</label><textarea id="sqNote" class="note-input">' + esc(s.note || '') + '</textarea></div>' +
+    '<div class="model-meta">参考译文与语块只读：直接改译文会破坏 chunks 与 ref 的一致性，结构编辑放在「高级编辑」。</div>' +
+    '<div class="modal-actions"><button class="linkish" id="sqDelete">删除</button>' +
+    '<button class="btn ghost" id="sqCancel">取消</button>' +
+    '<button class="btn primary" id="sqSave">保存</button></div>';
+  $('#modalWrap').hidden = false;
+  document.body.style.overflow = 'hidden';
+  $('#sqClose').onclick = closeModal;
+  $('#sqCancel').onclick = closeModal;
+  $('#sqSave').onclick = () => {
+    const zh = $('#sqZh').value.trim();
+    if (zh.length < 4) { toast('中文太短'); return; }
+    s.zh = zh;
+    s.level = $('#sqLevel').value;
+    s.tags = $('#sqTags').value.split(/[，,]/).map(x => x.trim()).filter(Boolean);
+    s.bankId = $('#sqBank').value;
+    s.status = $('#sqStatus').value;
+    s.note = $('#sqNote').value.trim();
+    logAudit('编辑题目', s.zh.slice(0, 20), '');
+    closeModal();
+    renderBanks();
+    openBank(s.bankId);
+    toast('已保存');
+  };
+  $('#sqDelete').onclick = () => {
+    askReason('删除题目', '删除后进入回收站，可恢复；已有的复习记录会保留但不再出题。', ['内容有误', '重复', '其他'], reason => {
+      s.status = 'deleted';
+      logAudit('删除题目', s.zh.slice(0, 20), reason);
+      closeModal();
+      renderBanks();
+      openBank(bankId);
+      toast('已移入回收站');
+    }, () => openSentence(id));
+  };
+}
+
+function openBankPeek(bankId){
+  const b = BANKS.find(x => x.id === bankId) || BANKS[0];
+  const cur = DATA[state.i];
+  const items = DATA.filter(s => s.bankId === b.id && s.status !== 'deleted');
+  const rows = items.length ? items.map(s => {
+    const done = app.attempts.some(a => a.sid === s.id);
+    return '<button class="peek-row' + (cur && cur.id === s.id ? ' cur' : '') + '" data-peek="' + s.id + '">' +
+      '<span class="peek-zh">' + esc(s.zh) + '</span>' +
+      '<span class="peek-meta">' + esc(levelLabel(s.level)) + ' · ' + (cur && cur.id === s.id ? '当前' : done ? '练过' : '未练') + '</span>' +
+    '</button>';
+  }).join('') : '<div class="import-hint">这个题库还没有句子。</div>';
+
+  $('#drawer').innerHTML =
+    '<button class="drawer-close" id="peekClose">×</button>' +
+    '<div class="drawer-kicker">题库 · ' + esc(b.id) + '</div>' +
+    '<h2>' + esc(b.name) + '</h2>' +
+    '<div class="mail">' + items.length + ' 句 · ' + esc(b.meta) + '</div>' +
+    '<div class="section-title">题目</div>' + rows;
+  $('#drawerWrap').hidden = false;
+  document.body.style.overflow = 'hidden';
+  $('#peekClose').addEventListener('click', closeDrawer);
+  $('#drawer').querySelectorAll('[data-peek]').forEach(el => {
+    el.addEventListener('click', () => {
+      const s = DATA.find(x => x.id === el.dataset.peek);
+      if (!s) return;
+      state.bank = s.bankId || 'official';
+      state.i = DATA.indexOf(s);
+      closeDrawer();
+      renderPractice();
+    });
+  });
+}
+
+$('#peekBank').addEventListener('click', () => {
+  const s = DATA[state.i];
+  if (s) openBankPeek(s.bankId || 'official');
+});
+
+function editBank(id){
+  const b = BANKS.find(x => x.id === id);
+  if (!b) return;
+  $('#modal').className = 'modal';
+  $('#modal').innerHTML =
+    '<button class="drawer-close" id="ebClose">×</button>' +
+    '<div class="drawer-kicker">编辑题库</div>' +
+    '<h3>' + esc(b.name) + '</h3>' +
+    '<div class="field"><label>名称</label><input id="ebName" value="' + esc(b.name) + '"></div>' +
+    '<div class="field"><label>可见性</label><select id="ebVis" class="select">' +
+      '<option' + (b.meta.indexOf('公开') >= 0 ? ' selected' : '') + '>公开</option>' +
+      '<option' + (b.meta.indexOf('公开') < 0 ? ' selected' : '') + '>私有</option>' +
+    '</select></div>' +
+    '<div class="modal-actions"><button class="btn ghost" id="ebCancel">取消</button>' +
+    '<button class="btn primary" id="ebSave">保存</button></div>';
+  $('#modalWrap').hidden = false;
+  document.body.style.overflow = 'hidden';
+  $('#ebClose').onclick = closeModal;
+  $('#ebCancel').onclick = closeModal;
+  $('#ebSave').onclick = () => {
+    const name = $('#ebName').value.trim();
+    if (!name) { toast('名称不能为空'); return; }
+    b.name = name;
+    b.meta = $('#ebVis').value;
+    logAudit('编辑题库', name, '');
+    closeModal();
+    renderBanks();
+    toast('已保存');
+  };
+}
+
+function toggleBank(id){
+  const b = BANKS.find(x => x.id === id);
+  if (!b) return;
+  if (b.id === 'official') { toast('官方题库不能停用'); return; }
+  b.status = b.status === 'disabled' ? 'published' : 'disabled';
+  logAudit(b.status === 'disabled' ? '停用题库' : '恢复题库', b.name, '');
+  closeDrawer();
+  renderBanks();
+  toast(b.status === 'disabled' ? '已停用「' + b.name + '」' : '已恢复「' + b.name + '」');
+}
+
+function deleteBank(id){
+  const b = BANKS.find(x => x.id === id);
+  if (!b) return;
+  if (b.id === 'official') { toast('官方题库不能删除'); return; }
+  askReason('删除题库', '删除后不再出现在练习和导入目标里，句子保留但不参与出题。', ['不再使用', '重复创建', '其他'], reason => {
+    BANKS.splice(BANKS.indexOf(b), 1);
+    logAudit('删除题库', b.name, reason);
+    closeDrawer();
+    renderBanks();
+    toast('已删除「' + b.name + '」');
+  });
+}
+
+function openNewBank(){
+  $('#modal').className = 'modal';
+  $('#modal').innerHTML =
+    '<button class="drawer-close" id="nbClose">×</button>' +
+    '<div class="drawer-kicker">新建题库</div>' +
+    '<h3>题库信息</h3>' +
+    '<div class="field"><label>名称</label><input id="nbName" placeholder="例：商务邮件常用句" autocomplete="off"></div>' +
+    '<div class="field"><label>可见性</label><select id="nbVis" class="select"><option>私有</option><option>公开</option></select></div>' +
+    '<div class="modal-actions"><button class="btn ghost" id="nbCancel">取消</button>' +
+    '<button class="btn primary" id="nbSave">创建</button></div>';
+  $('#modalWrap').hidden = false;
+  document.body.style.overflow = 'hidden';
+  $('#nbClose').onclick = closeModal;
+  $('#nbCancel').onclick = closeModal;
+  $('#nbSave').onclick = () => {
+    const name = $('#nbName').value.trim();
+    if (!name) { toast('先起个名字'); return; }
+    BANKS.push({ id: 'b' + Date.now(), name: name, count: 0, meta: $('#nbVis').value, act: '管理', status: 'published' });
+    logAudit('新建题库', name, '');
+    closeModal();
+    renderBanks();
+    toast('已创建「' + name + '」');
+  };
+}
+
+$('#newBank').addEventListener('click', openNewBank);
+$('#bankList').addEventListener('click', e => {
+  const b = e.target.closest('button[data-bank]');
+  if (b) openBank(b.dataset.bank);
+});
+$('#levelChips').addEventListener('click', e => {
+  const b = e.target.closest('button[data-level]');
+  if (!b) return;
+  const id = b.dataset.level;
+  if (id === 'CUSTOM') { toast('「自建」是保留难度'); return; }
+  if (DATA.some(s => s.level === id)) { toast('还有句子用这个难度，先改掉再删'); return; }
+  LEVELS = LEVELS.filter(l => l.id !== id);
+  renderLevels();
+  toast('已删除难度');
+});
+$('#addLevel').addEventListener('click', () => {
+  const v = $('#newLevel').value.trim();
+  if (!v) return;
+  const id = v.toUpperCase().replace(/\s+/g, '_');
+  if (LEVELS.some(l => l.id === id)) { toast('这个难度已存在'); return; }
+  LEVELS.splice(LEVELS.length - 1, 0, { id: id, label: v });
+  $('#newLevel').value = '';
+  renderLevels();
+  toast('已添加「' + v + '」');
+});
+
+$('#pickFile').addEventListener('click', () => toast('原型不读文件，这里演示校验结果'));
+$('#doImport').addEventListener('click', e => {
+  const bank = BANKS.find(b => b.id === $('#importTarget').value) || BANKS[2];
+  bank.count += 3;
+  e.currentTarget.disabled = true;
+  e.currentTarget.textContent = '已导入 3 句';
+  renderBanks();
+  toast('已导入 3 句到「' + bank.name + '」（演示）');
+});
+
+/* ---------------- 设置 ---------------- */
+function renderSettings(){
+  const u = app.user;
+  const account = u
+    ? '<div class="setting"><div class="setting-label">账号</div><div>' +
+        '<div style="font-size:14px;display:flex;align-items:center;gap:8px">' + esc(u.name) +
+        '<span class="row-state ' + (u.role === 'ADMIN' ? 'urgent' : '') + '">' + (u.role === 'ADMIN' ? '管理员' : '用户') + '</span></div>' +
+        '<div class="row-meta">' + esc(u.email) + '</div>' +
+        '<div style="margin-top:16px"><button class="linkish" id="logout">退出登录</button></div>' +
+      '</div></div>'
+    : '<div class="setting"><div class="setting-label">账号</div><div>' +
+        '<div style="font-size:13px;color:var(--ink2)">当前是游客，数据只存在这台设备上。</div>' +
+        '<div style="margin-top:14px"><a class="linkish" href="#/login">登录或注册</a></div>' +
+      '</div></div>';
+
+  const grading = [
+    ['local', '仅本地', '要点匹配 + 词级 diff。离线可用，零成本。'],
+    ['auto', '自动（推荐）', '先本地出结果，置信度低时再调模型。'],
+    ['model', '总是模型', '每次都走 LLM，最准也最慢。']
+  ].map(([v, t, d]) =>
+    '<label class="radio"><input type="radio" name="grading" value="' + v + '"' + (app.grading === v ? ' checked' : '') + '>' +
+    '<span><b>' + t + '</b><small>' + d + '</small></span></label>'
+  ).join('');
+
+  const themes = [
+    ['paper', '稿纸', '暖白纸底，日常用。'],
+    ['night', '夜读', '低亮度的暖黑，晚上不刺眼。'],
+    ['system', '跟随系统', '系统切暗色时一起切。']
+  ].map(([v, t, d]) =>
+    '<label class="radio"><input type="radio" name="theme" value="' + v + '"' + (app.themeMode === v ? ' checked' : '') + '>' +
+    '<span><b>' + t + '</b><small>' + d + '</small></span></label>'
+  ).join('');
+
+  const goals = [1, 3, 5].map(v =>
+    '<label class="radio"><input type="radio" name="goal" value="' + v + '"' + (app.goal === v ? ' checked' : '') + '>' +
+    '<span><b>每天 ' + v + ' 句</b></span></label>'
+  ).join('');
+
+  const rubrics = [
+    ['tem8', '专八', '忠实 60 / 语言适切 40'],
+    ['catti', 'CATTI', '错译漏译扣分制'],
+    ['ielts', '雅思', 'TR / CC / LR / GRA 各 25%']
+  ].map(([v, t, d]) =>
+    '<label class="radio"><input type="radio" name="rubric" value="' + v + '"' + (app.rubric === v ? ' checked' : '') + '>' +
+    '<span><b>' + t + '</b><small>' + d + '</small></span></label>'
+  ).join('');
+
+  const zones = ['Asia/Shanghai', 'Asia/Tokyo', 'Europe/London', 'America/New_York', 'UTC'].map(z =>
+    '<option' + (app.tz === z ? ' selected' : '') + '>' + z + '</option>'
+  ).join('');
+
+  $('#settingsBody').innerHTML = account +
+    '<div class="setting"><div class="setting-label">批改方式</div><div>' + grading + '</div></div>' +
+    '<div class="setting"><div class="setting-label">外观</div><div>' + themes + '</div></div>' +
+    '<div class="setting"><div class="setting-label">每日目标</div><div>' + goals + '</div></div>' +
+    '<div class="setting"><div class="setting-label">评分标准</div><div>' + rubrics + '</div></div>' +
+    '<div class="setting"><div class="setting-label">提醒</div><div>' +
+      '<div style="font-size:13px;color:var(--ink2);line-height:1.7">PWA 通知只在安装后可用；iOS 需要手动授权，每天最多一条，默认关闭。</div>' +
+      '<div style="margin-top:14px"><button class="linkish" id="notifyBtn">申请通知权限（演示）</button></div>' +
+    '</div></div>' +
+    '<div class="setting"><div class="setting-label">时区</div><div>' +
+      '<select id="tzSelect" class="select">' + zones + '</select>' +
+      '<div class="setting-desc">按本地日期计算今日到期与连续天数</div>' +
+    '</div></div>' +
+    '<div class="setting"><div class="setting-label">更多</div><div style="display:flex;gap:18px;flex-wrap:wrap">' +
+      '<a class="linkish" href="#/stats">统计</a>' +
+      (isAdmin() ? '<a class="linkish" href="#/admin">管理</a>' : '') +
+      '<button class="linkish" id="checkUpdate">检查更新</button>' +
+      '<button class="linkish" id="rePlacement">重新定级</button>' +
+    '</div></div>' +
+    '<div class="setting"><div class="setting-label">数据与隐私</div><div>' +
+      '<div style="font-size:13px;color:var(--ink2);line-height:1.75">深度批改会把译文发给模型供应商（当前 DeepSeek · 中国），仅用于本次批改，不用于训练。开启「仅本地」后译文不会外发。</div>' +
+      '<div style="margin-top:14px"><label class="radio"><input type="checkbox" id="localOnly"' + (app.localOnly ? ' checked' : '') + '>' +
+      '<span><b>仅本地批改</b><small>关闭后才会调用模型；首次调用前会再确认一次。</small></span></label></div>' +
+    '</div></div>' +
+    '<div class="setting"><div class="setting-label">数据</div><div>' +
+      '<div style="font-size:13px;color:var(--ink2);line-height:1.7">答题记录和句库缓存都在本机。换设备时先导出。答题流水保留 90 天，聚合统计长期保留，审计 1 年。</div>' +
+      '<div style="margin-top:16px;display:flex;gap:18px;flex-wrap:wrap">' +
+        '<button class="linkish" id="exportData">导出 JSON</button>' +
+        '<button class="linkish" id="deleteAccount">删除账号</button>' +
+        '<button class="linkish" id="clearData">清空本地数据</button>' +
+      '</div>' +
+    '</div></div>' +
+    '<div class="setting"><div class="setting-label">快捷键</div><div>' +
+      '<table class="kbd-table">' +
+        '<tr><td>提交 / 下一句</td><td>⌘ / Ctrl + ↵</td></tr>' +
+        '<tr><td>焦点跳下一个空</td><td>↵</td></tr>' +
+        '<tr><td>切换模式</td><td>1 / 2</td></tr>' +
+      '</table>' +
+    '</div></div>';
+
+  const out = $('#logout');
+  if (out) out.addEventListener('click', () => {
+    app.user = null;
+    store.set('yl-user', null);
+    updateAvatar();
+    renderSettings();
+    toast('已退出登录');
+  });
+  $('#exportData').addEventListener('click', () => {
+    const payload = {
+      user: app.user,
+      attempts: app.attempts,
+      reviews: app.reviews,
+      exportedAt: new Date().toISOString()
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'yilian-export.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast('已导出 JSON');
+  });
+  $('#deleteAccount').addEventListener('click', () => {
+    askReason('删除账号', '软删 30 天可恢复，之后匿名化；答题流水会一起清理。', ['不再使用', '隐私顾虑', '其他'], () => {
+      app.user = null;
+      store.set('yl-user', null);
+      updateAvatar();
+      toast('已进入 30 天冷静期（演示）');
+      renderSettings();
+    });
+  });
+  $('#clearData').addEventListener('click', () => {
+    if (!confirm('清空本机的答题记录和草稿？')) return;
+    localStorage.removeItem('yl-drafts');
+    localStorage.removeItem('yl-user');
+    localStorage.removeItem('yl-grading');
+    localStorage.removeItem('yl-theme-mode');
+    localStorage.removeItem('yl-goal');
+    localStorage.removeItem('yl-rubric');
+    localStorage.removeItem('yl-budget');
+    location.reload();
+  });
+
+  $$('input[name="grading"]').forEach(el => el.addEventListener('change', () => {
+    app.grading = el.value;
+    store.set('yl-grading', app.grading);
+    toast('批改方式：' + (el.value === 'local' ? '仅本地' : el.value === 'auto' ? '自动' : '总是模型'));
+  }));
+  $$('input[name="theme"]').forEach(el => el.addEventListener('change', () => {
+    applyTheme(el.value);
+  }));
+  $$('input[name="goal"]').forEach(el => el.addEventListener('change', () => {
+    app.goal = Number(el.value);
+    store.set('yl-goal', app.goal);
+    updateSessionBar();
+    toast('每日目标：' + app.goal + ' 句');
+  }));
+  $$('input[name="rubric"]').forEach(el => el.addEventListener('change', () => {
+    app.rubric = el.value;
+    store.set('yl-rubric', app.rubric);
+    toast('评分标准已切换');
+  }));
+  const notifyBtn = $('#notifyBtn');
+  if (notifyBtn) notifyBtn.addEventListener('click', () => toast('原型不申请权限；正式版会先说明用途'));
+  const lo = $('#localOnly');
+  if (lo) lo.addEventListener('change', () => {
+    app.localOnly = lo.checked;
+    store.set('yl-local-only', app.localOnly);
+    toast(app.localOnly ? '已切换为仅本地批改' : '已允许深度批改调用模型');
+  });
+  const tzSel = $('#tzSelect');
+  if (tzSel) tzSel.addEventListener('change', () => {
+    app.tz = tzSel.value;
+    store.set('yl-tz', app.tz);
+    toast('时区已切换为 ' + app.tz);
+  });
+  const cu = $('#checkUpdate');
+  if (cu) cu.addEventListener('click', () => {
+    $('#updateBar').hidden = false;
+    toast('发现新版本');
+  });
+  const rp = $('#rePlacement');
+  if (rp) rp.addEventListener('click', () => {
+    pl.i = 0; pl.correct = 0; pl.missed = [];
+    navigate('placement');
+  });
+}
+
+/* ---------------- 登录 ---------------- */
+function renderLogin(){
+  $$('.auth-tabs button').forEach(b => b.classList.toggle('on', b.dataset.a === app.authMode));
+  $('#authTitle').textContent = app.authMode === 'login' ? '登录' : '注册';
+  $('#authSubmit').textContent = app.authMode === 'login' ? '登录' : '创建账号';
+  $('#inviteField').hidden = app.authMode !== 'register';
+}
+$$('.auth-tabs button').forEach(b => b.addEventListener('click', () => {
+  app.authMode = b.dataset.a;
+  renderLogin();
+}));
+$('#authSubmit').addEventListener('click', () => {
+  const email = $('#authEmail').value.trim();
+  const pass = $('#authPass').value;
+  if (!email || pass.length < 8) { toast('邮箱和至少 8 位密码'); return; }
+  if (app.authMode === 'register') {
+    const code = $('#authInvite').value.trim().toUpperCase();
+    const inv = app.invites.find(x => x.code === code && !x.used);
+    if (!inv) { toast('邀请码无效或已被使用'); return; }
+    inv.used = true;
+    renderInvites();
+  }
+  app.user = { name: email.split('@')[0] || '林', email, role: 'USER' };
+  store.set('yl-user', app.user);
+  updateAvatar();
+  toast(app.authMode === 'login' ? '登录成功（原型）' : '账号已创建（原型）');
+  navigate('today');
+});
+$('#asGuest').addEventListener('click', () => { app.user = null; store.set('yl-user', null); updateAvatar(); navigate('today'); });
+$('#asAdmin').addEventListener('click', () => {
+  app.user = { name: '管理员', email: 'admin@local', role: 'ADMIN' };
+  store.set('yl-user', app.user);
+  updateAvatar();
+  toast('已进入管理员视图（原型）');
+  navigate('banks');
+});
+
+/* ---------------- 管理后台 ---------------- */
+const USERS = [
+  { id:'u1',  name:'林',     email:'lin@local',         role:'ADMIN', status:'active',   joined:'2026-09-12', last:'今天 14:20', attempts:186, avg:84 },
+  { id:'u2',  name:'陈雨',   email:'chenyu@mail.com',   role:'USER',  status:'active',   joined:'2026-09-18', last:'今天 11:02', attempts:132, avg:78 },
+  { id:'u3',  name:'周岚',   email:'zhoulan@mail.com',  role:'USER',  status:'active',   joined:'2026-09-21', last:'今天 09:41', attempts:98,  avg:81 },
+  { id:'u4',  name:'许一鸣', email:'xuyiming@mail.com', role:'USER',  status:'active',   joined:'2026-09-27', last:'昨天',       attempts:74,  avg:69 },
+  { id:'u5',  name:'沈知',   email:'shenzhi@mail.com',  role:'USER',  status:'disabled', joined:'2026-10-02', last:'3 天前',     attempts:41,  avg:57 },
+  { id:'u6',  name:'罗青',   email:'luoqing@mail.com',  role:'USER',  status:'active',   joined:'2026-10-05', last:'今天 08:15', attempts:63,  avg:88 },
+  { id:'u7',  name:'唐糖',   email:'tangtang@mail.com', role:'USER',  status:'active',   joined:'2026-10-08', last:'昨天',       attempts:37,  avg:72 },
+  { id:'u8',  name:'韩叙',   email:'hanxu@mail.com',    role:'USER',  status:'active',   joined:'2026-10-11', last:'2 天前',     attempts:22,  avg:64 },
+  { id:'u9',  name:'顾白',   email:'gubai@mail.com',    role:'USER',  status:'active',   joined:'2026-10-14', last:'今天 13:06', attempts:19,  avg:76 },
+  { id:'u10', name:'管理员', email:'admin@local',       role:'ADMIN', status:'active',   joined:'2026-09-01', last:'今天 14:22', attempts:12,  avg:90 }
+];
+
+app.audit = [
+  { at: Date.now() - 2 * 3600000, actor: '管理员', ip: '10.0.0.12', action: '查看作答', target: '陈雨 · s2', reason: '内容纠错' },
+  { at: Date.now() - 26 * 3600000, actor: '管理员', ip: '10.0.0.12', action: '停用账号', target: '沈知', reason: '用户申请' },
+  { at: Date.now() - 3 * 86400000, actor: '管理员', ip: '172.16.8.3', action: '导入题库', target: '官方题库 v3 · 48 句', reason: '' },
+  { at: Date.now() - 4 * 86400000, actor: '林', ip: '203.0.113.7', action: '变更角色', target: '林 · ADMIN', reason: '团队调整' }
+];
+
+function logAudit(action, target, reason){
+  app.audit.unshift({
+    at: Date.now(),
+    actor: (app.user && app.user.name) || '管理员',
+    ip: '127.0.0.1',
+    action: action,
+    target: target,
+    reason: reason || ''
+  });
+}
+function fmtClock(ts){
+  const d = new Date(ts);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+const PROVIDERS = [
+  {
+    id: 'deepseek', name: 'DeepSeek', type: 'OpenAI 兼容', model: 'deepseek-chat',
+    base: 'https://api.deepseek.com', key: 'sk-••••7f2a', enabled: true, balance: 42.6, balanceAuto: true,
+    models: [
+      { id: 'deepseek-chat', label: 'deepseek-chat' },
+      { id: 'deepseek-reasoner', label: 'deepseek-reasoner' },
+      { id: 'deepseek-v4.1-flash', label: 'v4.1-flash · 2026-10-17' }
+    ]
+  },
+  {
+    id: 'ollama', name: 'Ollama（本地）', type: '本地模型', model: 'qwen2.5:7b',
+    base: 'http://localhost:11434/v1', key: '—', enabled: true, balance: null, balanceAuto: false,
+    models: [
+      { id: 'qwen2.5:7b', label: 'qwen2.5:7b' },
+      { id: 'qwen2.5:14b', label: 'qwen2.5:14b' },
+      { id: 'llama3.1:8b', label: 'llama3.1:8b' }
+    ]
+  },
+  {
+    id: 'openai', name: 'OpenAI', type: 'OpenAI', model: 'gpt-4.1-mini',
+    base: 'https://api.openai.com/v1', key: 'sk-••••3c91', enabled: false, balance: null, balanceAuto: false,
+    models: [
+      { id: 'gpt-4.1-mini', label: 'gpt-4.1-mini' },
+      { id: 'gpt-4.1', label: 'gpt-4.1' },
+      { id: 'o4-mini', label: 'o4-mini' }
+    ]
+  }
+];
+
+const ROUTES = [
+  { task: '语块填空批改', model: 'local-rules', note: '本地确定性判定，零成本零延迟' },
+  { task: '整句翻译批改', model: 'deepseek:deepseek-chat', note: '五维评分 + 逐句证据' },
+  { task: '申诉裁决', model: 'deepseek:deepseek-reasoner', note: '只判断语义等价' },
+  { task: '改写建议', model: 'deepseek:deepseek-chat', note: '生成更地道的表达' }
+];
+
+const PROMPTS = [
+  {
+    id: 'cloze', name: '语块填空批改', version: 3, updated: '10-21', enabled: true,
+    versions: [{ v: 3, status: 'production', eval: 92 }, { v: 2, status: 'archived', eval: 88 }],
+    system: '你是英语写作教师。按语块是否命中判分，只输出 JSON，不要解释。',
+    user: '中文：{{zh}}\n参考译文：{{ref}}\n语块：{{chunks}}\n学生答案：{{answer}}\n\n请逐槽判断命中、缺失或错误，并给出分数。'
+  },
+  {
+    id: 'free', name: '整句翻译批改', version: 5, updated: '10-19', enabled: true,
+    versions: [{ v: 5, status: 'production', eval: 90 }, { v: 4, status: 'archived', eval: 86 }],
+    system: '你是专八翻译阅卷人。按五维评分：信息完整 30、语法 20、搭配 20、句法 20、语域 10。只输出 JSON。',
+    user: '中文：{{zh}}\n参考译文：{{ref}}\n评分标准：{{rubric}}\n学生译文：{{answer}}\n\n每维给 score 与 evidence，并给出 minimal_fix 与 next_drill。'
+  },
+  {
+    id: 'appeal', name: '申诉裁决', version: 2, updated: '10-17', enabled: true,
+    versions: [{ v: 2, status: 'production', eval: 95 }, { v: 1, status: 'archived', eval: 90 }],
+    system: '你判断学生的译法是否与参考译文语义等价。只输出 JSON：{"accept":true,"reason":"..."}',
+    user: '中文：{{zh}}\n参考译文：{{ref}}\n学生答案：{{answer}}\n\n只判断语义是否等价，不评价风格。'
+  }
+];
+
+const LLM_USAGE = (function(){
+  const rnd = mulberry32(4242);
+  const out = [];
+  for (let i = 13; i >= 0; i--) {
+    const calls = 3 + Math.floor(rnd() * 17);
+    out.push({ back: i, calls: calls, tokens: calls * (520 + Math.floor(rnd() * 480)) });
+  }
+  return out;
+})();
+
+/* ---------------- AI 出题 ---------------- */
+const GEN_TAGS = ['时态', '搭配', '倒装', '从句', '非谓语', '虚拟语气'];
+let genTags = ['搭配'];
+let genValid = [];
+
+const GEN_SAMPLE = [
+  {
+    zh: '随着人们生活水平的提高，越来越多的人开始关注健康。',
+    ref: 'As living standards improve, more and more people are paying attention to their health.',
+    chunks: [
+      { zh: '随着人们生活水平的提高', answers: ['As living standards improve'] },
+      { zh: '越来越多的人', answers: ['more and more people'] },
+      { zh: '开始关注', answers: ['are paying attention to'] },
+      { zh: '健康', answers: ['their health'] }
+    ],
+    blank: [1, 2], tags: ['搭配', '时态'], level: 'CET4',
+    note: 'As 引导时间状语从句；more and more 作定语；pay attention to 后接名词。'
+  },
+  {
+    zh: '出国旅行前，最好提前了解当地的风俗习惯。',
+    ref: 'Before traveling abroad, you had better learn about the local customs in advance.',
+    chunks: [
+      { zh: '出国旅行前', answers: ['Before traveling abroad'] },
+      { zh: '最好', answers: ['you had better'] },
+      { zh: '了解', answers: ['learn about'] },
+      { zh: '当地的风俗习惯', answers: ['the local customs'] },
+      { zh: '提前', answers: ['in advance'] }
+    ],
+    blank: [1, 3], tags: ['搭配'], level: 'CET4',
+    note: 'had better 后接动词原形；in advance 是固定副词短语，放句末。'
+  },
+  {
+    zh: '高中阶段养成的时间管理习惯，会让人受益终生。',
+    ref: 'The time management habits formed in high school will benefit you for a lifetime.',
+    chunks: [
+      { zh: '高中阶段养成的时间管理习惯', answers: ['The time management habits formed in high school'] },
+      { zh: '会让人', answers: ['will benefit you'] },
+      { zh: '受益终生', answers: ['for a lifetime'] }
+    ],
+    blank: [1, 2], tags: ['从句', '搭配'], level: 'CET4',
+    note: 'formed in high school 是过去分词短语作后置定语；benefit sb for a lifetime。'
+  }
+];
+
+function normLoose(s){
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function renderGen(){
+  const box = $('#genTags');
+  if (box) {
+    box.innerHTML = GEN_TAGS.map(t =>
+      '<button class="var ' + (genTags.indexOf(t) >= 0 ? 'on' : '') + '" data-tag="' + t + '">' + t + '</button>'
+    ).join('');
+  }
+  const p = PROVIDERS.find(x => x.enabled && x.id === 'deepseek');
+  const btn = $('#genModelBtn');
+  if (btn) btn.textContent = '用 ' + (p ? p.name + ' · ' + p.model : '当前模型') + ' 生成';
+  renderBatches();
+}
+
+function renderBatches(){
+  const box = $('#batchList');
+  if (!box) return;
+  if (!app.batches.length) {
+    box.innerHTML = '<li class="row-empty">还没有导入批次。用模型生成或粘贴导入后会出现在这里。</li>';
+    $('#batchPager').innerHTML = '';
+    return;
+  }
+  const info = paginate('batches', app.batches);
+  box.innerHTML = info.rows.map(b =>
+    '<li><div><div class="row-main">' + esc(b.id) + ' · ' + esc(bankName(b.bank)) + '</div>' +
+    '<div class="row-meta">' + b.count + ' 句 · ' + fmtWhen(b.at) + (b.rolledBack ? ' · 已回滚' : '') + '</div></div>' +
+    '<span class="row-state ' + (b.rolledBack ? 'urgent' : 'mastered') + '">' + (b.rolledBack ? '已回滚' : '已提交') + '</span>' +
+    (b.rolledBack ? '<span></span>' : '<button class="row-act" data-batch="' + b.id + '">回滚</button>') + '</li>'
+  ).join('');
+  $('#batchPager').innerHTML = pagerHtml('batches', info);
+}
+
+$('#batchList').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-batch]');
+  if (!btn) return;
+  const b = app.batches.find(x => x.id === btn.dataset.batch);
+  if (!b) return;
+  b.ids.forEach(id => {
+    const s = DATA.find(x => x.id === id);
+    if (s) s.status = 'deleted';
+  });
+  b.rolledBack = true;
+  logAudit('回滚导入批次', b.id, '');
+  renderBatches();
+  renderQuestions();
+  renderBanks();
+  toast('已回滚 ' + b.count + ' 句到回收站');
+});
+
+function buildGenPrompt(){
+  const target = ($('#genTarget').value || '').trim() || '通用中译英练习';
+  const levelId = $('#genLevel').value;
+  const level = levelLabel(levelId);
+  const count = $('#genCount').value;
+  const tags = genTags.length ? genTags.join('、') : '不限';
+  const extra = ($('#genExtra').value || '').trim();
+
+  return '你是一位英语教学与测试专家。请生成 ' + count + ' 道「中译英」练习题，用于「' + target + '」，难度对应 ' + level + '。\n\n' +
+    '要求：\n' +
+    '1. 中文原句 15–40 字，语域贴近该场景；必须是原创句，不要复制任何真题、教材或网站原文。\n' +
+    '2. 每句给出参考译文，英文自然地道，不要中式表达。\n' +
+    '3. 把英文译文切成 3–6 个语块（chunk），每个语块给 1–3 种可接受译法。\n' +
+    '4. 每句给 1–2 句中文解析（note），说明考点与易错点，不要复述译文。\n' +
+    '5. 每句挑 1–2 个语块挖空，写进 blank 数组，下标从 0 开始。\n' +
+    '6. 只考这些考点：' + tags + '。\n' +
+    '7. 严格输出 JSON 数组，不要 Markdown 代码块，不要解释。\n' +
+    (extra ? '8. 补充要求：' + extra + '\n' : '') +
+    '\nJSON 结构：\n' +
+    '[\n' +
+    '  {\n' +
+    '    "zh": "中文原句",\n' +
+    '    "ref": "Reference English translation.",\n' +
+    '    "note": "中文解析，说明考点与易错点。",\n' +
+    '    "chunks": [\n' +
+    '      { "zh": "中文语块", "answers": ["English chunk", "alternative"] }\n' +
+    '    ],\n' +
+    '    "blank": [1],\n' +
+    '    "tags": ["搭配"],\n' +
+    '    "level": "' + levelId + '"\n' +
+    '  }\n' +
+    ']\n\n' +
+    '自检（必须全部满足）：\n' +
+    '- 每个 chunk 的 answers[0] 按顺序用空格拼接，去掉标点后必须等于 ref。\n' +
+    '- blank 的每个下标都能在 chunks 里找到。\n' +
+    '- note 不少于 20 字，不能只写「注意搭配」这类空话。\n' +
+    '- 英文里不要出现中文标点。';
+}
+
+function bigrams(t){
+  const s = normLoose(t).replace(/\s+/g, '');
+  const out = new Set();
+  for (let i = 0; i < s.length - 1; i++) out.add(s.slice(i, i + 2));
+  return out;
+}
+function jaccard(a, b){
+  let inter = 0;
+  a.forEach(x => { if (b.has(x)) inter++; });
+  return inter / ((a.size + b.size - inter) || 1);
+}
+
+function validateGen(){
+  let raw = $('#genPaste').value.trim();
+  if (!raw) { toast('先粘贴 AI 返回的 JSON'); return; }
+  raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  let arr;
+  try { arr = JSON.parse(raw); } catch (e) { toast('JSON 解析失败：' + e.message); return; }
+  if (!Array.isArray(arr)) {
+    if (arr && Array.isArray(arr.questions)) arr = arr.questions;
+    else arr = [arr];
+  }
+
+  genValid = [];
+  const fp = x => normLoose(x.zh) + '|' + normLoose(x.ref);
+  const existingFp = {};
+  DATA.forEach(x => { existingFp[fp(x)] = x.id; });
+  const seenFp = {};
+  const rows = arr.map((it, i) => {
+    const errs = [];
+    if (!it || typeof it !== 'object') {
+      errs.push('不是对象');
+    } else {
+      if (!it.zh || String(it.zh).length < 4) errs.push('中文过短');
+      if (it.zh && it.ref) {
+        const key = fp(it);
+        if (seenFp[key]) errs.push('与第 ' + seenFp[key] + ' 行重复');
+        else seenFp[key] = i + 1;
+        if (existingFp[key]) errs.push('题库中已存在');
+        const zhBg = bigrams(it.zh);
+        if (zhBg.size >= 4) {
+          const near = DATA.find(x => jaccard(bigrams(x.zh), zhBg) > 0.82 && normLoose(x.zh) !== normLoose(it.zh));
+          if (near) errs.push('疑似与「' + near.zh.slice(0, 10) + '…」近似');
+        }
+      }
+      if (!it.ref) errs.push('缺 ref');
+      if (!it.note || String(it.note).length < 6) errs.push('缺解析');
+      if (!Array.isArray(it.chunks) || !it.chunks.length) {
+        errs.push('chunks 为空');
+      } else {
+        it.chunks.forEach((c, k) => {
+          if (!c || !Array.isArray(c.answers) || !c.answers.length) errs.push('第 ' + (k + 1) + ' 块缺 answers');
+        });
+      }
+      if (!Array.isArray(it.blank)) {
+        errs.push('blank 不是数组');
+      } else {
+        it.blank.forEach(b => {
+          if (!Array.isArray(it.chunks) || b < 0 || b >= it.chunks.length) errs.push('blank 下标越界');
+        });
+      }
+      if (it.ref && Array.isArray(it.chunks)) {
+        const concat = it.chunks.map(c => (c.answers && c.answers[0]) || '').join(' ');
+        if (normLoose(concat) !== normLoose(it.ref)) errs.push('chunks 拼接与 ref 不一致');
+      }
+    }
+    const ok = errs.length === 0;
+    if (ok) genValid.push(it);
+    return { row: i + 1, zh: (it && it.zh) || '—', note: (it && it.note) || '', ok: ok, why: errs.join('；') };
+  });
+
+  $('#genTable').innerHTML = rows.map(r =>
+    '<tr class="' + (r.ok ? '' : 'bad') + '"><td>' + r.row + '</td><td>' + esc(r.zh) + '</td>' +
+    '<td>' + (r.note ? esc(r.note) : '<span style="color:var(--vermilion)">缺解析</span>') + '</td>' +
+    '<td>' + (r.ok ? '<span class="status-ok">通过</span>' : esc(r.why)) + '</td></tr>'
+  ).join('');
+  $('#genSum').textContent = rows.length + ' 行 · ' + genValid.length + ' 行通过';
+  $('#genImport').disabled = genValid.length === 0;
+  $('#genResult').textContent = '解析 ' + rows.length + ' 行';
+}
+
+$('#genTags').addEventListener('click', e => {
+  const b = e.target.closest('button[data-tag]');
+  if (!b) return;
+  const t = b.dataset.tag;
+  const i = genTags.indexOf(t);
+  if (i >= 0) genTags.splice(i, 1); else genTags.push(t);
+  renderGen();
+});
+
+$('#genPromptBtn').addEventListener('click', () => {
+  const p = buildGenPrompt();
+  $('#genPrompt').value = p;
+  $('#genMeta').textContent = p.length + ' 字 · 约 ' + Math.round(p.length / 2) + ' tokens';
+  toast('Prompt 已生成，可以复制');
+});
+
+$('#genCopy').addEventListener('click', async () => {
+  const v = $('#genPrompt').value;
+  if (!v) { toast('先生成 Prompt'); return; }
+  try {
+    await navigator.clipboard.writeText(v);
+    toast('已复制到剪贴板');
+  } catch (e) {
+    $('#genPrompt').select();
+    try { document.execCommand('copy'); toast('已复制'); }
+    catch (e2) { toast('复制失败，请手动全选'); }
+  }
+});
+
+$('#genModelBtn').addEventListener('click', () => {
+  const p = PROVIDERS.find(x => x.enabled && x.id === 'deepseek');
+  toast('正在用 ' + (p ? p.model : '模型') + ' 生成…');
+  setTimeout(() => {
+    $('#genPaste').value = JSON.stringify(GEN_SAMPLE, null, 2);
+    validateGen();
+    toast('已生成 3 句，请校验后导入');
+  }, 900);
+});
+
+$('#genValidate').addEventListener('click', validateGen);
+
+let genSeq = 0;
+$('#genImport').addEventListener('click', () => {
+  if (!genValid.length) return;
+  const bank = BANKS.find(b => b.id === $('#genTargetBank').value) || BANKS[2];
+  const n = genValid.length;
+  const newIds = [];
+  genValid.forEach((it, i) => {
+    const id = 'g' + (++genSeq) + '_' + i;
+    newIds.push(id);
+    DATA.push({
+      id: id,
+      bankId: bank.id,
+      level: it.level || 'CUSTOM',
+      tags: it.tags && it.tags.length ? it.tags : ['自建'],
+      zh: it.zh,
+      ref: it.ref,
+      note: it.note,
+      chunks: it.chunks,
+      blank: it.blank
+    });
+  });
+  app.batches.unshift({
+    id: 'B-' + String(Date.now()).slice(-6),
+    bank: bank.id,
+    count: n,
+    ids: newIds,
+    rolledBack: false,
+    at: Date.now()
+  });
+  bank.count = DATA.filter(x => x.bankId === bank.id).length;
+  renderBatches();
+  toast('已导入 ' + n + ' 句到「' + bank.name + '」，切过去就能练');
+  genValid = [];
+  $('#genImport').disabled = true;
+  $('#genSum').textContent = '已导入 ' + n + ' 句，可继续粘贴下一批';
+});
+
+function renderModels(){
+  $('#modelList').innerHTML = PROVIDERS.map(p => {
+    const opts = (p.models || [{ id: p.model, label: p.model }]).map(m =>
+      '<option value="' + m.id + '"' + (m.id === p.model ? ' selected' : '') + '>' + esc(m.label) + '</option>'
+    ).join('');
+    return '<div class="model-card ' + (p.enabled ? 'on' : '') + '">' +
+      '<div class="model-head"><span class="model-name">' + esc(p.name) + '</span>' +
+      '<span class="live ' + (p.enabled ? '' : 'off') + '">' + (p.enabled ? '启用' : '停用') + '</span></div>' +
+      '<div class="model-meta">' + esc(p.type) + '<br>' + esc(p.base) + '</div>' +
+      '<select class="model-select" data-model="' + p.id + '">' + opts + '</select>' +
+      '<div class="model-balance">' + (p.balance != null ? '¥' + p.balance.toFixed(2) : '—') +
+        '<small>' + (p.balanceAuto ? '自动查询' : p.balance != null ? '手动' : '未开放接口') + '</small></div>' +
+      '<div class="model-actions">' +
+        '<button class="linkish" data-act="edit" data-id="' + p.id + '">配置</button>' +
+        '<button class="linkish" data-act="test" data-id="' + p.id + '">测试连接</button>' +
+        '<button class="linkish" data-act="toggle" data-id="' + p.id + '">' + (p.enabled ? '停用' : '启用') + '</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  const allModels = [{ id: 'local-rules', label: '本地规则（不调模型）' }];
+  PROVIDERS.filter(p => p.enabled).forEach(p => {
+    (p.models || []).forEach(m => allModels.push({ id: p.id + ':' + m.id, label: p.name + ' · ' + m.label }));
+  });
+  $('#routeList').innerHTML = ROUTES.map(r =>
+    '<li><div><div class="row-main">' + esc(r.task) + '</div>' +
+    '<div class="row-meta">' + esc(r.note || '') + '</div></div>' +
+    '<span class="row-state ' + (r.model === 'local-rules' ? 'mastered' : '') + '">' + (r.model === 'local-rules' ? '本地' : '模型') + '</span>' +
+    '<select class="select route-select" data-task="' + esc(r.task) + '">' +
+      allModels.map(m => '<option value="' + m.id + '"' + (m.id === r.model ? ' selected' : '') + '>' + esc(m.label) + '</option>').join('') +
+    '</select></li>'
+  ).join('');
+
+  $('#promptList').innerHTML = PROMPTS.map(t =>
+    '<li><div><div class="row-main">' + esc(t.name) + '</div>' +
+    '<div class="row-meta">v' + t.version + ' · 更新于 ' + esc(t.updated) + '</div></div>' +
+    '<span class="row-state ' + (t.enabled === false ? '' : 'mastered') + '">' + (t.enabled === false ? '停用' : '启用') + '</span>' +
+    '<button class="row-act" data-prompt="' + t.id + '">编辑</button></li>'
+  ).join('');
+
+  const calls = LLM_USAGE.reduce((s, x) => s + x.calls, 0);
+  const tokens = LLM_USAGE.reduce((s, x) => s + x.tokens, 0);
+  const cost = calls * 0.012;
+  const ds = PROVIDERS.find(p => p.id === 'deepseek');
+  $('#usageMetrics').innerHTML =
+    '<div class="metric"><b>' + calls + '</b><span>近 14 天请求</span></div>' +
+    '<div class="metric"><b>' + (tokens / 1000).toFixed(0) + '<small>k</small></b><span>Tokens</span></div>' +
+    '<div class="metric"><b>¥' + cost.toFixed(1) + '</b><span>估算成本</span></div>' +
+    '<div class="metric"><b>' + (ds && ds.balance != null ? '¥' + ds.balance.toFixed(1) : '—') + '</b><span>账户余额</span></div>';
+
+  const max = Math.max.apply(null, LLM_USAGE.map(x => x.calls));
+  $('#usageBars').innerHTML = LLM_USAGE.map((x, i) => {
+    const pct = Math.max(8, Math.round(x.calls / max * 100));
+    return '<i class="' + (i === LLM_USAGE.length - 1 ? 'today' : 'has') + '" style="height:' + pct + '%" title="' + x.calls + ' 次 / ' + x.tokens + ' tokens"></i>';
+  }).join('');
+
+  $('#budgetInput').value = app.budget;
+}
+
+function openProvider(id){
+  const p = PROVIDERS.find(x => x.id === id);
+  if (!p) return;
+  const list = (p.models || []).map(m => '<option value="' + esc(m.id) + '">' + esc(m.label) + '</option>').join('');
+  $('#modal').className = 'modal';
+  $('#modal').innerHTML =
+    '<button class="drawer-close" id="pClose">×</button>' +
+    '<div class="drawer-kicker">模型配置 · ' + esc(p.type) + '</div>' +
+    '<h3>' + esc(p.name) + '</h3>' +
+    '<div class="field"><label>Base URL</label><input id="pBase" value="' + esc(p.base) + '"></div>' +
+    '<div class="field"><label>模型（可从目录选，也可手填）</label>' +
+      '<input id="pModel" list="pModelList" value="' + esc(p.model) + '">' +
+      '<datalist id="pModelList">' + list + '</datalist></div>' +
+    '<div class="field"><label>API Key</label><input id="pKey" type="password" placeholder="' + (p.key === '—' ? '本地模型不需要' : '已保存，留空则不修改') + '"></div>' +
+    '<div class="model-meta">密钥加密存储，接口只返回掩码；保存后立即生效，无需重启。</div>' +
+    '<div style="margin-top:12px"><button class="linkish" id="pRefresh">从 /models 刷新目录</button></div>' +
+    '<div class="modal-actions"><button class="btn ghost" id="pTest">测试连接</button>' +
+    '<button class="btn primary" id="pSave">保存</button></div>';
+  $('#modalWrap').hidden = false;
+  document.body.style.overflow = 'hidden';
+  $('#pClose').onclick = closeModal;
+  $('#pRefresh').onclick = () => toast('已从 /models 拉取 ' + (p.models || []).length + ' 个模型（演示）');
+  $('#pSave').onclick = () => {
+    p.base = $('#pBase').value.trim() || p.base;
+    p.model = $('#pModel').value.trim() || p.model;
+    logAudit('更新模型配置', p.name + ' · ' + p.model, '');
+    closeModal();
+    renderModels();
+    toast('已保存并热更新，无需重启');
+  };
+  $('#pTest').onclick = () => {
+    if (!p.enabled) { toast('模型已停用，先启用再测试'); return; }
+    toast('连接正常 · ' + (p.id === 'ollama' ? 180 : 820) + 'ms');
+  };
+}
+
+function openPrompt(id){
+  const t = PROMPTS.find(x => x.id === id);
+  if (!t) return;
+  $('#modal').className = 'modal wide';
+  $('#modal').innerHTML =
+    '<button class="drawer-close" id="tClose">×</button>' +
+    '<div class="drawer-kicker">Prompt 模板 · v' + t.version + '</div>' +
+    '<h3>' + esc(t.name) + '</h3>' +
+    '<label class="prompt-label">系统提示词</label>' +
+    '<textarea class="prompt-area" id="tSystem" rows="3">' + esc(t.system) + '</textarea>' +
+    '<label class="prompt-label">用户模板</label>' +
+    '<textarea class="prompt-area" id="tUser" rows="7">' + esc(t.user) + '</textarea>' +
+    '<div class="vars">' +
+      ['{{zh}}', '{{ref}}', '{{chunks}}', '{{answer}}', '{{rubric}}', '{{tags}}'].map(v =>
+        '<button class="var" data-var="' + v + '">' + v + '</button>').join('') +
+    '</div>' +
+    '<pre class="preview-box" id="tPreview"></pre>' +
+    '<div class="modal-actions">' +
+      '<button class="btn ghost" id="tTest">试运行</button>' +
+      '<button class="btn primary" id="tSave">保存为新版本</button>' +
+    '</div>';
+  $('#modalWrap').hidden = false;
+  document.body.style.overflow = 'hidden';
+  $('#tClose').onclick = closeModal;
+  $$('#modal .var').forEach(b => b.addEventListener('click', () => {
+    const ta = $('#tUser');
+    ta.value += (ta.value && !/\s$/.test(ta.value) ? ' ' : '') + b.dataset.var;
+    ta.focus();
+  }));
+  $('#tTest').onclick = () => {
+    const box = $('#tPreview');
+    box.classList.add('on');
+    box.textContent =
+      '{\n  "score": 78,\n  "coverage": [{ "id": "more_and_more", "status": "hit" }],\n' +
+      '  "minimal_fix": "increasingly 更紧，more and more 偏口语",\n' +
+      '  "next_drill": "再练 2 句「副词结构」",\n  "tokens": 486\n}';
+  };
+  $('#tSave').onclick = () => {
+    t.system = $('#tSystem').value.trim();
+    t.user = $('#tUser').value.trim();
+    t.version += 1;
+    const d = new Date();
+    t.updated = String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    logAudit('更新 Prompt', t.name + ' · v' + t.version, '');
+    closeModal();
+    renderModels();
+    toast('已保存为 v' + t.version + '，下一请求生效');
+  };
+}
+
+$('#modelList').addEventListener('click', e => {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const p = PROVIDERS.find(x => x.id === b.dataset.id);
+  if (!p) return;
+  if (b.dataset.act === 'edit') openProvider(p.id);
+  else if (b.dataset.act === 'test') toast(p.enabled ? '连接正常 · ' + (p.id === 'ollama' ? 180 : 820) + 'ms' : '模型已停用');
+  else {
+    p.enabled = !p.enabled;
+    logAudit(p.enabled ? '启用模型' : '停用模型', p.name, '');
+    renderModels();
+  }
+});
+$('#modelList').addEventListener('change', e => {
+  const sel = e.target.closest('select[data-model]');
+  if (!sel) return;
+  const p = PROVIDERS.find(x => x.id === sel.dataset.model);
+  if (!p) return;
+  p.model = sel.value;
+  logAudit('切换模型', p.name + ' · ' + p.model, '');
+  toast(p.name + ' → ' + p.model);
+  renderModels();
+});
+$('#routeList').addEventListener('change', e => {
+  const sel = e.target.closest('select[data-task]');
+  if (!sel) return;
+  const r = ROUTES.find(x => x.task === sel.dataset.task);
+  if (!r) return;
+  r.model = sel.value;
+  logAudit('修改任务路由', r.task + ' · ' + r.model, '');
+  toast('「' + r.task + '」已改走 ' + sel.options[sel.selectedIndex].text);
+});
+$('#promptList').addEventListener('click', e => {
+  const b = e.target.closest('button[data-prompt]');
+  if (b) openPrompt(b.dataset.prompt);
+});
+$('#saveBudget').addEventListener('click', () => {
+  const v = Number($('#budgetInput').value);
+  if (!v || v < 0) { toast('填一个有效金额'); return; }
+  app.budget = v;
+  store.set('yl-budget', v);
+  toast('月度上限已设为 ¥' + v);
+});
+
+const qState = { query: '', bank: 'all', level: 'all', status: 'all', selected: new Set() };
+
+function bankName(id){
+  const b = BANKS.find(x => x.id === id);
+  return b ? b.name.split(' · ')[0] : id;
+}
+
+function renderQuestionFilters(){
+  const qb = $('#qBankFilter');
+  const ql = $('#qLevelFilter');
+  const bm = $('#bulkMove');
+  if (qb) {
+    const cur = qb.value || qState.bank;
+    qb.innerHTML = '<option value="all">全部题库</option>' +
+      BANKS.filter(b => b.id !== 'errors').map(b => '<option value="' + b.id + '">' + esc(b.name.split(' · ')[0]) + '</option>').join('');
+    qb.value = cur;
+  }
+  if (ql) {
+    const cur = ql.value || qState.level;
+    ql.innerHTML = '<option value="all">全部难度</option>' +
+      LEVELS.map(l => '<option value="' + l.id + '">' + esc(l.label) + '</option>').join('');
+    ql.value = cur;
+  }
+  if (bm) {
+    bm.innerHTML = '<option value="">移动到…</option>' +
+      BANKS.filter(b => b.id !== 'errors').map(b => '<option value="' + b.id + '">' + esc(b.name.split(' · ')[0]) + '</option>').join('');
+  }
+}
+
+function renderQuestions(){
+  renderQuestionFilters();
+  const q = qState.query.trim().toLowerCase();
+  const rows = DATA.filter(s => {
+    if (qState.bank !== 'all' && s.bankId !== qState.bank) return false;
+    if (qState.level !== 'all' && s.level !== qState.level) return false;
+    if (qState.status === 'all' && s.status === 'deleted') return false;
+    if (qState.status !== 'all' && (s.status || 'published') !== qState.status) return false;
+    if (q && s.zh.toLowerCase().indexOf(q) < 0 && (s.ref || '').toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+  const info = paginate('questions', rows);
+  const list = $('#questionList');
+  if (!rows.length) {
+    list.innerHTML = '<li class="row-empty">没有匹配的题目。</li>';
+  } else {
+    list.innerHTML = info.rows.map(s => {
+      const isDel = s.status === 'deleted';
+      return '<li class="q-row"><input type="checkbox" class="q-check" data-qid="' + s.id + '"' +
+      (qState.selected.has(s.id) ? ' checked' : '') + '>' +
+      '<div><div class="row-main">' + esc(s.zh) + '</div>' +
+      '<div class="row-meta">' + esc(bankName(s.bankId)) + ' · ' + esc(levelLabel(s.level)) + ' · ' + esc(s.tags.join(' / ')) + '</div></div>' +
+      '<span class="row-state ' + (s.status === 'disabled' || isDel ? 'urgent' : '') + '">' +
+      (isDel ? '已删除' : s.status === 'disabled' ? '已停用' : '正常') + '</span>' +
+      (isDel
+        ? '<button class="row-act" data-qrestore="' + s.id + '">恢复</button>'
+        : '<button class="row-act" data-qedit="' + s.id + '">编辑</button>') +
+      '</li>';
+    }).join('');
+  }
+  $('#qPager').innerHTML = pagerHtml('questions', info);
+  $('#qSum').textContent = '已选 ' + qState.selected.size + ' 句';
+  $('#bulkBar').hidden = qState.selected.size === 0;
+  $('#bulkCount').textContent = '已选 ' + qState.selected.size + ' 句';
+}
+
+$('#qSearch').addEventListener('input', e => { qState.query = e.target.value; PAGER.questions.page = 1; renderQuestions(); });
+$('#qBankFilter').addEventListener('change', e => { qState.bank = e.target.value; PAGER.questions.page = 1; renderQuestions(); });
+$('#qLevelFilter').addEventListener('change', e => { qState.level = e.target.value; PAGER.questions.page = 1; renderQuestions(); });
+$('#qStatusFilter').addEventListener('change', e => { qState.status = e.target.value; PAGER.questions.page = 1; renderQuestions(); });
+$('#questionList').addEventListener('change', e => {
+  const c = e.target.closest('.q-check');
+  if (!c) return;
+  if (c.checked) qState.selected.add(c.dataset.qid); else qState.selected.delete(c.dataset.qid);
+  $('#bulkCount').textContent = '已选 ' + qState.selected.size + ' 句';
+  $('#bulkBar').hidden = qState.selected.size === 0;
+});
+$('#questionList').addEventListener('click', e => {
+  const b = e.target.closest('button[data-qedit]');
+  if (b) { openSentence(b.dataset.qedit); return; }
+  const r = e.target.closest('button[data-qrestore]');
+  if (r) {
+    const s = DATA.find(x => x.id === r.dataset.qrestore);
+    if (s) {
+      s.status = 'published';
+      logAudit('恢复题目', s.zh.slice(0, 20), '');
+      renderQuestions();
+      renderBanks();
+      toast('已恢复');
+    }
+  }
+});
+$('#bulkBar').addEventListener('click', e => {
+  const b = e.target.closest('button[data-bulk]');
+  if (!b) return;
+  const act = b.dataset.bulk;
+  const ids = Array.from(qState.selected);
+  if (!ids.length) return;
+  if (act === 'disable' || act === 'enable') {
+    ids.forEach(id => {
+      const s = DATA.find(x => x.id === id);
+      if (s) s.status = act === 'disable' ? 'disabled' : 'published';
+    });
+    logAudit(act === 'disable' ? '批量停用题目' : '批量启用题目', ids.length + ' 句', '');
+    qState.selected.clear();
+    renderQuestions();
+    renderBanks();
+    toast('已处理 ' + ids.length + ' 句');
+  } else if (act === 'delete') {
+    askReason('批量删除题目', '将把 ' + ids.length + ' 句移入回收站，可恢复。', ['内容有误', '重复', '其他'], reason => {
+      ids.forEach(id => {
+        const s = DATA.find(x => x.id === id);
+        if (s) s.status = 'deleted';
+      });
+      logAudit('批量删除题目', ids.length + ' 句', reason);
+      qState.selected.clear();
+      renderQuestions();
+      renderBanks();
+      toast('已移入回收站 ' + ids.length + ' 句');
+    });
+  }
+});
+$('#bulkMove').addEventListener('change', e => {
+  const target = e.target.value;
+  if (!target || !qState.selected.size) return;
+  const ids = Array.from(qState.selected);
+  ids.forEach(id => {
+    const s = DATA.find(x => x.id === id);
+    if (s) s.bankId = target;
+  });
+  logAudit('批量移动题目', ids.length + ' 句 → ' + bankName(target), '');
+  qState.selected.clear();
+  e.target.value = '';
+  renderQuestions();
+  renderBanks();
+  toast('已移动 ' + ids.length + ' 句');
+});
+
+const SESSIONS = [
+  { id: 'sess1', device: 'MacBook · Chrome', ip: '192.168.1.5', last: '今天 14:20', current: true },
+  { id: 'sess2', device: 'iPhone · Safari', ip: '192.168.1.8', last: '昨天 21:40', current: false }
+];
+const BACKUPS = [
+  { at: '今天 02:00', size: '18.4 MB', status: '成功' },
+  { at: '昨天 02:00', size: '18.1 MB', status: '成功' },
+  { at: '10-21 02:00', size: '17.9 MB', status: '成功' }
+];
+
+const ERRORS = [
+  {
+    id: 'e1', at: Date.now() - 2 * 3600e3, module: 'practice',
+    type: 'NullPointerException', msg: 'grading result is null', trace: 'a1b2c3d4e5f6',
+    operator: '陈雨', ip: '10.0.0.23',
+    stack: 'java.lang.NullPointerException: grading result is null\n\tat io.github.codejinxz.yilian.practice.service.GradingService.grade(GradingService.java:88)\n\tat io.github.codejinxz.yilian.practice.controller.AttemptController.submit(AttemptController.java:41)'
+  },
+  {
+    id: 'e2', at: Date.now() - 5 * 3600e3, module: 'ai',
+    type: 'TimeoutException', msg: 'model call timeout after 30000ms', trace: 'b7c8d9e0f1a2',
+    operator: '林', ip: '10.0.0.31',
+    stack: 'java.util.concurrent.TimeoutException: model call timeout after 30000ms\n\tat io.github.codejinxz.yilian.ai.client.ModelClient.call(ModelClient.java:132)'
+  },
+  {
+    id: 'e3', at: Date.now() - 26 * 3600e3, module: 'content',
+    type: 'IllegalArgumentException', msg: 'chunks concat != ref at row 12', trace: 'c3d4e5f6a7b8',
+    operator: '管理员', ip: '127.0.0.1',
+    stack: 'java.lang.IllegalArgumentException: chunks concat != ref at row 12\n\tat io.github.codejinxz.yilian.content.service.ImportValidator.validate(ImportValidator.java:67)'
+  },
+  {
+    id: 'e4', at: Date.now() - 30 * 3600e3, module: 'account',
+    type: 'BadCredentialsException', msg: 'invalid password for codejinxz@mail.com', trace: 'd4e5f6a7b8c9',
+    operator: '—', ip: '203.0.113.9',
+    stack: 'org.springframework.security.authentication.BadCredentialsException: Bad credentials\n\tat io.github.codejinxz.yilian.account.service.AuthService.login(AuthService.java:54)'
+  },
+  {
+    id: 'e5', at: Date.now() - 3 * 86400e3, module: 'admin',
+    type: 'AccessDeniedException', msg: 'user 102 attempted /api/admin/users', trace: 'e5f6a7b8c9d0',
+    operator: '沈知', ip: '10.0.0.44',
+    stack: 'org.springframework.security.access.AccessDeniedException: Access Denied\n\tat io.github.codejinxz.yilian.framework.security.AdminGuard.check(AdminGuard.java:23)'
+  },
+  {
+    id: 'e6', at: Date.now() - 4 * 86400e3, module: 'content',
+    type: 'DataIntegrityViolationException', msg: 'duplicate fingerprint on import', trace: 'f6a7b8c9d0e1',
+    operator: '管理员', ip: '127.0.0.1',
+    stack: 'org.springframework.dao.DataIntegrityViolationException: Duplicate entry for key \'uk_sentence_fingerprint\'\n\tat io.github.codejinxz.yilian.content.service.ImportService.commit(ImportService.java:110)'
+  }
+];
+const PAGER = {
+  users: { page: 1, size: 5 },
+  questions: { page: 1, size: 5 },
+  errors: { page: 1, size: 5 },
+  audit: { page: 1, size: 5 },
+  banks: { page: 1, size: 5 },
+  batches: { page: 1, size: 5 }
+};
+
+function paginate(key, rows){
+  const p = PAGER[key];
+  const pages = Math.max(1, Math.ceil(rows.length / p.size));
+  if (p.page > pages) p.page = pages;
+  const start = (p.page - 1) * p.size;
+  return { rows: rows.slice(start, start + p.size), page: p.page, pages: pages, total: rows.length };
+}
+
+function pagerHtml(key, info, showTotal){
+  const sizes = [5, 10, 20, 50];
+  let out = showTotal === false ? '' : '<span class="pager-total">共 ' + info.total + ' 条</span>';
+  out += '<label class="pager-size">每页 <select data-size="' + key + '">' +
+    sizes.map(n => '<option value="' + n + '"' + (PAGER[key].size === n ? ' selected' : '') + '>' + n + '</option>').join('') +
+    '</select> 条</label>';
+  if (info.pages > 1) {
+    out += '<button class="pager-btn" data-page="' + key + ':' + (info.page - 1) + '"' + (info.page === 1 ? ' disabled' : '') + '>上一页</button>';
+    for (let i = 1; i <= info.pages; i++) {
+      out += '<button class="pager-btn' + (i === info.page ? ' on' : '') + '" data-page="' + key + ':' + i + '">' + i + '</button>';
+    }
+    out += '<button class="pager-btn" data-page="' + key + ':' + (info.page + 1) + '"' + (info.page === info.pages ? ' disabled' : '') + '>下一页</button>';
+  }
+  return '<div class="pager">' + out + '</div>';
+}
+
+document.addEventListener('change', e => {
+  const s = e.target.closest('select[data-size]');
+  if (!s) return;
+  const key = s.dataset.size;
+  if (!PAGER[key]) return;
+  PAGER[key].size = Number(s.value);
+  PAGER[key].page = 1;
+  if (key === 'users') renderUserList();
+  else if (key === 'questions') renderQuestions();
+  else if (key === 'errors') renderErrors();
+  else if (key === 'audit') renderAudit();
+  else if (key === 'banks') renderBanks();
+  else if (key === 'batches') renderBatches();
+});
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('button[data-page]');
+  if (!b || b.disabled) return;
+  const parts = b.dataset.page.split(':');
+  const key = parts[0];
+  if (!PAGER[key]) return;
+  PAGER[key].page = Number(parts[1]);
+  if (key === 'users') renderUserList();
+  else if (key === 'questions') renderQuestions();
+  else if (key === 'errors') renderErrors();
+  else if (key === 'audit') renderAudit();
+  else if (key === 'banks') renderBanks();
+  else if (key === 'batches') renderBatches();
+});
+
+const errState = { query: '', module: 'all', range: 'all' };
+
+function inRange(ts, range){
+  if (range === 'all') return true;
+  const now = Date.now();
+  if (range === 'today') {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return ts >= d.getTime();
+  }
+  if (range === '7d') return ts >= now - 7 * 86400000;
+  if (range === '30d') return ts >= now - 30 * 86400000;
+  return true;
+}
+
+function renderErrors(){
+  const q = errState.query.trim().toLowerCase();
+  const rows = ERRORS.filter(e => {
+    if (errState.module !== 'all' && e.module !== errState.module) return false;
+    if (!inRange(e.at, errState.range)) return false;
+    if (q && (e.type + ' ' + e.msg + ' ' + e.trace).toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+  const info = paginate('errors', rows);
+  const list = $('#errorList');
+  if (!rows.length) {
+    list.innerHTML = '<li class="row-empty">没有匹配的异常。</li>';
+  } else {
+    list.innerHTML = info.rows.map(e =>
+      '<li><div><div class="row-main">' + esc(e.type) + ' · ' + esc(e.msg) + '</div>' +
+      '<div class="row-meta">' + esc(e.module) + ' · ' + esc(e.ip) + ' · ' + esc(e.trace) + ' · ' + esc(e.operator) + '</div></div>' +
+      '<span class="num">' + fmtWhen(e.at) + ' ' + fmtClock(e.at) + '</span>' +
+      '<button class="row-act" data-err="' + e.id + '">查看</button></li>'
+    ).join('');
+  }
+  $('#errPager').innerHTML = pagerHtml('errors', info);
+  $('#errSum').textContent = '异常日志默认保留 30 天；堆栈只进后台。';
+}
+
+function openError(id){
+  const e = ERRORS.find(x => x.id === id);
+  if (!e) return;
+  $('#drawer').innerHTML =
+    '<button class="drawer-close" id="errClose">×</button>' +
+    '<div class="drawer-kicker">异常 · ' + esc(e.trace) + '</div>' +
+    '<h2>' + esc(e.type) + '</h2>' +
+    '<div class="mail">' + esc(e.module) + ' · ' + esc(e.operator) + ' · ' + esc(e.ip) + ' · ' + fmtWhen(e.at) + ' ' + fmtClock(e.at) + '</div>' +
+    '<div class="section-title">消息</div>' +
+    '<p style="font-size:13px;color:var(--ink2);line-height:1.7">' + esc(e.msg) + '</p>' +
+    '<div class="section-title">堆栈</div>' +
+    '<pre class="stack">' + esc(e.stack) + '</pre>';
+  $('#drawerWrap').hidden = false;
+  document.body.style.overflow = 'hidden';
+  $('#errClose').addEventListener('click', closeDrawer);
+}
+
+$('#errSearch').addEventListener('input', e => { errState.query = e.target.value; PAGER.errors.page = 1; renderErrors(); });
+$('#errModule').addEventListener('change', e => { errState.module = e.target.value; PAGER.errors.page = 1; renderErrors(); });
+$('#errTime').addEventListener('change', e => { errState.range = e.target.value; PAGER.errors.page = 1; renderErrors(); });
+$('#errorList').addEventListener('click', e => {
+  const b = e.target.closest('button[data-err]');
+  if (b) openError(b.dataset.err);
+});
+
+function renderOps(){
+  $('#sessionList').innerHTML = SESSIONS.map(s =>
+    '<li><div><div class="row-main">' + esc(s.device) + (s.current ? '（当前）' : '') + '</div>' +
+    '<div class="row-meta">' + esc(s.ip) + ' · ' + esc(s.last) + '</div></div>' +
+    '<span class="row-state ' + (s.current ? 'mastered' : '') + '">' + (s.current ? '在线' : '活跃') + '</span>' +
+    (s.current ? '<span></span>' : '<button class="row-act" data-sess="' + s.id + '">吊销</button>') + '</li>'
+  ).join('');
+  $('#rateList').innerHTML = [
+    ['登录', 'IP 5 / 分钟 · 账号 5 / 15 分钟'],
+    ['邀请码', 'IP 3 / 分钟 · 码 10 / 小时'],
+    ['深度批改', '用户 10 / 分钟 · 全局并发 2']
+  ].map(r => '<div class="dist-row"><span>' + esc(r[0]) + '</span>' +
+    '<span class="dist-bar"><i style="width:100%;opacity:.2"></i></span>' +
+    '<span class="dist-num" style="width:auto">' + esc(r[1]) + '</span></div>').join('');
+  $('#backupList').innerHTML = BACKUPS.map(b =>
+    '<li><div><div class="row-main">' + esc(b.at) + '</div>' +
+    '<div class="row-meta">' + esc(b.size) + ' · mysqldump --single-transaction</div></div>' +
+    '<span class="row-state mastered">' + esc(b.status) + '</span><span></span></li>'
+  ).join('');
+  $('#versionList').innerHTML = [
+    ['normalizer', 'v2', '全半角 + 弯引号 + 去标点'],
+    ['rubric', 'v3', '五维 100 分'],
+    ['prompt', 'v5', '整句翻译批改'],
+    ['engine', 'v1', '本地规则 + 模型']
+  ].map(v => '<li><div><div class="row-main">' + esc(v[0]) + ' ' + esc(v[1]) + '</div>' +
+    '<div class="row-meta">' + esc(v[2]) + '</div></div><span></span><span></span></li>').join('');
+}
+$('#sessionList').addEventListener('click', e => {
+  const b = e.target.closest('button[data-sess]');
+  if (!b) return;
+  const i = SESSIONS.findIndex(s => s.id === b.dataset.sess);
+  if (i >= 0) SESSIONS.splice(i, 1);
+  renderOps();
+  toast('会话已吊销');
+});
+$('#opsDrillBtn').addEventListener('click', () => {
+  $('#drillMsg').textContent = '演练完成：隔离恢复 1h42m，核心表校验和一致，登录与判分均通过。';
+  toast('恢复演练通过');
+});
+$('#replayBtn').addEventListener('click', () => toast('重放 100 条完成，分数漂移 1.2%'));
+
+function renderAdmin(){
+  $$('#adminTabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === app.adminTab));
+  $('#adminPane-overview').hidden = app.adminTab !== 'overview';
+  $('#adminPane-users').hidden = app.adminTab !== 'users';
+  $('#adminPane-questions').hidden = app.adminTab !== 'questions';
+  $('#adminPane-banks').hidden = app.adminTab !== 'banks';
+  $('#adminPane-gen').hidden = app.adminTab !== 'gen';
+  $('#adminPane-models').hidden = app.adminTab !== 'models';
+  $('#adminPane-audit').hidden = app.adminTab !== 'audit';
+  $('#adminPane-errors').hidden = app.adminTab !== 'errors';
+  $('#adminPane-ops').hidden = app.adminTab !== 'ops';
+  if (app.adminTab === 'overview') renderAdminOverview();
+  else if (app.adminTab === 'users') renderUserList();
+  else if (app.adminTab === 'questions') renderQuestions();
+  else if (app.adminTab === 'gen') renderGen();
+  else if (app.adminTab === 'models') renderModels();
+  else if (app.adminTab === 'audit') renderAudit();
+  else if (app.adminTab === 'errors') renderErrors();
+  else if (app.adminTab === 'ops') renderOps();
+  else renderBanks();
+}
+
+const auditState = { query: '', action: 'all', range: 'all' };
+
+function renderAudit(){
+  const q = auditState.query.trim().toLowerCase();
+  const rows = app.audit.filter(a => {
+    if (auditState.action !== 'all' && a.action !== auditState.action) return false;
+    if (!inRange(a.at, auditState.range)) return false;
+    if (q && (a.action + ' ' + a.actor + ' ' + a.target + ' ' + (a.reason || '')).toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+  const info = paginate('audit', rows);
+  $('#auditList').innerHTML = rows.length ? info.rows.map(a =>
+    '<li><div><div class="row-main">' + esc(a.action) + '</div>' +
+    '<div class="row-meta">' + esc(a.actor) + ' · ' + esc(a.ip || '—') + ' · ' + esc(a.target) + (a.reason ? ' · ' + esc(a.reason) : '') + '</div></div>' +
+    '<span class="num">' + fmtWhen(a.at) + ' ' + fmtClock(a.at) + '</span><span></span></li>'
+  ).join('') : '<li class="row-empty">没有匹配的记录。</li>';
+  $('#auditPager').innerHTML = pagerHtml('audit', info);
+}
+
+$('#auditSearch').addEventListener('input', e => { auditState.query = e.target.value; PAGER.audit.page = 1; renderAudit(); });
+$('#auditAction').addEventListener('change', e => { auditState.action = e.target.value; PAGER.audit.page = 1; renderAudit(); });
+$('#auditTime').addEventListener('change', e => { auditState.range = e.target.value; PAGER.audit.page = 1; renderAudit(); });
+
+function userSeed(u){
+  return u.id.charCodeAt(1) * 977 + u.id.charCodeAt(u.id.length - 1) * 31 + 7;
+}
+function userHeat(u){
+  const rnd = mulberry32(userSeed(u) + 5);
+  return Array.from({ length: 30 }, () => Math.floor(rnd() * 5));
+}
+function userActiveDays(u){
+  return userHeat(u).filter(v => v > 0).length;
+}
+function userStreak(u){
+  const rnd = mulberry32(userSeed(u) + 9);
+  return 3 + Math.floor(rnd() * 15);
+}
+
+const WRONG_ANSWERS = {
+  s1: 'He is paying more and more attention to this thing.',
+  s2: 'Not until he saw the report he realized the seriousness of the problem.',
+  s3: 'This book is worth to read.',
+  s4: 'We should make measures to prevent similar incidents happen again.',
+  s5: "With the development of technology, people's way of life happened great changes.",
+  s6: 'He would rather resign than to go against his principles.',
+  s7: 'This problem is very more complicated than we expected.',
+  s8: 'Only by experiencing it yourself you can understand the hardships involved.'
+};
+function demoAnswer(s, r){
+  return r.score >= 95 ? s.ref : (WRONG_ANSWERS[s.id] || s.ref);
+}
+
+let modalCancel = null;
+function askReason(title, desc, options, onOk, onCancel){
+  const m = $('#modal');
+  m.innerHTML =
+    '<h3>' + esc(title) + '</h3><p>' + esc(desc) + '</p>' +
+    options.map((o, i) =>
+      '<label class="radio"><input type="radio" name="reason" value="' + esc(o) + '"' + (i === 0 ? ' checked' : '') + '><span>' + esc(o) + '</span></label>'
+    ).join('') +
+    '<div class="modal-actions"><button class="btn ghost" id="modalCancel">取消</button><button class="btn primary" id="modalOk">确认</button></div>';
+  $('#modalWrap').hidden = false;
+  modalCancel = onCancel || null;
+  $('#modalCancel').onclick = () => {
+    const revert = modalCancel;
+    closeModal();
+    if (revert) revert();
+  };
+  $('#modalOk').onclick = () => {
+    const v = m.querySelector('input[name="reason"]:checked');
+    const reason = v ? v.value : '';
+    closeModal();
+    onOk(reason);
+  };
+}
+function closeModal(){
+  $('#modalWrap').hidden = true;
+  $('#modal').className = 'modal';
+  modalCancel = null;
+  if ($('#drawerWrap').hidden) document.body.style.overflow = '';
+}
+function showAnswer(r){
+  const s = byId(r.sid);
+  $('#modal').innerHTML =
+    '<button class="drawer-close" id="ansClose">×</button>' +
+    '<div class="drawer-kicker">作答原文 · 已记入审计</div>' +
+    '<h3 style="font-family:var(--serif);font-size:18px;line-height:1.55;margin:0 0 18px">' + esc(s.zh) + '</h3>' +
+    '<div class="label">用户译文</div>' +
+    '<p style="font-family:var(--serif);font-size:16px;line-height:1.75;color:var(--ink);margin:8px 0 18px">' + esc(demoAnswer(s, r)) + '</p>' +
+    '<div class="label">参考译文</div>' +
+    '<p style="font-family:var(--serif);font-size:16px;line-height:1.75;color:var(--ink2);margin:8px 0 0">' + esc(s.ref) + '</p>' +
+    '<div class="modal-actions"><button class="btn primary" id="ansOk">关闭</button></div>';
+  $('#modalWrap').hidden = false;
+  document.body.style.overflow = 'hidden';
+  $('#ansClose').onclick = closeModal;
+  $('#ansOk').onclick = closeModal;
+}
+
+function renderAdminOverview(){
+  const totalUsers = USERS.length;
+  const activeToday = USERS.filter(u => u.last.indexOf('今天') === 0).length;
+  const totalAttempts = USERS.reduce((s, u) => s + u.attempts, 0) + app.attempts.length;
+  const cost = (totalAttempts * 0.006).toFixed(1);
+
+  $('#metrics').innerHTML =
+    '<div class="metric"><b>' + totalUsers + '</b><span>用户总数</span></div>' +
+    '<div class="metric"><b>' + activeToday + '</b><span>今日活跃</span></div>' +
+    '<div class="metric"><b>' + totalAttempts.toLocaleString() + '<small>句</small></b><span>累计答题</span></div>' +
+    '<div class="metric"><b>¥' + cost + '</b><span>模型成本估算</span></div>';
+
+  const rnd = mulberry32(77);
+  const counts = [];
+  for (let i = 0; i < 7; i++) counts.push(2 + Math.floor(rnd() * 9));
+  const max = Math.max.apply(null, counts);
+  $('#activeBars').innerHTML = counts.map((c, i) => {
+    const pct = Math.max(8, Math.round(c / max * 100));
+    return '<i class="' + (i === 6 ? 'today' : 'has') + '" style="height:' + pct + '%" title="' + c + ' 位活跃"></i>';
+  }).join('');
+
+  const todos = [
+    ['2 条题库导入待审核', '来自「官方题库 · TEM8 翻译」v4'],
+    ['沈知的账号被禁用', '10 月 20 日禁用 · 可恢复'],
+    ['3 条答案申诉待裁决', '其中 2 条涉及「越来越」的译法']
+  ];
+  $('#todoList').innerHTML = todos.map(t =>
+    '<li><div><div class="row-main">' + esc(t[0]) + '</div><div class="row-meta">' + esc(t[1]) + '</div></div>' +
+    '<span></span><button class="row-act">处理</button></li>'
+  ).join('');
+
+  const acts = [
+    ['陈雨', '完成 12 句 · 正确率 83%', '今天 11:02'],
+    ['罗青', '连续第 9 天', '今天 08:15'],
+    ['周岚', '导入自建题库 20 句', '昨天 21:40'],
+    ['许一鸣', '申诉 1 条答案', '昨天 19:12'],
+    ['顾白', '注册', '10 月 14 日']
+  ];
+  $('#activityList').innerHTML = acts.map(a =>
+    '<li><div><div class="row-main">' + esc(a[0]) + '</div><div class="row-meta">' + esc(a[1]) + '</div></div>' +
+    '<span></span><span class="num">' + esc(a[2]) + '</span></li>'
+  ).join('');
+
+  const perms = [
+    ['用户', '练习、复习、统计、设置、自己的记录'],
+    ['管理员', '以上全部 + 用户管理、题库导入、模型配置、审计日志'],
+    ['任何人都不行', '查看密码、模拟登录、修改成绩']
+  ];
+  $('#permList').innerHTML = perms.map(p =>
+    '<li><div><div class="row-main">' + esc(p[0]) + '</div>' +
+    '<div class="row-meta">' + esc(p[1]) + '</div></div><span></span><span></span></li>'
+  ).join('');
+}
+
+function renderInvites(){
+  const el = $('#inviteCodes');
+  if (!el) return;
+  el.innerHTML = app.invites.map(i =>
+    '<span class="invite-code ' + (i.used ? 'used' : '') + '">' + i.code + '</span>'
+  ).join('');
+}
+
+function renderUserList(){
+  const q = app.adminQuery.trim().toLowerCase();
+  const rows = USERS.filter(u => {
+    if (app.adminRole !== 'all' && u.role !== app.adminRole) return false;
+    if (app.adminStatus !== 'all' && u.status !== app.adminStatus) return false;
+    if (q && u.name.toLowerCase().indexOf(q) < 0 && u.email.toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+  const info = paginate('users', rows);
+  const list = $('#userList');
+  if (!rows.length) {
+    list.innerHTML = '<li class="row-empty">没有匹配的用户。</li>';
+  } else {
+    list.innerHTML = info.rows.map(u =>
+      '<li class="user-row" data-uid="' + u.id + '">' +
+        '<div class="user-cell"><span class="avatar-sm">' + esc(u.name.slice(0, 1)) + '</span>' +
+          '<div style="min-width:0"><div class="user-name">' + esc(u.name) + '</div>' +
+          '<div class="user-mail">' + esc(u.email) + '</div></div></div>' +
+        '<span class="badge ' + (u.role === 'ADMIN' ? 'admin' : '') + '">' + (u.role === 'ADMIN' ? '管理员' : '用户') + '</span>' +
+        '<span class="live ' + (u.status === 'active' ? '' : 'off') + '">' + (u.status === 'active' ? '正常' : '已禁用') + '</span>' +
+        '<span class="num col-last">' + esc(u.last) + '</span>' +
+        '<span class="num">' + u.attempts + '</span>' +
+      '</li>'
+    ).join('');
+  }
+  $('#userPager').innerHTML = pagerHtml('users', info);
+  renderInvites();
+}
+
+function userRecords(u){
+  const seed = u.id.charCodeAt(1) * 977 + u.id.charCodeAt(u.id.length - 1) * 31 + 7;
+  const rnd = mulberry32(seed);
+  const out = [];
+  for (let i = 0; i < 8; i++) {
+    const s = DATA[Math.floor(rnd() * DATA.length)];
+    out.push({
+      sid: s.id,
+      mode: rnd() > 0.4 ? 'cloze' : 'free',
+      score: Math.round(45 + rnd() * 55),
+      at: Date.now() - i * (1 + rnd() * 2) * 86400000
+    });
+  }
+  return out;
+}
+
+function openUser(uid){
+  const u = USERS.find(x => x.id === uid);
+  if (!u) return;
+  const recs = userRecords(u);
+  const heat = userHeat(u);
+  const isSelf = !!(app.user && app.user.email === u.email);
+  const activeAdmins = USERS.filter(x => x.role === 'ADMIN' && x.status === 'active').length;
+  const lastAdmin = u.role === 'ADMIN' && activeAdmins <= 1;
+
+  const numbers = [
+    [u.attempts, '累计答题'],
+    [u.avg + '%', '正确率'],
+    [userStreak(u) + ' 天', '连续'],
+    [userActiveDays(u) + ' 天', '近 30 天活跃']
+  ];
+
+  const recsHtml = recs.map((r, i) => {
+    const s = byId(r.sid);
+    return '<div class="record">' +
+      '<div style="min-width:0"><div class="record-zh">' + esc(s.zh) + '</div>' +
+      '<div class="record-meta">' + modeLabel(r.mode) + ' · ' + r.score + ' 分 · ' + fmtWhen(r.at) + '</div></div>' +
+      '<button class="linkish" data-view="' + i + '">查看作答</button></div>';
+  }).join('');
+
+  const logs = app.audit.filter(a => a.target.indexOf(u.name) === 0).slice(0, 4);
+  const logsHtml = logs.length
+    ? logs.map(a => '<li><span>' + esc(a.action) + (a.reason ? ' · ' + esc(a.reason) : '') + '</span><b>' + fmtWhen(a.at) + '</b></li>').join('')
+    : '<li><span>暂无记录</span><b>—</b></li>';
+
+  $('#drawer').innerHTML =
+    '<button class="drawer-close" id="drawerClose">×</button>' +
+    '<div class="drawer-kicker">用户 · ' + u.id.toUpperCase() + '</div>' +
+    '<h2>' + esc(u.name) + '</h2>' +
+    '<div class="mail">' + esc(u.email) + ' · ' + (u.role === 'ADMIN' ? '管理员' : '用户') + ' · ' + (u.status === 'active' ? '正常' : '已禁用') + '</div>' +
+    '<div class="mini-metrics">' + numbers.map(n => '<div><b>' + n[0] + '</b><span>' + n[1] + '</span></div>').join('') + '</div>' +
+    '<div class="section-title">近 30 天</div>' +
+    '<div class="heat">' + heat.map(v => '<i class="l' + v + '"></i>').join('') + '</div>' +
+    '<div class="section-title">最近练习</div>' + recsHtml +
+    '<div class="section-title">账户</div>' +
+    '<div class="drawer-field"><span>角色</span>' +
+      '<select id="roleSelect" class="select"' + (isSelf || lastAdmin ? ' disabled' : '') + '>' +
+        '<option value="USER"' + (u.role === 'USER' ? ' selected' : '') + '>用户</option>' +
+        '<option value="ADMIN"' + (u.role === 'ADMIN' ? ' selected' : '') + '>管理员</option>' +
+      '</select></div>' +
+    '<div class="drawer-actions">' +
+      '<button class="linkish" id="disableBtn"' + (isSelf || lastAdmin ? ' disabled style="opacity:.4;cursor:not-allowed"' : '') + '>' + (u.status === 'active' ? '停用账号' : '恢复账号') + '</button>' +
+      '<button class="linkish" id="resetBtn">重置密码</button>' +
+      '<button class="linkish" id="exportBtn">导出数据</button>' +
+      '<button class="linkish" id="deleteBtn"' + (isSelf ? ' disabled style="opacity:.4;cursor:not-allowed"' : '') + '>删除账号</button>' +
+    '</div>' +
+    (isSelf ? '<div class="import-hint" style="margin-top:12px">不能修改或停用自己的账号。</div>' : '') +
+    (lastAdmin && !isSelf ? '<div class="import-hint" style="margin-top:12px">这是最后一个管理员，不能降级或停用。</div>' : '') +
+    '<div class="section-title">审计</div>' +
+    '<ul class="audit-mini">' + logsHtml + '</ul>';
+
+  $('#drawerWrap').hidden = false;
+  document.body.style.overflow = 'hidden';
+  $('#drawerClose').addEventListener('click', closeDrawer);
+
+  $$('#drawer [data-view]').forEach(b => b.addEventListener('click', () => {
+    const r = recs[Number(b.dataset.view)];
+    askReason('查看作答', '答题原文默认不可见。查看会写入审计日志，请选择原因。', ['评分申诉', '内容纠错', '其他'], reason => {
+      logAudit('查看作答', u.name + ' · ' + r.sid, reason);
+      showAnswer(r);
+    });
+  }));
+
+  const roleSel = $('#roleSelect');
+  if (roleSel) roleSel.addEventListener('change', e => {
+    const nextRole = e.target.value;
+    askReason('变更角色', '将 ' + u.name + ' 改为' + (nextRole === 'ADMIN' ? '管理员' : '用户') + '，确认？', ['误操作纠正', '团队调整', '其他'], reason => {
+      u.role = nextRole;
+      logAudit('变更角色', u.name + ' · ' + nextRole, reason);
+      toast('角色已更新');
+      renderUserList();
+      openUser(uid);
+    }, () => openUser(uid));
+  });
+
+  $('#disableBtn').addEventListener('click', () => {
+    if (u.status === 'active') {
+      askReason('停用账号', '停用后立即踢下线，用户会看到停用提示与申诉邮箱。', ['违规', '用户申请', '长期未使用', '其他'], reason => {
+        u.status = 'disabled';
+        logAudit('停用账号', u.name, reason);
+        toast('已停用');
+        renderUserList();
+        openUser(uid);
+      });
+    } else {
+      u.status = 'active';
+      logAudit('恢复账号', u.name, '');
+      toast('已恢复');
+      renderUserList();
+      openUser(uid);
+    }
+  });
+  $('#resetBtn').addEventListener('click', () => {
+    logAudit('重置密码', u.name, '一次性链接');
+    toast('已发送 30 分钟有效的一次性链接');
+  });
+  $('#exportBtn').addEventListener('click', () => {
+    logAudit('导出数据', u.name, '');
+    toast('已生成数据导出包（演示）');
+  });
+  $('#deleteBtn').addEventListener('click', () => {
+    askReason('删除账号', '软删 30 天后彻底删除，期间可恢复。', ['用户申请', '违规', '其他'], reason => {
+      logAudit('删除账号', u.name, reason);
+      closeDrawer();
+      toast('已进入 30 天冷静期（演示）');
+    });
+  });
+}
+function closeDrawer(){
+  $('#drawerWrap').hidden = true;
+  document.body.style.overflow = '';
+}
+$('#drawerMask').addEventListener('click', closeDrawer);
+$('#modalMask').addEventListener('click', closeModal);
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (!$('#modalWrap').hidden) closeModal();
+  else closeDrawer();
+});
+
+$('#userList').addEventListener('click', e => {
+  const li = e.target.closest('li[data-uid]');
+  if (li) openUser(li.dataset.uid);
+});
+$('#userSearch').addEventListener('input', e => { app.adminQuery = e.target.value; PAGER.users.page = 1; renderUserList(); });
+$('#roleFilter').addEventListener('change', e => { app.adminRole = e.target.value; PAGER.users.page = 1; renderUserList(); });
+$('#statusFilter').addEventListener('change', e => { app.adminStatus = e.target.value; PAGER.users.page = 1; renderUserList(); });
+$('#adminTabs').addEventListener('click', e => {
+  const b = e.target.closest('button[data-tab]');
+  if (!b) return;
+  app.adminTab = b.dataset.tab;
+  renderAdmin();
+});
+$('#newInvite').addEventListener('click', () => {
+  const code = 'YL-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+  app.invites.unshift({ code: code, used: false });
+  renderInvites();
+  toast('已生成邀请码 ' + code);
+});
+
+/* ---------------- 路由 ---------------- */
+const VIEWS = ['placement', 'today', 'practice', 'review', 'stats', 'admin', 'settings', 'login', 'denied'];
+function navigate(v){ location.hash = '#/' + v; }
+function show(v){
+  if (VIEWS.indexOf(v) < 0) v = 'practice';
+  if (v === 'admin' && !isAdmin()) v = 'denied';
+  app.view = v;
+  VIEWS.forEach(name => {
+    const el = document.getElementById('view-' + name);
+    if (el) el.hidden = name !== v;
+  });
+  $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.nav === (v === 'practice' ? 'today' : v)));
+  $$('#tabbar a').forEach(a => a.classList.toggle('on', a.dataset.nav === (v === 'practice' ? 'today' : v)));
+  document.querySelector('.progress').style.opacity = v === 'practice' ? '1' : '0';
+
+  if (v === 'today') renderToday();
+  else if (v === 'placement') renderPlacement();
+  else if (v === 'practice') renderPractice();
+  else if (v === 'review') renderReview();
+  else if (v === 'stats') renderStats();
+  else if (v === 'admin') renderAdmin();
+  else if (v === 'settings') renderSettings();
+  else if (v === 'login') renderLogin();
+  else if (v === 'denied') renderDenied();
+
+  window.scrollTo(0, 0);
+}
+function route(){
+  const m = location.hash.match(/^#\/([a-z]+)/);
+  let v = m ? m[1] : 'today';
+  if (v === 'banks') { app.adminTab = 'banks'; v = 'admin'; }
+  else if (v === 'users') { app.adminTab = 'users'; v = 'admin'; }
+  show(v);
+}
+window.addEventListener('hashchange', route);
+
+/* ---------------- 主题 / 头像 ---------------- */
+function applyTheme(mode){
+  app.themeMode = mode;
+  const night = mode === 'night' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = night ? 'night' : 'paper';
+  $('#theme').textContent = night ? '☀' : '☾';
+  store.set('yl-theme-mode', mode);
+}
+$('#theme').addEventListener('click', () => {
+  const isNight = document.documentElement.dataset.theme === 'night';
+  applyTheme(isNight ? 'paper' : 'night');
+});
+function isAdmin(){
+  return !!(app.user && app.user.role === 'ADMIN');
+}
+function updateNav(){
+  $$('[data-nav="admin"]').forEach(a => { a.hidden = !isAdmin(); });
+}
+function updateAvatar(){
+  const a = $('#avatar');
+  a.textContent = app.user ? app.user.name.slice(0, 1) : '游';
+  a.classList.toggle('on', !!app.user);
+  a.title = app.user ? (app.user.name + (isAdmin() ? ' · 管理员' : ' · 用户')) : '游客';
+  updateNav();
+}
+function renderDenied(){
+  $('#deniedRole').textContent = app.user ? (isAdmin() ? '管理员' : '用户') : '游客';
+}
+$('#avatar').addEventListener('click', () => navigate('settings'));
+
+/* ---------------- 键盘与安全区 ---------------- */
+function syncViewport(){
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+  document.documentElement.style.setProperty('--kb', kb + 'px');
+}
+if (window.visualViewport) {
+  visualViewport.addEventListener('resize', syncViewport);
+  visualViewport.addEventListener('scroll', syncViewport);
+  syncViewport();
+}
+
+function syncOnline(){
+  const bar = $('#offlineBar');
+  if (bar) bar.hidden = navigator.onLine;
+}
+window.addEventListener('online', syncOnline);
+window.addEventListener('offline', syncOnline);
+syncOnline();
+const reloadBtn = $('#reloadBtn');
+if (reloadBtn) reloadBtn.addEventListener('click', () => location.reload());
+
+/* ---------------- 启动 ---------------- */
+const demoParams = new URLSearchParams(location.search);
+if (demoParams.get('demo') === 'admin') {
+  app.user = { name: '管理员', email: 'admin@local', role: 'ADMIN' };
+  store.set('yl-user', app.user);
+}
+const demoTab = demoParams.get('tab');
+if (demoTab && ['overview', 'users', 'questions', 'banks', 'gen', 'models', 'audit', 'errors', 'ops'].indexOf(demoTab) >= 0) {
+  app.adminTab = demoTab;
+}
+const demoS = demoParams.get('s');
+if (demoS) {
+  const i = DATA.findIndex(x => x.id === demoS);
+  if (i >= 0) state.i = i;
+}
+
+applyTheme(app.themeMode);
+updateAvatar();
+renderLevels();
+renderBankSelects();
+if (!location.hash) history.replaceState(null, '', store.get('yl-placed', false) ? '#/today' : '#/placement');
+route();
+if (demoParams.get('error')) setTimeout(() => openError(demoParams.get('error')), 200);
+if (demoParams.get('demo') === 'result') setTimeout(() => {
+  const s = DATA[state.i];
+  $$('#skeleton input').forEach(inp => {
+    const idx = Number(inp.dataset.i);
+    const w = Number(inp.dataset.w || 0);
+    inp.value = s.chunks[idx].answers[0].split(/\s+/)[w] || '';
+  });
+  gradeCloze();
+}, 400);
+if (demoParams.get('peek')) setTimeout(() => {
+  const s = DATA[state.i];
+  if (s) openBankPeek(s.bankId || 'official');
+}, 300);
+if (demoParams.get('demo') === 'freeresult') setTimeout(() => {  state.mode = 'free';
+  renderPractice();
+  setTimeout(() => {
+    $('#freeinput').value = 'He is more and more paying attention to this.';
+    gradeFree();
+    if (demoParams.get('review')) setTimeout(() => {
+      const b = $('#reviewBtn');
+      if (b && !b.hidden) b.click();
+    }, 200);
+  }, 150);
+}, 300);
+if (demoParams.get('demo') === 'partial') setTimeout(() => {  const s = DATA[state.i];
+  $$('#skeleton input').forEach(inp => {
+    const idx = Number(inp.dataset.i);
+    const w = Number(inp.dataset.w || 0);
+    const words = s.chunks[idx].answers[0].split(/\s+/);
+    inp.value = (idx === s.blank[0] && w > 0) ? '' : (words[w] || '');
+  });
+  gradeCloze();
+}, 400);
+if (demoParams.get('reveal')) setTimeout(() => revealCloze(), 400);
+</script>
+</body>
+</html>

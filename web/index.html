@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f6f2e9" />
+    <!-- 字体与原型完全同源（Google Fonts）：Newsreader/Inter/JetBrains Mono/Noto Serif SC。
+         不加载时衬线会退到 Georgia/宋体，视觉立刻偏离原型的「稿纸与朱笔」。 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&family=Noto+Serif+SC:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <!-- PWA：manifest 声明安装能力；theme-color 沿用纸色使浏览器界面融入页面（安装态主题色由 manifest 提供）。 -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <meta
+      name="description"
+      content="译练：面向中文母语者的中译英刻意练习，一屏一句，即时批改。"
+    />
+    <title>译练 · 中译英刻意练习</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

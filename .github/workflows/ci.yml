@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    name: Server (JDK 21 / Maven)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      YILIAN_TEST_DB_HOST: 127.0.0.1
+      YILIAN_TEST_DB_PORT: "3306"
+      YILIAN_TEST_DB_USERNAME: root
+      YILIAN_TEST_DB_PASSWORD: "123456"
+      YILIAN_TEST_DB_NAME: yilian_test
+
+    # CI 使用专用测试 MySQL；测试通过 YILIAN_TEST_DB_* 覆盖连接，不依赖开发机配置。
+    # Redis 当前未参与测试（缓存仅 L1 Caffeine，refresh 会话走 Spring Session JDBC）。
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: "123456"
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -p123456"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # Checkstyle 绑定在 validate 阶段，mvn test 会先执行；规则只覆盖 tab/行尾空白/
+      # 文件末尾换行，存量代码零违规，不会无意义阻塞构建。
+      - name: Maven test (Checkstyle + unit/integration tests)
+        run: mvn -B test
+
+      # google-java-format 已对全量 Java 文件归一，此后格式化是阻断门禁。
+      - name: google-java-format check
+        run: mvn -B fmt:check
+
+  web:
+    name: Web (Node 24 / pnpm 12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.15.0
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      # lockfile 在仓库根，web 是 pnpm workspace 成员，因此先在根安装再进 web 执行。
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (tsc + vite build)
+        run: pnpm --dir web build
+
+      - name: Test
+        run: pnpm --dir web test
+
+      - name: Biome check
+        run: pnpm --dir web biome check
