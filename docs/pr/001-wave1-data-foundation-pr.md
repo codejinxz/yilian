@@ -1,6 +1,6 @@
 # PR：001-wave1-data-foundation 波次一·数据层地基
 
-> 波次范围：修 AuthFlowIntegrationTest 使全量测试恢复绿（含切片 T3 实体部分提前）、删除旧 upload 过渡机制、接入覆盖率工具、文档登记。对应提交 `35359aa` / `4e61c74` / `2f257d8` / `ed4f9db`（基线 `0d42cf3` → HEAD `ed4f9db`）。
+> 波次范围：修 AuthFlowIntegrationTest 使全量测试恢复绿（含切片 T3 实体部分提前）、删除旧 upload 过渡机制、接入覆盖率工具、文档登记。对应提交 `35359aa` / `4e61c74` / `2f257d8` / `ed4f9db` / `222ac9a` / `ed3703e`（基线 `0d42cf3` → HEAD `ed3703e`；S4 重审绑定 `ed4f9db`，其后两笔为 PR 文档与 javadoc 纯文书笔）。
 
 ## 监督摘要（solo ≤10 行）
 - **运行方式**：**无人值守**（原因：自主会话执行用户预先批准的波次一任务书，无真人在回路；批准通道：unattended；ask 模式未触发，profile=solo）——S2 批准与全部裁决已落 `.workflow/state/main.json` 留痕，可 revert。
