@@ -6,8 +6,8 @@ import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
 import io.github.codejinxz.yilian.content.entity.BankVisibility;
 import io.github.codejinxz.yilian.content.entity.ContentStatus;
 import io.github.codejinxz.yilian.content.service.ContentQueryService;
-import io.github.codejinxz.yilian.content.service.dto.BankView;
-import io.github.codejinxz.yilian.content.service.dto.SentencePage;
+import io.github.codejinxz.yilian.content.service.vo.BankView;
+import io.github.codejinxz.yilian.content.service.vo.SentencePage;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 

@@ -13,10 +13,10 @@ import io.github.codejinxz.yilian.content.entity.Sentence;
 import io.github.codejinxz.yilian.content.entity.SentenceBank;
 import io.github.codejinxz.yilian.content.entity.SentenceVersion;
 import io.github.codejinxz.yilian.content.service.ContentQueryService;
-import io.github.codejinxz.yilian.content.service.dto.BankView;
-import io.github.codejinxz.yilian.content.service.dto.SentenceChunk;
-import io.github.codejinxz.yilian.content.service.dto.SentenceDetail;
-import io.github.codejinxz.yilian.content.service.dto.SentencePage;
+import io.github.codejinxz.yilian.content.service.vo.BankView;
+import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
+import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
+import io.github.codejinxz.yilian.content.service.vo.SentencePage;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;

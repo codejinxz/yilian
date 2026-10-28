@@ -1,5 +1,7 @@
 package io.github.codejinxz.yilian.content.service.dto;
 
+import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
+
 import java.util.List;
 
 /**

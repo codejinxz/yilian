@@ -1,4 +1,4 @@
-package io.github.codejinxz.yilian.content.service.dto;
+package io.github.codejinxz.yilian.content.service.vo;
 
 import java.util.List;
 

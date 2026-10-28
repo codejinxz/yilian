@@ -1,4 +1,4 @@
-package io.github.codejinxz.yilian.content.service.dto;
+package io.github.codejinxz.yilian.content.service.vo;
 
 /**
  * 题库视图，对应 API §5.1 / §5.2。

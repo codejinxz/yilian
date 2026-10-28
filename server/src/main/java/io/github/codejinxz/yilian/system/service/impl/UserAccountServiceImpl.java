@@ -12,11 +12,11 @@ import io.github.codejinxz.yilian.system.entity.AppUser;
 import io.github.codejinxz.yilian.system.entity.InviteCode;
 import io.github.codejinxz.yilian.system.entity.UserRole;
 import io.github.codejinxz.yilian.system.service.UserAccountService;
-import io.github.codejinxz.yilian.system.service.dto.AdminUserView;
 import io.github.codejinxz.yilian.system.service.dto.RegisterCommand;
 import io.github.codejinxz.yilian.system.service.dto.UserCredentials;
 import io.github.codejinxz.yilian.system.service.dto.UserSettings;
 import io.github.codejinxz.yilian.system.service.dto.UserSettingsPatch;
+import io.github.codejinxz.yilian.system.service.vo.AdminUserView;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;

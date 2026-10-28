@@ -3,9 +3,9 @@ package io.github.codejinxz.yilian.content.service;
 import io.github.codejinxz.yilian.common.api.PageResponse;
 import io.github.codejinxz.yilian.content.entity.BankVisibility;
 import io.github.codejinxz.yilian.content.entity.ContentStatus;
-import io.github.codejinxz.yilian.content.service.dto.BankView;
-import io.github.codejinxz.yilian.content.service.dto.SentenceDetail;
-import io.github.codejinxz.yilian.content.service.dto.SentencePage;
+import io.github.codejinxz.yilian.content.service.vo.BankView;
+import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
+import io.github.codejinxz.yilian.content.service.vo.SentencePage;
 
 import java.util.Collection;
 import java.util.List;

@@ -1,4 +1,4 @@
-package io.github.codejinxz.yilian.system.service.dto;
+package io.github.codejinxz.yilian.system.service.vo;
 
 import io.github.codejinxz.yilian.system.entity.AppUser;
 

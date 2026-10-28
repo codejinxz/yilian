@@ -2,11 +2,11 @@ package io.github.codejinxz.yilian.system.service;
 
 import io.github.codejinxz.yilian.common.api.PageResponse;
 import io.github.codejinxz.yilian.system.entity.UserRole;
-import io.github.codejinxz.yilian.system.service.dto.AdminUserView;
 import io.github.codejinxz.yilian.system.service.dto.RegisterCommand;
 import io.github.codejinxz.yilian.system.service.dto.UserCredentials;
 import io.github.codejinxz.yilian.system.service.dto.UserSettings;
 import io.github.codejinxz.yilian.system.service.dto.UserSettingsPatch;
+import io.github.codejinxz.yilian.system.service.vo.AdminUserView;
 
 import java.util.Optional;
 
