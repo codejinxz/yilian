@@ -22,9 +22,9 @@ import io.github.codejinxz.yilian.content.entity.ContentStatus;
 import io.github.codejinxz.yilian.content.entity.Sentence;
 import io.github.codejinxz.yilian.content.entity.SentenceBank;
 import io.github.codejinxz.yilian.content.entity.SentenceVersion;
-import io.github.codejinxz.yilian.content.service.dto.BankView;
-import io.github.codejinxz.yilian.content.service.dto.SentenceDetail;
-import io.github.codejinxz.yilian.content.service.dto.SentencePage;
+import io.github.codejinxz.yilian.content.service.vo.BankView;
+import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
+import io.github.codejinxz.yilian.content.service.vo.SentencePage;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

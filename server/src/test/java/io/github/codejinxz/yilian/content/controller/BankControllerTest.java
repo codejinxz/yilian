@@ -22,10 +22,10 @@ import io.github.codejinxz.yilian.common.security.RestAuthenticationEntryPoint;
 import io.github.codejinxz.yilian.common.security.SecurityConfig;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
 import io.github.codejinxz.yilian.content.service.ContentQueryService;
-import io.github.codejinxz.yilian.content.service.dto.BankView;
-import io.github.codejinxz.yilian.content.service.dto.SentenceChunk;
-import io.github.codejinxz.yilian.content.service.dto.SentenceDetail;
-import io.github.codejinxz.yilian.content.service.dto.SentencePage;
+import io.github.codejinxz.yilian.content.service.vo.BankView;
+import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
+import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
+import io.github.codejinxz.yilian.content.service.vo.SentencePage;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
