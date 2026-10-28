@@ -75,7 +75,8 @@ io.github.codejinxz.yilian
 │  ├─ controller
 │  ├─ service                  # 接口
 │  ├─ service/impl             # 实现类
-│  └─ dto
+│  ├─ dto                      # 请求/命令对象
+│  └─ vo                       # 对客户端的响应/视图对象
 ├─ system/                     # 用户与系统基础设施
 │  ├─ bootstrap                # bootstrap 管理员启动钩子
 │  ├─ dao                      # Dao 接口
@@ -83,7 +84,8 @@ io.github.codejinxz.yilian
 │  ├─ entity
 │  ├─ service                  # 接口
 │  ├─ service/impl
-│  └─ service/dto              # 跨模块只读 DTO
+│  ├─ service/dto              # 请求/命令/跨模块传输对象
+│  └─ service/vo               # 对客户端的响应/视图对象
 ├─ upload/                     # 通用上传/导入：文件上传、断点续跑、批次状态
 │  ├─ api                      # 模块级异常出口
 │  ├─ bootstrap                # 启动恢复钩子
@@ -133,6 +135,7 @@ io.github.codejinxz.yilian
 Java 21 用法：
 
 - `record` 用于 DTO、`@ConfigurationProperties`、值对象，不用于 JPA 实体。
+- 传输对象按去向分包子包：**对客户端的响应/视图**（`*Response`/`*View`/`*Page` 及响应负载如 token 记录）放模块 `vo`（或 `service/vo`）子包；**请求/命令/跨模块内部传输**（`*Request`/`*Command`/`*Patch` 及内部载体）放 `dto`（或 `service/dto`）。跨模块只传 `vo`/`dto`，不传实体。
 - `sealed` 用于封闭判定集，如 `Correct / NeedsWork / Skipped`。
 - 虚拟线程开启 `spring.threads.virtual.enabled=true`，不单独写 `VirtualThreadConfig`。
 
