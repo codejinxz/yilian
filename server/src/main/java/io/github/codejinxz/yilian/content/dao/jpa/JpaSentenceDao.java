@@ -62,12 +62,6 @@ public class JpaSentenceDao implements SentenceDao {
     }
 
     @Override
-    public List<Sentence> findPracticeCandidates(Long bankId, String excludeSentenceId, int limit) {
-        return sentences.findPracticeCandidates(
-                bankId, excludeSentenceId, PageRequest.of(0, limit));
-    }
-
-    @Override
     public SentenceVersion saveVersion(SentenceVersion version) {
         return versions.saveAndFlush(version);
     }

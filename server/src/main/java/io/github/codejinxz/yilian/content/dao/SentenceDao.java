@@ -67,16 +67,6 @@ public interface SentenceDao {
     Page<Sentence> findPageByBank(long bankId, Pageable pageable);
 
     /**
-     * 练习候选。
-     *
-     * @param bankId 题库 id，可为 null
-     * @param excludeSentenceId 排除题目
-     * @param limit 最多条数
-     * @return 候选题目
-     */
-    List<Sentence> findPracticeCandidates(Long bankId, String excludeSentenceId, int limit);
-
-    /**
      * 保存内容快照。
      *
      * @param version 快照

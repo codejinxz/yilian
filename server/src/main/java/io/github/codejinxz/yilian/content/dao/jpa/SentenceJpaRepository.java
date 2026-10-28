@@ -62,31 +62,6 @@ public interface SentenceJpaRepository extends JpaRepository<Sentence, String> {
     Page<Sentence> findByBankIdOrderByCreatedAtDesc(long bankId, Pageable pageable);
 
     /**
-     * 练习候选：只取已发布题库中的已发布题目，按创建时间稳定排序。
-     *
-     * @param bankId 题库 id，可为 null
-     * @param excludeSentenceId 排除的题目 id，可为 null
-     * @param pageable 分页
-     * @return 候选题目
-     */
-    @Query(
-            """
-            select s from Sentence s, SentenceBank b
-            where s.bankId = b.id
-              and b.status = io.github.codejinxz.yilian.content.entity.ContentStatus.PUBLISHED
-              and b.deletedAt is null
-              and s.status = io.github.codejinxz.yilian.content.entity.ContentStatus.PUBLISHED
-              and s.deletedAt is null
-              and (:bankId is null or s.bankId = :bankId)
-              and (:excludeSentenceId is null or s.id <> :excludeSentenceId)
-            order by s.createdAt asc, s.id asc
-            """)
-    List<Sentence> findPracticeCandidates(
-            @Param("bankId") Long bankId,
-            @Param("excludeSentenceId") String excludeSentenceId,
-            Pageable pageable);
-
-    /**
      * 统计题库内已发布且未删的题目数。
      *
      * @param bankId 题库 id

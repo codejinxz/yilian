@@ -30,12 +30,16 @@ public class MyBatisPracticeCandidateQueryDao implements PracticeCandidateQueryD
      *
      * @param bankId 限定题库，可为 null
      * @param excludeSentenceId 排除题目，可为 null
-     * @param limit 最多返回条数
+     * @param limit 最多返回条数，必须为正
      * @return 候选行
+     * @throws IllegalArgumentException limit 非正时抛出（LIMIT 无守卫语义，契约前置校验）
      */
     @Override
     public List<PracticeCandidateRow> findCandidates(
             Long bankId, String excludeSentenceId, int limit) {
+        if (limit < 1) {
+            throw new IllegalArgumentException("limit 必须为正数: " + limit);
+        }
         return mapper.findCandidates(bankId, excludeSentenceId, limit);
     }
 }

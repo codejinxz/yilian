@@ -13,6 +13,8 @@ public interface PracticeCandidateQueryDao {
     /**
      * 取练习候选，按创建时间稳定排序（created_at 升序、id 升序）。
      *
+     * <p>与被替换的两步 JPA 实现的边界差：先 JOIN 丢弃快照缺失行、再应用 limit， 因此缺快照行不再占用 limit 名额（返回的可用行只会更多，不会更少）。
+     *
      * @param bankId 限定题库，null 表示全部可练题库
      * @param excludeSentenceId 排除的题目 id，null 表示不排除
      * @param limit 最多返回条数，必须为正
