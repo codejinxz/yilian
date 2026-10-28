@@ -12,8 +12,8 @@ import java.util.Optional;
 /**
  * 基于 Spring Data JPA 的批次 Dao 实现。
  *
- * <p>preview→commit 全同步，不存在跨请求的后台任务；批次行数少，Repository 自带事务足够，
- * 只有 commit 写题库业务表时才由 Service 在同一事务内聚合多次写。
+ * <p>preview→commit 全同步，不存在跨请求的后台任务；批次行数少，Repository 自带事务足够， 只有 commit 写题库业务表时才由 Service
+ * 在同一事务内聚合多次写。
  */
 @Repository
 public class JpaImportBatchDao implements ImportBatchDao {
