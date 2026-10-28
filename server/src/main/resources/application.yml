@@ -115,6 +115,18 @@ springdoc:
   swagger-ui:
     enabled: false
 
+# MyBatis 只承载复杂查询/统计的只读 Dao（AGENTS §3.1）：写操作与单表 CRUD 走 JPA。
+# Mapper 接口集中在各模块 dao.mybatis 包，由 common/config/MyBatisConfig 的 @MapperScan 注册；
+# SQL 写在 classpath:mapper/ 下的 XML 里，动态筛选与 JOIN 不散落在注解中。
+mybatis:
+  mapper-locations: classpath*:mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    # 只读 DTO 用 Java record（无 setter）：开启按参数名的构造映射，配合 Boot 默认的 -parameters 编译参数。
+    arg-name-based-constructor-auto-mapping: true
+    # 只读查询不需要跨语句共享结果；二级缓存交给 Caffeine/Redis 分层（AGENTS §3.8），MyBatis 侧关闭。
+    cache-enabled: false
+
 logging:
   level:
     root: INFO

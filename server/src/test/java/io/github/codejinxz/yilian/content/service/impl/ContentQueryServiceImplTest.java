@@ -14,6 +14,8 @@ import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.api.PageResponse;
 import io.github.codejinxz.yilian.content.dao.BankDao;
+import io.github.codejinxz.yilian.content.dao.PracticeCandidateQueryDao;
+import io.github.codejinxz.yilian.content.dao.PracticeCandidateRow;
 import io.github.codejinxz.yilian.content.dao.SentenceDao;
 import io.github.codejinxz.yilian.content.entity.BankVisibility;
 import io.github.codejinxz.yilian.content.entity.ContentStatus;
@@ -63,13 +65,18 @@ class ContentQueryServiceImplTest {
 
     private SentenceDao sentenceDao;
 
+    private PracticeCandidateQueryDao practiceCandidateQueryDao;
+
     private ContentQueryServiceImpl service;
 
     @BeforeEach
     void setUp() {
         bankDao = mock(BankDao.class);
         sentenceDao = mock(SentenceDao.class);
-        service = new ContentQueryServiceImpl(bankDao, sentenceDao, new ObjectMapper());
+        practiceCandidateQueryDao = mock(PracticeCandidateQueryDao.class);
+        service =
+                new ContentQueryServiceImpl(
+                        bankDao, sentenceDao, practiceCandidateQueryDao, new ObjectMapper());
     }
 
     // ---------- 题库列表 ----------
@@ -403,21 +410,39 @@ class ContentQueryServiceImplTest {
 
     // ---------- 练习候选 ----------
 
-    /** 候选只包含能取到快照的已发布题目；快照缺失的候选被丢弃。 */
+    /** 候选行来自 MyBatis JOIN Dao；服务层负责行 → SentenceDetail 的映射（快照缺失丢弃在 SQL 层）。 */
     @Test
-    void findPracticeCandidatesSkipsMissingSnapshot() {
-        Sentence good = publishedSentence("01JPUBLIS000000000000000000C", 12);
-        Sentence broken = publishedSentence("01JBROKEN000000000000000000F", 12);
-        ReflectionTestUtils.setField(broken, "currentVersionId", 4040L);
-        when(sentenceDao.findPracticeCandidates(isNull(), isNull(), eq(20)))
-                .thenReturn(List.of(good, broken));
-        when(sentenceDao.findVersionsByIds(List.of(1001L, 4040L)))
-                .thenReturn(List.of(snapshot(1001L, 3)));
+    void findPracticeCandidatesMapsJoinedRows() {
+        when(practiceCandidateQueryDao.findCandidates(isNull(), isNull(), eq(20)))
+                .thenReturn(
+                        List.of(
+                                new PracticeCandidateRow(
+                                        "01JPUBLIS000000000000000000C",
+                                        12L,
+                                        5L,
+                                        1001L,
+                                        3,
+                                        "PUBLISHED",
+                                        "他越来越忙。",
+                                        "He is busier and busier.",
+                                        "比较级递进",
+                                        CHUNKS_JSON,
+                                        BLANK_JSON,
+                                        TAGS_JSON,
+                                        null)));
 
         List<SentenceDetail> candidates = service.findPracticeCandidates(null, null, 20);
 
         assertThat(candidates).hasSize(1);
-        assertThat(candidates.getFirst().id()).isEqualTo(good.getId());
+        SentenceDetail detail = candidates.getFirst();
+        assertThat(detail.id()).isEqualTo("01JPUBLIS000000000000000000C");
+        assertThat(detail.bankId()).isEqualTo("12");
+        assertThat(detail.sentenceVersionId()).isEqualTo("1001");
+        assertThat(detail.questionVersion()).isEqualTo(3);
+        assertThat(detail.practiceable()).isTrue();
+        assertThat(detail.chunks()).hasSize(2);
+        assertThat(detail.blank()).containsExactly(1, 2);
+        assertThat(detail.tags()).containsExactly("副词结构", "搭配");
     }
 
     // ---------- 实体构造辅助 ----------

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="io.github.codejinxz.yilian.content.dao.mybatis.PracticeCandidateQueryMapper">
+
+    <!--
+      练习候选（ContentQueryServiceImpl.findPracticeCandidates）：单条 JOIN 直出，
+      语义与原 JPA 两步查询一致——
+      - 题库可见性：status=PUBLISHED 且未软删；
+      - 题目可见性：status=PUBLISHED 且未软删；
+      - INNER JOIN 当前快照：快照缺失（current_version_id 为 NULL 或指向缺失行）的候选天然丢弃；
+      - 排序与原实现一致：created_at 升序、id 升序（同秒内按 ULID 稳定）；
+      - 动态条件：bankId / excludeSentenceId 任一可为空。
+    -->
+    <select id="findCandidates"
+            resultType="io.github.codejinxz.yilian.content.dao.PracticeCandidateRow">
+        SELECT s.id                AS sentence_id,
+               s.bank_id           AS bank_id,
+               s.version           AS version,
+               s.current_version_id AS version_id,
+               v.version_no        AS version_no,
+               s.status            AS status,
+               v.zh                AS zh,
+               v.ref               AS ref,
+               v.note              AS note,
+               v.chunks            AS chunks,
+               v.blank             AS blank,
+               v.tags              AS tags,
+               v.level             AS level
+        FROM sentences s
+        JOIN sentence_banks b ON b.id = s.bank_id
+        JOIN sentence_versions v ON v.id = s.current_version_id
+        WHERE b.status = 'PUBLISHED'
+          AND b.deleted_at IS NULL
+          AND s.status = 'PUBLISHED'
+          AND s.deleted_at IS NULL
+        <if test="bankId != null">
+            AND s.bank_id = #{bankId}
+        </if>
+        <if test="excludeSentenceId != null and excludeSentenceId != ''">
+            AND s.id != #{excludeSentenceId}
+        </if>
+        ORDER BY s.created_at ASC, s.id ASC
+        LIMIT #{limit}
+    </select>
+</mapper>

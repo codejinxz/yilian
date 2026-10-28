@@ -4,6 +4,8 @@ import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.api.PageResponse;
 import io.github.codejinxz.yilian.content.dao.BankDao;
+import io.github.codejinxz.yilian.content.dao.PracticeCandidateQueryDao;
+import io.github.codejinxz.yilian.content.dao.PracticeCandidateRow;
 import io.github.codejinxz.yilian.content.dao.SentenceDao;
 import io.github.codejinxz.yilian.content.entity.BankVisibility;
 import io.github.codejinxz.yilian.content.entity.ContentStatus;
@@ -49,19 +51,26 @@ public class ContentQueryServiceImpl implements ContentQueryService {
 
     private final SentenceDao sentenceDao;
 
+    private final PracticeCandidateQueryDao practiceCandidateQueryDao;
+
     private final ObjectMapper objectMapper;
 
     /**
-     * 注入题库与题目 Dao，以及解析快照 JSON 列的映射器。
+     * 注入题库与题目 Dao、练习候选查询 Dao，以及解析快照 JSON 列的映射器。
      *
      * @param bankDao 题库 Dao
      * @param sentenceDao 题目与快照 Dao
+     * @param practiceCandidateQueryDao 练习候选 JOIN 查询 Dao（MyBatis 实现）
      * @param objectMapper Spring Boot 提供的 Jackson 3 映射器
      */
     public ContentQueryServiceImpl(
-            BankDao bankDao, SentenceDao sentenceDao, ObjectMapper objectMapper) {
+            BankDao bankDao,
+            SentenceDao sentenceDao,
+            PracticeCandidateQueryDao practiceCandidateQueryDao,
+            ObjectMapper objectMapper) {
         this.bankDao = bankDao;
         this.sentenceDao = sentenceDao;
+        this.practiceCandidateQueryDao = practiceCandidateQueryDao;
         this.objectMapper = objectMapper;
     }
 
@@ -205,7 +214,7 @@ public class ContentQueryServiceImpl implements ContentQueryService {
     /**
      * 练习候选：只返回已发布题库中的已发布题目。
      *
-     * <p>快照缺失的候选直接丢弃：练习不能用残缺数据，宁可少一题也不能崩一次拉题。
+     * <p>单条 MyBatis JOIN 直出（AGENTS §3.1 复杂查询归 MyBatis）；快照缺失的候选在 JOIN 中天然丢弃：练习不能用残缺数据，宁可少一题也不能崩一次拉题。
      *
      * @param bankId 题库 id，可为 null
      * @param excludeSentenceId 排除题目
@@ -216,21 +225,9 @@ public class ContentQueryServiceImpl implements ContentQueryService {
     @Transactional(readOnly = true)
     public List<SentenceDetail> findPracticeCandidates(
             Long bankId, String excludeSentenceId, int limit) {
-        List<Sentence> rows = sentenceDao.findPracticeCandidates(bankId, excludeSentenceId, limit);
-        if (rows.isEmpty()) {
-            return List.of();
-        }
-        List<Long> versionIds = rows.stream().map(Sentence::getCurrentVersionId).toList();
-        List<SentenceVersion> snapshots = sentenceDao.findVersionsByIds(versionIds);
-        List<SentenceDetail> items = new ArrayList<>(rows.size());
-        for (Sentence row : rows) {
-            snapshots.stream()
-                    .filter(snapshot -> snapshot.getId().equals(row.getCurrentVersionId()))
-                    .findFirst()
-                    .map(snapshot -> toDetail(row, snapshot))
-                    .ifPresent(items::add);
-        }
-        return List.copyOf(items);
+        List<PracticeCandidateRow> rows =
+                practiceCandidateQueryDao.findCandidates(bankId, excludeSentenceId, limit);
+        return rows.stream().map(this::toDetail).toList();
     }
 
     /**
@@ -380,6 +377,30 @@ public class ContentQueryServiceImpl implements ContentQueryService {
                 parseArray(snapshot.getBlank(), Integer[].class),
                 parseArray(snapshot.getTags(), String[].class),
                 snapshot.getLevel());
+    }
+
+    /**
+     * 由练习候选 JOIN 行组装视图。
+     *
+     * @param row 候选查询行
+     * @return 题目视图
+     */
+    private SentenceDetail toDetail(PracticeCandidateRow row) {
+        return new SentenceDetail(
+                row.sentenceId(),
+                Long.toString(row.bankId()),
+                row.version(),
+                row.versionId() == null ? null : Long.toString(row.versionId()),
+                row.versionNo(),
+                row.status(),
+                false,
+                row.zh(),
+                row.ref(),
+                row.note(),
+                parseArray(row.chunks(), SentenceChunk[].class),
+                parseArray(row.blank(), Integer[].class),
+                parseArray(row.tags(), String[].class),
+                row.level());
     }
 
     /**
