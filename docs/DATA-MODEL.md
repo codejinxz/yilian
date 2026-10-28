@@ -28,7 +28,7 @@
 1. `attempts` 只存一次提交；`attempt_gradings` 存每次判分/复核/改判；两者都 append-only。  
 2. 同一 `attemptId` 重复提交返回已有结果；同一 ID 但载荷不同返回 409；游客只落本地。  
 3. `sentences` 存题目身份/当前版本指针/银行级修订号；`sentence_versions` 存不可变内容。  
-4. 导入按 PRD 重建：预览 → 提交 → 批次查询/回滚；现有异步 `import_batch` 只保留为上传基础设施。  
+4. 导入按 PRD 重建：预览 → 提交 → 批次查询/回滚；旧异步 `import_batch`（上传→PROCESSING→resume）已删除，实体对齐 `import_batches`/`import_batch_rows`。  
 5. 复习采用完整 FSRS：四档评分、期望保留率、参数版本与优化记录；UI 仍显示 `新题 / 学习中 / 已掌握`。  
 6. 所有时间戳 UTC；到期用 `DATETIME`，不用 `DATE`；日界按用户 IANA 时区计算。  
 7. 软删统一 `deleted_at` / `deleted_by`；`enabled` 只表示账号启停，不表示删除。  
@@ -73,6 +73,10 @@
 基础设施表（不属于业务实体，但属于最终 schema）：
 
 - `spring_session` / `spring_session_attributes`：Spring Session JDBC 的 refresh 会话；V1 已有，保留。
+- `idempotency_record`：通用幂等兜底表，`JdbcIdempotencyService` 依赖。列集
+  `owner_id VARCHAR(64)` / `scope VARCHAR(64)` / `idempotency_key VARCHAR(191)` / `request_hash VARCHAR(64)` /
+  `created_at` / `expires_at`，唯一键 `(owner_id, scope, idempotency_key)`（V4 建表、V5 补 owner 归属修复）。
+  attempts 的幂等以自身主键为准，不经此表（D-018）。
 - `flyway_schema_history`：Flyway 自动维护。
 
 **明确不建**：

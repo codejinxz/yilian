@@ -2,6 +2,8 @@
 
 ## 当前状态
 
+- **波次一完成（2026-10-29）**：V1–V8 迁移链已由 commit `857e644` 从构建产物恢复（下文 2026-10-28「迁移全部缺失」的更正已过时，以本条为准）。`AuthFlowIntegrationTest` 恢复 7/7 全绿——根因链：`ImportBatch` 实体仍映射已 DROP 的旧 `import_batch` 表（叠加 `sentence_versions.schema_version` 实体 `int` 与 DDL/契约 `SMALLINT` 错配，两者都是被首个 validate 错误掩盖的存量问题）。已按 preview→commit 契约重写 `ImportBatch`/`ImportBatchRow` 实体与状态机（切片 T3 实体部分提前），删除旧 upload→PROCESSING→resume 过渡机制（旧端点/service/recovery/async/DTO 及其测试）；全量 `mvnw test` 245 run / 0 Failures / 0 Errors。覆盖率工具接入：后端 JaCoCo（`mvn test` 产出 `target/site/jacoco/`）、前端 @vitest/coverage-v8（`pnpm test:coverage`，既有 50/50 不变）。CI 的 `-Dtest=!AuthFlowIntegrationTest` 排除按计划随波次四移除；preview→commit 新端点与前端导入改造为波次二（T4/T6），banks P1×2 为 T5。
+
 截至 2026-10-24 实测收口：
 
 - 已完成：需求、设计、可点击原型；工程基线收口——后端 auth / system / upload / content / common 模块（ApiResponse 信封、双 token JWT、@OperationLog 审计切面、@RateLimit Redis 滑动窗口、幂等、error_log、存储抽象）与 V1–V8 迁移；前端全部页面与路由注册（AppShell 壳层布局，`/` 即今日启动台，登录后落 `/today`；管理页独立注册）
