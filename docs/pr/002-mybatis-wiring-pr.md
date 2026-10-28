@@ -35,3 +35,7 @@
 | 豁免项 | 批准人 | 理由 |
 |--------|--------|------|
 | 无 | — | — |
+
+## 更正（2026-10-29，独立分析复核后）
+- 计划 002 与本 PR 原表述「首个消费者/有真实生产消费端（练习拉题）」**不准确**：`ContentQueryService.findPracticeCandidates` 当前无任何 Controller 调用方（原两步 JPA 实现同样无调用方，系练习切片预埋）。准确表述：**首个 MyBatis 承载的复杂查询（端到端接线 + 语义对拍测试），其 HTTP 消费者随波次三 practice/next 落地**。`@MapperScan`/配置/集成测试的接线价值不受影响。
+- 独立盘点同时发现两处与本案相关的遗留死代码（非本任务引入）：`ContentAdminService`（无实现无调用）与 `common/concurrent` 异步设施（全仓无业务消费者）——已登记 docs/retro/analysis-fe-be-20261029.md，处置待项目主人定夺。

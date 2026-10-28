@@ -61,6 +61,7 @@
 | 日期 | 从哪退回 | 原因 | 改了什么 |
 |------|---------|------|---------|
 | 2026-10-29 | S4 隔离审查 | blocker=0，7 条非 blocker 裁决：① 集成测试 visibility 硬编码 PUBLIC，「私有题库参与候选」腿无真实保护 → **已修**（insertBank 参数化，104 播 PRIVATE）；③ limit 契约无守卫 → **已修**（适配器前置校验）；④ 旧两步查询成死代码 → **已修**（SentenceDao/JpaSentenceDao/SentenceJpaRepository 的 findPracticeCandidates 删除，findVersionsByIds 保留仍有调用方）；② limit 边界差（缺快照行不再占名额）→ 行为改进，Dao Javadoc 补边界差说明留痕；⑤ 测试口令与 AuthFlow 同源先例一致 → 留痕不修；⑥ 全量计数留痕 → PR 002 补 248/0/0；⑦ AGENTS.md 指针行 → 前波已裁决。非 blocker 修复在 S5 前落地（blocker=0 不触发强制全量重审），由人裁量。 |
+| 2026-10-29 | 独立分析复核 | 「有真实生产消费端（练习拉题）」表述不准确：findPracticeCandidates 无 Controller 调用方（原 JPA 实现同样为练习切片预埋无调用） | 更正见 PR 002 更正节：定性为「首个 MyBatis 承载的复杂查询（端到端接线 + 对拍测试），HTTP 消费者随波次三落地」 |
 
 ## 批准记录
 - 批准通道：unattended（自主会话，用户已在任务中直接指示本工作，原因与决策随汇报披露）
