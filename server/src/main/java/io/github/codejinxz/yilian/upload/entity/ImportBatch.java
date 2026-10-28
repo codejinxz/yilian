@@ -224,7 +224,6 @@ public class ImportBatch {
     public void markCommitting(Instant now) {
         requireStatus(ImportBatchStatus.PREVIEWED, "只有待提交的批次可以进入提交事务");
         this.status = ImportBatchStatus.COMMITTING;
-        this.previewedAt = previewedAt == null ? now : previewedAt;
     }
 
     /**
@@ -281,13 +280,16 @@ public class ImportBatch {
     }
 
     /**
-     * 清扫超期未提交的预览批次；本期只登记状态，清扫任务后置（切片设计 §4.7）。
+     * 清扫超期未提交的批次（DATA-MODEL §5.6：超过 24 小时未提交即 EXPIRED）； PREVIEWING 与 PREVIEWED
+     * 都属于未提交，本期只登记状态，清扫任务后置（切片设计 §4.7）。
      *
      * @param now 清扫时间
-     * @throws IllegalStateException 批次不处于 {@link ImportBatchStatus#PREVIEWING} 时抛出
+     * @throws IllegalStateException 批次已进入提交事务或终态时抛出
      */
     public void markExpired(Instant now) {
-        requireStatus(ImportBatchStatus.PREVIEWING, "只有预览中的批次可以超期清理");
+        if (status != ImportBatchStatus.PREVIEWING && status != ImportBatchStatus.PREVIEWED) {
+            throw new IllegalStateException("只有未提交的预览批次可以超期清理: " + id + " / " + status);
+        }
         this.status = ImportBatchStatus.EXPIRED;
     }
 

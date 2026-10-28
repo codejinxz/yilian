@@ -48,7 +48,7 @@
 | server/src/test/java/io/github/codejinxz/yilian/upload/controller/ImportBatchControllerTest.java、service/impl/ImportBatchServiceImplTest.java、support/InMemoryImportBatchDao.java | 删除 | 旧机制测试（波次二随新服务重建） |
 | server/pom.xml | 修改 | jacoco-maven-plugin |
 | web/package.json、web/pnpm-lock.yaml | 修改 | @vitest/coverage-v8 devDep + test:coverage 脚本 |
-| web/vitest.config.ts | 修改 | coverage provider v8 |
+| web/vite.config.ts | 修改 | coverage provider v8（配置在 vite.config.ts 的 test 段，项目无独立 vitest.config） |
 | docs/DATA-MODEL.md、docs/GAP-ANALYSIS.md | 修改 | §2 登记 idempotency_record；当前状态行 |
 | server/src/main/resources/application.yml | 修改 | 删 `yilian.upload.recovery.enabled`（如存在） |
 | upload/support/*、validation/*、api/ImportExceptionHandler.java、config/ImportWebConfig.java | 可能微调 | 保留下层设施，随编译适配 |
@@ -84,3 +84,14 @@
 ## 退回记录
 | 日期 | 从哪退回 | 原因 | 改了什么 |
 |------|---------|------|---------|
+| 2026-10-29 | S4 隔离审查 | blocker-1：AGENTS.md 出现在 diff | 核实为 `0d42cf3` 的 kit v1.7.0 安装器指针行（任务书要求、先于本波 triage 提交），非本波未登记变更，放行并披露 |
+| 2026-10-29 | S4 隔离审查 | major-2：实测 245 run < AC-5 写的 ≥250 | 「≥250」为计划期错误估算；任务书硬要求是 0 Failures / 0 Errors（已满足）。差异来源：删除 18 个旧机制用例、新增 6 个状态机用例。不改 AC 行，以此处调和留痕 |
+| 2026-10-29 | S4 隔离审查 | major-3：上传 HTTP 链路（202/413/415）测试随旧机制删除，覆盖空窗 | 接受：may-delete 预声明，波次二 T4 新端点测试回补（ImportFilePolicyTest 注释已承诺） |
+| 2026-10-29 | S4 隔离审查 | minor-5：EXPIRED 只能从 PREVIEWING 进入，与 DATA-MODEL §5.6「超 24h 未提交」不符 | 已修复：markExpired 允许 PREVIEWING/PREVIEWED，测试改为 ac3_expireOnlyBeforeCommitting |
+| 2026-10-29 | S4 隔离审查 | minor-7：markCommitting 内 previewedAt 空值守卫不可达 | 已修复：删除死分支 |
+| 2026-10-29 | S4 隔离审查 | minor-8：计划文件表误写 vitest.config.ts | 已更正为 vite.config.ts（本项目 vitest 配置在 vite.config.ts 内） |
+
+### S4 复核结论（裁决后）
+- blocker-1 放行依据：提交 `0d42cf3`（早于本计划创建与 /triage）内容为单行导航注释，不触碰任何门禁规则；来源链：ai-workflow-kit v1.7.0 install.mjs 要求 + 任务书「首次 /triage 前必须先提交 AGENTS.md 指针行」。
+- minor-4（friction-wave1.md 未落盘）：随 S5 /retro 补齐；minor-6（application.yml recovery 键）：已 grep 核实仓库内无该键（原属性只存在于已删除的注解默认值），无需改动。
+- major-2/3 以本表留痕调和，AC 行未改动（ac-hash 不失效）。

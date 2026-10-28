@@ -84,10 +84,10 @@ class ImportBatchStateTransitionTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
-    /** [AC-3] 超期清扫只针对未提交的 PREVIEWING 批次。 */
+    /** [AC-3] 超期清扫针对未提交的批次（DATA-MODEL §5.6：超 24 小时未提交即 EXPIRED），COMMITTING 起拒绝。 */
     @Test
-    @DisplayName("[AC-3] EXPIRED 仅限 PREVIEWING 进入")
-    void ac3_expireOnlyFromPreviewing() {
+    @DisplayName("[AC-3] EXPIRED 仅限未提交状态进入")
+    void ac3_expireOnlyBeforeCommitting() {
         ImportBatch previewing = newPreviewingBatch();
         previewing.markExpired(T1);
         assertThat(previewing.getStatus()).isEqualTo(ImportBatchStatus.EXPIRED);
@@ -95,8 +95,15 @@ class ImportBatchStateTransitionTest {
 
         ImportBatch previewed = newPreviewingBatch();
         previewed.markPreviewed(1, 1, 0, null, T1);
-        assertThatThrownBy(() -> previewed.markExpired(T2))
+        previewed.markExpired(T2);
+        assertThat(previewed.getStatus()).isEqualTo(ImportBatchStatus.EXPIRED);
+
+        ImportBatch committing = newPreviewingBatch();
+        committing.markPreviewed(1, 1, 0, null, T1);
+        committing.markCommitting(T2);
+        assertThatThrownBy(() -> committing.markExpired(T3))
                 .isInstanceOf(IllegalStateException.class);
+        assertThat(committing.getStatus()).isEqualTo(ImportBatchStatus.COMMITTING);
     }
 
     /** [AC-3] 越过状态机的非法迁移全部拒绝，且原状态不被破坏。 */
@@ -116,8 +123,7 @@ class ImportBatchStateTransitionTest {
         previewed.markPreviewed(1, 1, 0, null, T1);
         assertThatThrownBy(() -> previewed.markPreviewed(2, 2, 0, null, T2))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> previewed.markExpired(T2))
-                .isInstanceOf(IllegalStateException.class);
+        // PREVIEWED → EXPIRED 现为合法迁移（超期未提交清扫），在 ac3_expireOnlyBeforeCommitting 单独覆盖。
         assertThat(previewed.getStatus()).isEqualTo(ImportBatchStatus.PREVIEWED);
 
         ImportBatch committed = newPreviewingBatch();
