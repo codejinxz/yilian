@@ -92,10 +92,10 @@ class PracticeCandidateQueryDaoIntegrationTest {
     @Test
     @DisplayName("[AC-1] 可见性过滤与排序与原实现一致")
     void ac1_visibilityAndOrderingParity() {
-        insertBank(101, "PUBLISHED", null);
-        insertBank(102, "PUBLISHED", T2);
-        insertBank(103, "DRAFT", null);
-        insertBank(104, "PUBLISHED", null);
+        insertBank(101, "PUBLISHED", "PUBLIC", null);
+        insertBank(102, "PUBLISHED", "PUBLIC", T2);
+        insertBank(103, "DRAFT", "PUBLIC", null);
+        insertBank(104, "PUBLISHED", "PRIVATE", null);
 
         String s1 = insertPublishedSentence(101, 1, T0, null);
         String s2 = insertPublishedSentence(101, 2, T1, null);
@@ -123,8 +123,8 @@ class PracticeCandidateQueryDaoIntegrationTest {
     @Test
     @DisplayName("[AC-1] 动态过滤参数与 limit 生效")
     void ac1_dynamicFiltersAndLimit() {
-        insertBank(101, "PUBLISHED", null);
-        insertBank(201, "PUBLISHED", null);
+        insertBank(101, "PUBLISHED", "PUBLIC", null);
+        insertBank(201, "PUBLISHED", "PUBLIC", null);
         String s1 = insertPublishedSentence(101, 1, T0, null);
         String s2 = insertPublishedSentence(101, 2, T1, null);
         String s3 = insertPublishedSentence(201, 3, T2, null);
@@ -150,7 +150,7 @@ class PracticeCandidateQueryDaoIntegrationTest {
     @Test
     @DisplayName("[AC-1] 同时间戳按 id 升序稳定排序")
     void ac1_stableOrderingWithinSameTimestamp() {
-        insertBank(101, "PUBLISHED", null);
+        insertBank(101, "PUBLISHED", "PUBLIC", null);
         String firstId = insertPublishedSentence(101, 1, T0, null);
         String secondId = insertPublishedSentence(101, 2, T0, null);
 
@@ -168,16 +168,18 @@ class PracticeCandidateQueryDaoIntegrationTest {
      *
      * @param id 题库 id
      * @param status 状态字面量
+     * @param visibility 可见性字面量（PUBLIC/PRIVATE）
      * @param deletedAt 软删时间，null 表示未删
      */
-    private void insertBank(int id, String status, Timestamp deletedAt) {
+    private void insertBank(int id, String status, String visibility, Timestamp deletedAt) {
         jdbcTemplate.update(
                 "INSERT INTO sentence_banks (id, owner_id, name, description, visibility, status,"
                         + " version, published_at, created_by, updated_by, created_at, updated_at,"
                         + " deleted_at, deleted_by)"
-                        + " VALUES (?, NULL, ?, NULL, 'PUBLIC', ?, 1, ?, NULL, NULL, ?, ?, ?, NULL)",
+                        + " VALUES (?, NULL, ?, NULL, ?, ?, 1, ?, NULL, NULL, ?, ?, ?, NULL)",
                 id,
                 "题库 " + id,
+                visibility,
                 status,
                 Timestamp.valueOf(LocalDateTime.of(2026, 10, 29, 9, 0, 0)),
                 T0,
