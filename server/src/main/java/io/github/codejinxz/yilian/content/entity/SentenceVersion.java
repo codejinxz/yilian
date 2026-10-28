@@ -80,7 +80,7 @@ public class SentenceVersion {
     private Instant createdAt;
 
     protected SentenceVersion() {
-        // JPA
+        // 供 JPA 反射实例化，业务代码请用静态工厂
     }
 
     /**

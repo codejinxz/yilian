@@ -767,7 +767,8 @@ function advanceUpload(batch: MockUploadBatch): MockUploadBatch {
  * @param raw 原始行
  * @param rowNo 行号
  * @returns 错误数组
- */ function validateImportRow(raw: unknown, rowNo: number): ImportRowError[] {
+ */
+function validateImportRow(raw: unknown, rowNo: number): ImportRowError[] {
   const errors: ImportRowError[] = [];
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return [{ code: "ROW_NOT_OBJECT", field: null, message: `第 ${rowNo} 行不是对象` }];

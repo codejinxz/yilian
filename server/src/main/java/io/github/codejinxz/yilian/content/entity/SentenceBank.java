@@ -66,7 +66,7 @@ public class SentenceBank {
     private Long deletedBy;
 
     protected SentenceBank() {
-        // JPA
+        // 供 JPA 反射实例化，业务代码请用静态工厂
     }
 
     /**

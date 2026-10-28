@@ -182,6 +182,16 @@ export function RowList({ children, className }: { children: ReactNode; classNam
   return <ul className={cn("m-0 list-none p-0", className)}>{children}</ul>;
 }
 
+/**
+ * 管理端表格行（原型 .row）；提供 onClick 时渲染为可点击行，并补键盘可达性
+ * （li 不是原生可聚焦元素，role/tabIndex/Enter 空格处理缺一不可）。
+ *
+ * @param props.children 行内容
+ * @param props.onClick 点击回调，提供即视为可交互行
+ * @param props.className 附加类名
+ * @param props.cols 列模板与列距（grid-cols-* + gap-*）
+ * @returns 表格行元素
+ */
 export function Row({
   children,
   onClick,

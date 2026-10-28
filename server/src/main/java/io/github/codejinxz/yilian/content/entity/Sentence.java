@@ -61,7 +61,7 @@ public class Sentence {
     private Long deletedBy;
 
     protected Sentence() {
-        // JPA
+        // 供 JPA 反射实例化，业务代码请用静态工厂
     }
 
     /**
@@ -136,7 +136,11 @@ public class Sentence {
         touch();
     }
 
-    /** 更新内容指纹，供导入去重使用。 */
+    /**
+     * 更新内容指纹，供导入去重使用。
+     *
+     * @param fingerprint 新的内容指纹（SHA-256 十六进制）
+     */
     public void updateFingerprint(String fingerprint) {
         this.fingerprint = fingerprint;
         touch();
