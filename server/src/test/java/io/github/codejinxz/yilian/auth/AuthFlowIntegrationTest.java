@@ -51,7 +51,6 @@ import java.util.stream.Collectors;
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
-            "spring.flyway.out-of-order=true",
             "yilian.ratelimit.enabled=false",
             "management.health.redis.enabled=false",
             "server.servlet.session.cookie.secure=false",
@@ -180,13 +179,14 @@ class AuthFlowIntegrationTest {
         jdbcTemplate.update("DELETE FROM spring_session_attributes");
         jdbcTemplate.update("DELETE FROM spring_session");
         jdbcTemplate.update("DELETE FROM error_log");
-        jdbcTemplate.update("DELETE FROM operation_log");
+        jdbcTemplate.update("DELETE FROM admin_audit_log");
         // 保留 bootstrap 创建的 admin；其他账号（如本类测试用的 bob）全部清理。
-        jdbcTemplate.update("DELETE FROM app_user WHERE username <> ?", ADMIN_USERNAME);
+        // V5 已把 V1 的 app_user 改名为 users，清理与补数都必须走新表名。
+        jdbcTemplate.update("DELETE FROM users WHERE username <> ?", ADMIN_USERNAME);
 
         int adminUpdated =
                 jdbcTemplate.update(
-                        "UPDATE app_user SET password_hash = ?, role = 'ADMIN', enabled = b'1'"
+                        "UPDATE users SET password_hash = ?, role = 'ADMIN', enabled = b'1'"
                                 + " WHERE username = ?",
                         passwordEncoder.encode(TEST_ADMIN_PASSWORD),
                         ADMIN_USERNAME);
@@ -333,7 +333,7 @@ class AuthFlowIntegrationTest {
     @Test
     void adminPathRejectsRegularUser() throws Exception {
         jdbcTemplate.update(
-                "INSERT INTO app_user (username, password_hash, role, enabled, created_at, updated_at)"
+                "INSERT INTO users (username, password_hash, role, enabled, created_at, updated_at)"
                         + " VALUES (?, ?, 'USER', b'1', CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))",
                 "bob",
                 passwordEncoder.encode("bob-password"));

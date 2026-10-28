@@ -68,7 +68,7 @@ public class SentenceVersion {
     private String contentHash;
 
     @Column(name = "schema_version", nullable = false)
-    private int schemaVersion;
+    private short schemaVersion;
 
     @Column(name = "import_batch_id", length = 36)
     private String importBatchId;

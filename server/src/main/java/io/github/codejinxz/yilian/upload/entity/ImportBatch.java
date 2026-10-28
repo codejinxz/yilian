@@ -16,26 +16,29 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * 导入批次实体，对应 {@code import_batch} 表。
+ * 导入批次实体，对应 {@code import_batches} 表（DATA-MODEL §5.6，V6 迁移）。
  *
- * <p>批次只保存文件元数据与进度，不保存行内容，也不写任何题库业务表。{@code processedRows} 与 {@code resumeOffset} 始终一起推进：只有每 100
- * 行（或处理结束）持久化进度时，才把内存计数写回实体，因此发生不可恢复错误时实体仍停留在最近一次检查点，resume 会从该检查点重新读取。 <strong>这是 at-least-once
- * 语义</strong>：检查点之后、失败之前的行会被再次读取；行处理器必须幂等，写业务表时必须用 {@code (batch_id, line_no)} 唯一约束或 upsert 兜底，不能把
- * resume 当成 exactly-once。
+ * <p>preview→commit 契约下的批次聚合根：preview 同步逐行校验后落 {@code PREVIEWED}， 行级结果在 {@link
+ * ImportBatchRow}；commit 在单事务内把 VALID 行写为题目。批次本身不保存文件内容， 原文件留在对象存储（{@code storage_key}）供审计下载。
  *
- * <p>状态迁移集中在本类，避免调用方直接改 {@code status} 绕过校验；{@link #COMPLETED} 为终态， 任何重新处理都必须先经过 Service 的幂等判断。
+ * <p>状态迁移集中在本类，避免调用方直接改 {@code status} 绕过校验；非法迁移一律抛 {@link
+ * IllegalStateException}，由调用方决定如何翻译成业务码。时间统一由调用方传入， 便于测试固定时钟。
  */
 @Entity
-@Table(name = "import_batch")
+@Table(name = "import_batches")
 public class ImportBatch {
-
-    /** 错误摘要最多保留的字符数，与 {@code error_message VARCHAR(1000)} 对齐。 */
-    private static final int MAX_ERROR_MESSAGE_LENGTH = 1000;
 
     @Id
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "id", nullable = false, length = 36)
     private String id;
+
+    @Column(name = "bank_id", nullable = false)
+    private Long bankId;
+
+    /** 文件格式，落库值固定为 {@code JSON} / {@code CSV}（chk_import_format）。 */
+    @Column(name = "format", nullable = false, length = 8)
+    private String format;
 
     @Column(name = "original_filename", nullable = false, length = 255)
     private String originalFilename;
@@ -43,11 +46,11 @@ public class ImportBatch {
     @Column(name = "storage_key", nullable = false, length = 512)
     private String storageKey;
 
+    @Column(name = "content_hash", nullable = false, length = 64)
+    private String contentHash;
+
     @Column(name = "size_bytes", nullable = false)
     private long sizeBytes;
-
-    @Column(name = "content_type", length = 128)
-    private String contentType;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 16)
@@ -56,29 +59,43 @@ public class ImportBatch {
     @Column(name = "total_rows", nullable = false)
     private long totalRows;
 
-    @Column(name = "processed_rows", nullable = false)
-    private long processedRows;
+    @Column(name = "valid_rows", nullable = false)
+    private long validRows;
 
-    @Column(name = "success_rows", nullable = false)
-    private long successRows;
+    @Column(name = "invalid_rows", nullable = false)
+    private long invalidRows;
 
-    @Column(name = "failed_rows", nullable = false)
-    private long failedRows;
+    @Column(name = "imported_rows", nullable = false)
+    private long importedRows;
 
-    @Column(name = "resume_offset", nullable = false)
-    private long resumeOffset;
+    /** 批次级错误摘要（§6.6 结构的 JSON 文本）；仅服务端可控摘要，不落原文。 */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "error_summary")
+    private String errorSummary;
 
-    @Column(name = "error_message", length = MAX_ERROR_MESSAGE_LENGTH)
-    private String errorMessage;
+    @Column(name = "created_by", nullable = false)
+    private Long createdBy;
 
-    @Column(name = "created_by", nullable = false, length = 64)
-    private String createdBy;
+    @Column(name = "created_by_name", nullable = false, length = 64)
+    private String createdByName;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    @Column(name = "updated_at", nullable = false)
-    private Instant updatedAt;
+    @Column(name = "previewed_at")
+    private Instant previewedAt;
+
+    @Column(name = "committed_at")
+    private Instant committedAt;
+
+    @Column(name = "rolled_back_at")
+    private Instant rolledBackAt;
+
+    @Column(name = "rolled_back_by")
+    private Long rolledBackBy;
+
+    @Column(name = "rollback_reason", length = 500)
+    private String rollbackReason;
 
     protected ImportBatch() {
         // 供 JPA 反射实例化，业务代码请用静态工厂
@@ -86,148 +103,201 @@ public class ImportBatch {
 
     private ImportBatch(
             String id,
+            Long bankId,
+            String format,
             String originalFilename,
             String storageKey,
+            String contentHash,
             long sizeBytes,
-            String contentType,
-            String createdBy,
+            Long createdBy,
+            String createdByName,
             Instant now) {
         this.id = id;
+        this.bankId = bankId;
+        this.format = format;
         this.originalFilename = originalFilename;
         this.storageKey = storageKey;
+        this.contentHash = contentHash;
         this.sizeBytes = sizeBytes;
-        this.contentType = contentType;
-        this.status = ImportBatchStatus.UPLOADED;
+        this.status = ImportBatchStatus.PREVIEWING;
         this.createdBy = createdBy;
+        this.createdByName = createdByName;
         this.createdAt = now;
-        this.updatedAt = now;
     }
 
     /**
-     * 创建刚完成文件上传的批次。
+     * 创建刚接收文件、进入同步校验的批次。
      *
      * @param id 批次主键，UUID 字符串，由调用方生成
+     * @param bankId 目标题库 id
+     * @param format 文件格式，仅允许 {@code JSON} / {@code CSV}
      * @param originalFilename 已去掉客户端路径的原始文件名
      * @param storageKey 对象存储键
+     * @param contentHash 文件 SHA-256 十六进制摘要
      * @param sizeBytes 文件字节数，不能为负
-     * @param contentType 归一化后的 MIME 类型，允许为 null
-     * @param createdBy 上传管理员的用户名，不能为空白
+     * @param createdBy 发起导入的管理员 id
+     * @param createdByName 管理员用户名快照
      * @param now 创建时间，由调用方统一取时钟便于测试
-     * @return 未持久化的批次，状态为 {@link ImportBatchStatus#UPLOADED}
+     * @return 未持久化的批次，状态为 {@link ImportBatchStatus#PREVIEWING}
      */
-    public static ImportBatch uploaded(
+    public static ImportBatch previewing(
             String id,
+            Long bankId,
+            String format,
             String originalFilename,
             String storageKey,
+            String contentHash,
             long sizeBytes,
-            String contentType,
-            String createdBy,
+            Long createdBy,
+            String createdByName,
             Instant now) {
         Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(bankId, "bankId");
         Objects.requireNonNull(storageKey, "storageKey");
+        Objects.requireNonNull(contentHash, "contentHash");
+        Objects.requireNonNull(createdBy, "createdBy");
         Objects.requireNonNull(now, "now");
+        if (!"JSON".equals(format) && !"CSV".equals(format)) {
+            throw new IllegalArgumentException("导入格式只允许 JSON 或 CSV: " + format);
+        }
         if (StringUtils.isBlank(originalFilename)) {
             throw new IllegalArgumentException("原始文件名不能为空");
         }
-        if (StringUtils.isBlank(createdBy)) {
-            throw new IllegalArgumentException("创建人不能为空");
+        if (StringUtils.isBlank(createdByName)) {
+            throw new IllegalArgumentException("创建人用户名不能为空");
         }
         if (sizeBytes < 0) {
             throw new IllegalArgumentException("文件大小不能为负数");
         }
         return new ImportBatch(
-                id, originalFilename, storageKey, sizeBytes, contentType, createdBy, now);
+                id,
+                bankId,
+                format,
+                originalFilename,
+                storageKey,
+                contentHash,
+                sizeBytes,
+                createdBy,
+                createdByName,
+                now);
     }
 
     /**
-     * 进入处理中状态；已完成的批次不允许重跑。
+     * 预览完成：写入行计数与批次级错误摘要，进入待提交状态。
      *
-     * @throws IllegalStateException 批次已 {@link ImportBatchStatus#COMPLETED} 时抛出
+     * @param totalRows 解析出的数据行数
+     * @param validRows 校验通过的行数
+     * @param invalidRows 校验失败的行数
+     * @param errorSummary 批次级错误摘要 JSON 文本，无错误时为 null
+     * @param now 预览完成时间
+     * @throws IllegalStateException 批次不处于 {@link ImportBatchStatus#PREVIEWING} 时抛出
      */
-    public void markProcessing() {
-        if (status == ImportBatchStatus.COMPLETED) {
-            throw new IllegalStateException("已完成的导入批次不能重新处理: " + id);
-        }
-        this.status = ImportBatchStatus.PROCESSING;
-        this.errorMessage = null;
-        this.updatedAt = Instant.now();
-    }
-
-    /**
-     * 写入一次进度检查点。计数与 {@code resumeOffset} 同步推进，保证 resume 时跳过的行数与持久化进度一致。
-     *
-     * @param totalRows 已读到的数据行数
-     * @param processedRows 已处理的数据行数
-     * @param successRows 校验成功的行数
-     * @param failedRows 校验失败的行数
-     * @throws IllegalStateException 批次不处于 {@link ImportBatchStatus#PROCESSING} 时抛出
-     */
-    public void applyProgress(
-            long totalRows, long processedRows, long successRows, long failedRows) {
-        if (status != ImportBatchStatus.PROCESSING) {
-            throw new IllegalStateException("只有处理中的批次可以写进度: " + id);
+    public void markPreviewed(
+            long totalRows, long validRows, long invalidRows, String errorSummary, Instant now) {
+        requireStatus(ImportBatchStatus.PREVIEWING, "只有预览中的批次可以标记预览完成");
+        if (totalRows < 0
+                || validRows < 0
+                || invalidRows < 0
+                || validRows + invalidRows != totalRows) {
+            throw new IllegalArgumentException(
+                    "行计数不一致: total="
+                            + totalRows
+                            + " valid="
+                            + validRows
+                            + " invalid="
+                            + invalidRows);
         }
         this.totalRows = totalRows;
-        this.processedRows = processedRows;
-        this.successRows = successRows;
-        this.failedRows = failedRows;
-        this.resumeOffset = processedRows;
-        this.updatedAt = Instant.now();
+        this.validRows = validRows;
+        this.invalidRows = invalidRows;
+        this.errorSummary = errorSummary;
+        this.status = ImportBatchStatus.PREVIEWED;
+        this.previewedAt = now;
     }
 
     /**
-     * 标记整个文件处理完成；终态，后续 resume 幂等返回。
+     * 进入提交事务；由 commit 入口在写题目之前调用，作为并发重复提交的乐观兜底。
      *
-     * @throws IllegalStateException 批次不处于 {@link ImportBatchStatus#PROCESSING} 时抛出
+     * @param now 提交开始时间
+     * @throws IllegalStateException 批次不处于 {@link ImportBatchStatus#PREVIEWED} 时抛出
      */
-    public void complete() {
-        if (status != ImportBatchStatus.PROCESSING) {
-            throw new IllegalStateException("只有处理中的批次可以完成: " + id);
-        }
-        this.totalRows = this.processedRows;
-        this.resumeOffset = this.processedRows;
-        this.status = ImportBatchStatus.COMPLETED;
-        this.errorMessage = null;
-        this.updatedAt = Instant.now();
+    public void markCommitting(Instant now) {
+        requireStatus(ImportBatchStatus.PREVIEWED, "只有待提交的批次可以进入提交事务");
+        this.status = ImportBatchStatus.COMMITTING;
+        this.previewedAt = previewedAt == null ? now : previewedAt;
     }
 
     /**
-     * 标记整批失败。计数保持最近一次检查点，{@code resumeOffset} 不动，因此可以从失败前的进度续跑。
+     * 提交完成：记录入库行数，进入 {@link ImportBatchStatus#COMMITTED}。
      *
-     * @param message 失败原因，只写服务端可控的摘要，不写文件内容；超过 1000 字符会被截断
-     * @throws IllegalStateException 批次已 {@link ImportBatchStatus#COMPLETED} 时抛出
+     * @param importedRows 实际入库的题目数
+     * @param now 提交完成时间
+     * @throws IllegalStateException 批次不处于 {@link ImportBatchStatus#COMMITTING} 时抛出
      */
-    public void fail(String message) {
-        if (status == ImportBatchStatus.COMPLETED) {
-            throw new IllegalStateException("已完成的导入批次不能标记失败: " + id);
+    public void markCommitted(long importedRows, Instant now) {
+        requireStatus(ImportBatchStatus.COMMITTING, "只有提交中的批次可以标记提交完成");
+        if (importedRows < 0) {
+            throw new IllegalArgumentException("入库行数不能为负数: " + importedRows);
         }
+        this.importedRows = importedRows;
+        this.status = ImportBatchStatus.COMMITTED;
+        this.committedAt = now;
+    }
+
+    /**
+     * 回滚已提交批次：题目置 RECYCLED 的动作由 Service 完成，本方法只推进批次状态。
+     *
+     * @param rolledBackBy 执行回滚的管理员 id
+     * @param reason 回滚原因，必填（审计要求），最长 500 字符
+     * @param now 回滚完成时间
+     * @throws IllegalStateException 批次不处于 {@link ImportBatchStatus#COMMITTED} 时抛出
+     * @throws IllegalArgumentException 原因为空白时抛出
+     */
+    public void markRolledBack(Long rolledBackBy, String reason, Instant now) {
+        requireStatus(ImportBatchStatus.COMMITTED, "只有已提交的批次可以回滚");
+        Objects.requireNonNull(rolledBackBy, "rolledBackBy");
+        if (StringUtils.isBlank(reason)) {
+            throw new IllegalArgumentException("回滚原因必填");
+        }
+        this.rolledBackBy = rolledBackBy;
+        this.rollbackReason = StringUtils.truncate(reason, 500);
+        this.status = ImportBatchStatus.ROLLED_BACK;
+        this.rolledBackAt = now;
+    }
+
+    /**
+     * 标记整批失败。预览/提交任一步的不可恢复异常都落这里；FAILED 为终态，重新导入需新批次。
+     *
+     * @param errorSummary 失败摘要 JSON 文本，超过合理长度由调用方截断
+     * @param now 失败时间
+     * @throws IllegalStateException 批次已处于终态或已提交时抛出
+     */
+    public void markFailed(String errorSummary, Instant now) {
+        if (status.isTerminal() || status == ImportBatchStatus.COMMITTED) {
+            throw new IllegalStateException("终态或已提交的批次不能标记失败: " + id + " / " + status);
+        }
+        this.errorSummary = errorSummary;
         this.status = ImportBatchStatus.FAILED;
-        this.errorMessage = StringUtils.truncate(message, MAX_ERROR_MESSAGE_LENGTH);
-        this.updatedAt = Instant.now();
     }
 
     /**
-     * 暂停处理中的批次，保留进度供后续 resume；当前只由启动恢复钩子使用。
+     * 清扫超期未提交的预览批次；本期只登记状态，清扫任务后置（切片设计 §4.7）。
      *
-     * @param message 暂停原因，超过 1000 字符会被截断
-     * @throws IllegalStateException 批次不处于 {@link ImportBatchStatus#PROCESSING} 时抛出
+     * @param now 清扫时间
+     * @throws IllegalStateException 批次不处于 {@link ImportBatchStatus#PREVIEWING} 时抛出
      */
-    public void pause(String message) {
-        if (status != ImportBatchStatus.PROCESSING) {
-            throw new IllegalStateException("只有处理中的批次可以暂停: " + id);
-        }
-        this.status = ImportBatchStatus.PAUSED;
-        this.errorMessage = StringUtils.truncate(message, MAX_ERROR_MESSAGE_LENGTH);
-        this.updatedAt = Instant.now();
+    public void markExpired(Instant now) {
+        requireStatus(ImportBatchStatus.PREVIEWING, "只有预览中的批次可以超期清理");
+        this.status = ImportBatchStatus.EXPIRED;
     }
 
     /**
-     * 是否已处于终态。
+     * 是否已提交且未回滚；重复 commit 的幂等判断依据。
      *
-     * @return 状态为 {@link ImportBatchStatus#COMPLETED} 时返回 true
+     * @return 状态为 {@link ImportBatchStatus#COMMITTED} 时返回 true
      */
-    public boolean isCompleted() {
-        return status == ImportBatchStatus.COMPLETED;
+    public boolean isCommitted() {
+        return status == ImportBatchStatus.COMMITTED;
     }
 
     /**
@@ -240,9 +310,27 @@ public class ImportBatch {
     }
 
     /**
+     * 目标题库 id。
+     *
+     * @return 题库 id
+     */
+    public Long getBankId() {
+        return bankId;
+    }
+
+    /**
+     * 文件格式。
+     *
+     * @return {@code JSON} 或 {@code CSV}
+     */
+    public String getFormat() {
+        return format;
+    }
+
+    /**
      * 原始文件名（已去掉客户端路径）。
      *
-     * @return 用于展示和判断文件格式的文件名
+     * @return 仅用于展示的文件名
      */
     public String getOriginalFilename() {
         return originalFilename;
@@ -251,28 +339,28 @@ public class ImportBatch {
     /**
      * 对象存储键。
      *
-     * @return 相对路径键，如 {@code imports/2026/10/<uuid>.csv}
+     * @return 相对路径键，如 {@code imports/2026/10/<uuid>.json}
      */
     public String getStorageKey() {
         return storageKey;
     }
 
     /**
-     * 文件字节数。
+     * 文件 SHA-256 摘要。
      *
-     * @return 上传时声明的长度
+     * @return 十六进制摘要
      */
-    public long getSizeBytes() {
-        return sizeBytes;
+    public String getContentHash() {
+        return contentHash;
     }
 
     /**
-     * 归一化后的 MIME 类型。
+     * 文件字节数。
      *
-     * @return 如 {@code text/csv}；未知时为 null
+     * @return 上传时的实际大小
      */
-    public String getContentType() {
-        return contentType;
+    public long getSizeBytes() {
+        return sizeBytes;
     }
 
     /**
@@ -285,66 +373,66 @@ public class ImportBatch {
     }
 
     /**
-     * 已读到的数据行数。
+     * 解析出的数据行数。
      *
-     * @return 处理完成后与 {@link #getProcessedRows()} 相等
+     * @return 预览后有效
      */
     public long getTotalRows() {
         return totalRows;
     }
 
     /**
-     * 已处理的数据行数（含失败行）。
+     * 校验通过的行数。
      *
-     * @return 已处理行数
+     * @return 预览后有效
      */
-    public long getProcessedRows() {
-        return processedRows;
-    }
-
-    /**
-     * 校验成功的行数。
-     *
-     * @return 成功行数
-     */
-    public long getSuccessRows() {
-        return successRows;
+    public long getValidRows() {
+        return validRows;
     }
 
     /**
      * 校验失败的行数。
      *
-     * @return 失败行数；行级失败不改变批次状态
+     * @return 预览后有效；行级失败不改变批次状态
      */
-    public long getFailedRows() {
-        return failedRows;
+    public long getInvalidRows() {
+        return invalidRows;
     }
 
     /**
-     * 已持久化的处理进度。
+     * 已入库的题目数。
      *
-     * @return resume 时从文件开头跳过的行数
+     * @return 提交后有效
      */
-    public long getResumeOffset() {
-        return resumeOffset;
+    public long getImportedRows() {
+        return importedRows;
     }
 
     /**
-     * 整批失败或暂停的原因。
+     * 批次级错误摘要。
      *
-     * @return 最近一次失败/暂停摘要；正常完成或处理中为 null
+     * @return JSON 文本；无错误或未预览时为 null
      */
-    public String getErrorMessage() {
-        return errorMessage;
+    public String getErrorSummary() {
+        return errorSummary;
     }
 
     /**
-     * 上传管理员用户名。
+     * 发起导入的管理员 id。
      *
-     * @return 创建人，不建外键
+     * @return 管理员 id
      */
-    public String getCreatedBy() {
+    public Long getCreatedBy() {
         return createdBy;
+    }
+
+    /**
+     * 管理员用户名快照。
+     *
+     * @return 创建时的用户名
+     */
+    public String getCreatedByName() {
+        return createdByName;
     }
 
     /**
@@ -357,11 +445,59 @@ public class ImportBatch {
     }
 
     /**
-     * 最后更新时间。
+     * 预览完成时间。
      *
-     * @return UTC 时间戳
+     * @return UTC 时间戳；未预览完成时为 null
      */
-    public Instant getUpdatedAt() {
-        return updatedAt;
+    public Instant getPreviewedAt() {
+        return previewedAt;
+    }
+
+    /**
+     * 提交完成时间。
+     *
+     * @return UTC 时间戳；未提交时为 null
+     */
+    public Instant getCommittedAt() {
+        return committedAt;
+    }
+
+    /**
+     * 回滚完成时间。
+     *
+     * @return UTC 时间戳；未回滚时为 null
+     */
+    public Instant getRolledBackAt() {
+        return rolledBackAt;
+    }
+
+    /**
+     * 执行回滚的管理员 id。
+     *
+     * @return 管理员 id；未回滚时为 null
+     */
+    public Long getRolledBackBy() {
+        return rolledBackBy;
+    }
+
+    /**
+     * 回滚原因。
+     *
+     * @return 最长 500 字符；未回滚时为 null
+     */
+    public String getRollbackReason() {
+        return rollbackReason;
+    }
+
+    /**
+     * 断言当前状态匹配预期，否则抛出带批次上下文的异常。
+     *
+     * @param expected 期望状态
+     * @param message 异常文案
+     */
+    private void requireStatus(ImportBatchStatus expected, String message) {
+        if (status != expected) {
+            throw new IllegalStateException(message + ": " + id + " / " + status);
+        }
     }
 }

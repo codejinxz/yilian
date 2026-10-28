@@ -1,24 +1,41 @@
 package io.github.codejinxz.yilian.upload.entity;
 
 /**
- * 导入批次状态。
+ * 导入批次状态机，对应 {@code import_batches.status}（DATA-MODEL §5.6）。
  *
- * <p>状态机：{@link #UPLOADED} 在文件落对象存储并建批次后进入；异步任务开始后转 {@link #PROCESSING}；正常读完文件转 {@link
- * #COMPLETED}；发生不可恢复错误（存储读失败、 进度持久化失败等）转 {@link #FAILED}。服务重启时遗留的 {@link #PROCESSING} 由启动钩子转 {@link
- * #PAUSED}，等待管理员调用 resume 续跑。
- *
- * <p>行级校验失败（空行、超长、非法 JSON 行）只累加 {@code failedRows}，不改变批次状态： 这与 PRD「50 句导入、3 行标红、47 句入库」的语义一致。{@link
- * #COMPLETED} 是终态， 重复 resume 直接返回当前状态，不会再次读文件。
+ * <p>主流转 {@code PREVIEWING → PREVIEWED → COMMITTING → COMMITTED}；任一步失败转 {@link #FAILED}； 已提交批次可回滚为
+ * {@link #ROLLED_BACK}；超过 24 小时未提交的预览批次由清扫任务置 {@link #EXPIRED}。 合法迁移集中在 {@link ImportBatch}
+ * 的方法内，调用方不得直接改 {@code status} 绕过校验。
  */
 public enum ImportBatchStatus {
-    /** 文件已写入对象存储，批次已创建，异步任务尚未开始。 */
-    UPLOADED,
-    /** 异步任务正在读取并校验文件。 */
-    PROCESSING,
-    /** 进程重启后遗留的任务，或后续人工暂停；可从 resume_offset 续跑。 */
-    PAUSED,
-    /** 文件已读到末尾，计数已落库；终态。 */
-    COMPLETED,
-    /** 整批处理失败，可从 resume_offset 续跑；不是行级校验失败。 */
-    FAILED
+
+    /** 文件已接收，正在同步逐行校验；同请求结束时会落到 PREVIEWED 或 FAILED。 */
+    PREVIEWING,
+
+    /** 预览完成，行级校验结果已落 {@code import_batch_rows}，等待管理员提交。 */
+    PREVIEWED,
+
+    /** 提交事务进行中；乐观兜底状态，正常请求结束时落到 COMMITTED 或 FAILED。 */
+    COMMITTING,
+
+    /** 已入库；终态前唯一可继续迁移的状态（仅可转 ROLLED_BACK）。 */
+    COMMITTED,
+
+    /** 整批失败（解析/校验/提交异常）；终态，不提供续跑。 */
+    FAILED,
+
+    /** 已回滚；题目置 RECYCLED 软删，终态。 */
+    ROLLED_BACK,
+
+    /** 超期未提交被清扫；终态，可重新发起预览。 */
+    EXPIRED;
+
+    /**
+     * 是否终态。
+     *
+     * @return FAILED / ROLLED_BACK / EXPIRED 返回 true；COMMITTED 仍可回滚，不算终态
+     */
+    public boolean isTerminal() {
+        return this == FAILED || this == ROLLED_BACK || this == EXPIRED;
+    }
 }

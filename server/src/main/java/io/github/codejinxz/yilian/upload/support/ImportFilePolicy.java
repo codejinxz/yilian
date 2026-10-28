@@ -3,7 +3,6 @@ package io.github.codejinxz.yilian.upload.support;
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.util.StringUtils;
-import io.github.codejinxz.yilian.upload.dto.ImportUploadCommand;
 import io.github.codejinxz.yilian.upload.exception.ImportFileTooLargeException;
 import io.github.codejinxz.yilian.upload.validation.ImportFileFormat;
 
@@ -11,7 +10,6 @@ import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
 
 import java.util.Locale;
-import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -39,14 +37,16 @@ public final class ImportFilePolicy {
     /**
      * 校验上传元数据并返回后续处理所需的描述。
      *
-     * @param command 上传输入；只读取元数据，不消费内容流
+     * @param originalFilename 客户端文件名；只读元数据，不消费内容流
+     * @param sizeBytes 文件字节数
+     * @param rawContentType 客户端声明的 Content-Type
      * @return 安全文件名、归一化 MIME 与文件格式
      * @throws BusinessException 文件名为空/过长/含控制字符、扩展名不合法、文件为空时抛出； 扩展名或 MIME 不受支持时使用 415 业务码
      * @throws ImportFileTooLargeException 文件超过 5MB 时抛出
      */
-    public static ImportFileDescriptor validate(ImportUploadCommand command) {
-        Objects.requireNonNull(command, "command");
-        String filename = normalizeFilename(command.originalFilename());
+    public static ImportFileDescriptor validate(
+            String originalFilename, long sizeBytes, String rawContentType) {
+        String filename = normalizeFilename(originalFilename);
         ImportFileFormat format =
                 ImportFileFormat.fromFilename(filename)
                         .orElseThrow(
@@ -54,13 +54,13 @@ public final class ImportFilePolicy {
                                         new BusinessException(
                                                 ApiCode.UNSUPPORTED_MEDIA_TYPE,
                                                 "仅支持 .csv 或 .json 文件"));
-        if (command.sizeBytes() <= 0) {
+        if (sizeBytes <= 0) {
             throw new BusinessException(ApiCode.VALIDATION_FAILED, "导入文件不能为空");
         }
-        if (command.sizeBytes() > MAX_FILE_SIZE_BYTES) {
-            throw new ImportFileTooLargeException(command.sizeBytes(), MAX_FILE_SIZE_BYTES);
+        if (sizeBytes > MAX_FILE_SIZE_BYTES) {
+            throw new ImportFileTooLargeException(sizeBytes, MAX_FILE_SIZE_BYTES);
         }
-        String contentType = normalizeContentType(command.contentType());
+        String contentType = normalizeContentType(rawContentType);
         return new ImportFileDescriptor(filename, contentType, format);
     }
 

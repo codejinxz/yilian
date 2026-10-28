@@ -9,8 +9,8 @@ import java.util.Optional;
 /**
  * 导入批次 Dao：业务层只依赖本接口，不直接使用 Spring Data Repository。
  *
- * <p>批次写操作很少，全部走单表 JPA CRUD；后续题库导入需要批量写业务表时，按 AGENTS.md §3.1 在同一个事务内用 MyBatis
- * 写入，并保留可回滚与测试，不要绕过本接口的状态机。
+ * <p>批次写操作很少，全部走单表 JPA CRUD；commit 批量写题库业务表时，按 AGENTS.md §3.1 在同一个事务内用 MyBatis 写入，并保留可回滚与测试，不要绕过
+ * {@link ImportBatch} 的状态机。
  */
 public interface ImportBatchDao {
 
@@ -31,7 +31,7 @@ public interface ImportBatchDao {
     Optional<ImportBatch> findById(String id);
 
     /**
-     * 按状态查询，启动恢复时由 Service 用它找出遗留的 PROCESSING 批次。
+     * 按状态查询，创建时间升序；预留给超期批次清扫任务（EXPIRED）与后续列表查询。
      *
      * @param status 目标状态
      * @return 匹配的批次，按创建时间升序
