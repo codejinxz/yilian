@@ -132,3 +132,10 @@ blob-report/
 
 # ZCode 会话产物（本机工作区）
 .zcode/
+
+# AI 工作流（kit 与产物仅本机留存，不入库——项目主人 2026-10-29 指示）
+.workflow/
+.workflow-kit/
+docs/retro/
+docs/plans/
+docs/pr/
