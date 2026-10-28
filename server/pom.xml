@@ -138,6 +138,31 @@
       </plugin>
 
       <!--
+        JaCoCo 覆盖率（工作流 S3 增量覆盖门禁的数据源）：prepare-agent 挂载测试 JVM，
+        report 绑定 test 阶段，`mvn test` 即产出 target/site/jacoco/{jacoco.xml,index.html}。
+        本期只接入工具，不在构建内设覆盖率卡口。
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>test</phase>
+            <goals>
+              <goal>report</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
         google-java-format 门禁（AGENTS.md §3.2）：只提供显式目标，不绑定生命周期。
         - 本项目采用 AOSP 风格（4 空格缩进），与现有源码一致；
         - 编辑后用 `mvn fmt:format` 归一，用 `mvn fmt:check` 校验；

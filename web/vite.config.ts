@@ -85,5 +85,13 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     css: false,
+    // 覆盖率仅由 `pnpm test:coverage` 显式触发（工作流 S3 增量覆盖门禁的数据源），
+    // 日常 `pnpm test` 不采集，保持反馈速度。
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html", "json-summary"],
+      include: ["src/**"],
+      exclude: ["src/mocks/**", "src/test/**", "**/*.d.ts"],
+    },
   },
 });
