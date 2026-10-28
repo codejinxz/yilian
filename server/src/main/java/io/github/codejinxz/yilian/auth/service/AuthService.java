@@ -1,13 +1,13 @@
 package io.github.codejinxz.yilian.auth.service;
 
-import io.github.codejinxz.yilian.auth.dto.AuthResponse;
 import io.github.codejinxz.yilian.auth.dto.ChangePasswordRequest;
-import io.github.codejinxz.yilian.auth.dto.CsrfTokenResponse;
-import io.github.codejinxz.yilian.auth.dto.CurrentUserResponse;
 import io.github.codejinxz.yilian.auth.dto.LoginRequest;
 import io.github.codejinxz.yilian.auth.dto.RegisterRequest;
 import io.github.codejinxz.yilian.auth.dto.UserSettingsRequest;
-import io.github.codejinxz.yilian.auth.dto.UserSettingsResponse;
+import io.github.codejinxz.yilian.auth.vo.AuthResponse;
+import io.github.codejinxz.yilian.auth.vo.CsrfTokenResponse;
+import io.github.codejinxz.yilian.auth.vo.CurrentUserResponse;
+import io.github.codejinxz.yilian.auth.vo.UserSettingsResponse;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
 
 import jakarta.servlet.http.HttpServletRequest;

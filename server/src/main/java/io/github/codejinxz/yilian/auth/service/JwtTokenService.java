@@ -1,6 +1,6 @@
 package io.github.codejinxz.yilian.auth.service;
 
-import io.github.codejinxz.yilian.auth.dto.AccessToken;
+import io.github.codejinxz.yilian.auth.vo.AccessToken;
 import io.github.codejinxz.yilian.system.service.dto.UserCredentials;
 
 /**

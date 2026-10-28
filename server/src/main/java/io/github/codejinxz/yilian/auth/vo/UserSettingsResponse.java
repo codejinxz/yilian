@@ -1,4 +1,4 @@
-package io.github.codejinxz.yilian.auth.dto;
+package io.github.codejinxz.yilian.auth.vo;
 
 import io.github.codejinxz.yilian.system.service.dto.UserSettings;
 import io.swagger.v3.oas.annotations.media.Schema;

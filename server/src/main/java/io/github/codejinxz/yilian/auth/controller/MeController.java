@@ -1,8 +1,8 @@
 package io.github.codejinxz.yilian.auth.controller;
 
 import io.github.codejinxz.yilian.auth.dto.UserSettingsRequest;
-import io.github.codejinxz.yilian.auth.dto.UserSettingsResponse;
 import io.github.codejinxz.yilian.auth.service.AuthService;
+import io.github.codejinxz.yilian.auth.vo.UserSettingsResponse;
 import io.github.codejinxz.yilian.common.api.ApiResponse;
 import io.github.codejinxz.yilian.common.logging.OperationLog;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
