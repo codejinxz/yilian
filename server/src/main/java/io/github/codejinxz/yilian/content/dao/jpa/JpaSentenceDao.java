@@ -4,9 +4,7 @@ import io.github.codejinxz.yilian.content.dao.SentenceDao;
 import io.github.codejinxz.yilian.content.entity.Sentence;
 import io.github.codejinxz.yilian.content.entity.SentenceVersion;
 
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
@@ -54,11 +52,6 @@ public class JpaSentenceDao implements SentenceDao {
     @Override
     public List<Sentence> findChangedSince(long bankId, long sinceVersion, int limit) {
         return sentences.findChangedSince(bankId, sinceVersion, PageRequest.of(0, limit));
-    }
-
-    @Override
-    public Page<Sentence> findPageByBank(long bankId, Pageable pageable) {
-        return sentences.findByBankIdOrderByCreatedAtDesc(bankId, pageable);
     }
 
     @Override

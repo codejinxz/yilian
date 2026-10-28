@@ -2,7 +2,6 @@ package io.github.codejinxz.yilian.content.dao.jpa;
 
 import io.github.codejinxz.yilian.content.entity.Sentence;
 
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -51,15 +50,6 @@ public interface SentenceJpaRepository extends JpaRepository<Sentence, String> {
             @Param("bankId") long bankId,
             @Param("sinceVersion") long sinceVersion,
             Pageable pageable);
-
-    /**
-     * 管理端题目列表。
-     *
-     * @param bankId 题库 id
-     * @param pageable 分页
-     * @return 分页结果
-     */
-    Page<Sentence> findByBankIdOrderByCreatedAtDesc(long bankId, Pageable pageable);
 
     /**
      * 统计题库内已发布且未删的题目数。

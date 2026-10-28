@@ -3,9 +3,6 @@ package io.github.codejinxz.yilian.content.dao;
 import io.github.codejinxz.yilian.content.entity.Sentence;
 import io.github.codejinxz.yilian.content.entity.SentenceVersion;
 
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -56,15 +53,6 @@ public interface SentenceDao {
      * @return 题目列表
      */
     List<Sentence> findChangedSince(long bankId, long sinceVersion, int limit);
-
-    /**
-     * 管理端题目分页。
-     *
-     * @param bankId 题库 id
-     * @param pageable 分页
-     * @return 分页结果
-     */
-    Page<Sentence> findPageByBank(long bankId, Pageable pageable);
 
     /**
      * 保存内容快照。
