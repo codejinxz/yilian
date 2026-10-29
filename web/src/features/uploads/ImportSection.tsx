@@ -1,15 +1,14 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Select } from "@/components/ui/select";
+import { commitImport, getImportBatch, previewImport, rollbackImport } from "@/lib/api/admin";
 import { getBanks } from "@/lib/api/content";
-import { getImport, getImportErrors, resumeImport, uploadImport } from "@/lib/api/upload";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
 /**
- * 题库页签第三段「导入」：上传 CSV/JSON，后台校验，前端轮询批次状态，失败可继续。
- * 由 UploadPage 折叠而来（原型里导入本就是题库页签内的一段）；上传/轮询/行错误/resume
- * 的数据流保持不变，只换了位置与视觉（原型 import-box / validation-table / import-foot 语言）。
+ * 题库页签第三段「导入」：选择文件 → 同步预览（行级错误就地展示）→ 确认提交入库 →
+ * 可回滚（RECYCLED 软删 + 增量流下发 tombstone）。契约 /admin/uploads（切片设计 §4.1）。
  * 权限由管理端路由门（AdminGate）统一把关，这里不再单独查 me。
  */
 export function ImportSection() {
@@ -17,9 +16,11 @@ export function ImportSection() {
   const [file, setFile] = useState<File | null>(null);
   const [batchId, setBatchId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rollbackReason, setRollbackReason] = useState("");
+  const [rollbackError, setRollbackError] = useState<string | null>(null);
   // 拖拽悬停时给虚线框加深描边；只做视觉反馈，落点仍走同一套 choose 校验。
   const [dragging, setDragging] = useState(false);
-  // 导入目标题库（原型 .import-target）：常显，上传时随 FormData 提交。
+  // 导入目标题库（原型 .import-target）：常显，预览时随 FormData 提交。
   const [bankId, setBankId] = useState("");
 
   const banksQuery = useQuery({
@@ -27,43 +28,49 @@ export function ImportSection() {
     queryFn: ({ signal }) => getBanks({ page: 1, size: 100 }, signal),
   });
   const banks = banksQuery.data?.items ?? [];
-  // 未手动选择时默认第一个可用题库，保证「开始上传」始终有明确归属。
+  // 未手动选择时默认第一个可用题库，保证「开始预览」始终有明确归属。
   const effectiveBankId = bankId || banks[0]?.id || "";
 
-  const upload = useMutation({
-    mutationFn: (selected: File) => uploadImport(selected, effectiveBankId),
-    onSuccess: (accepted) => {
-      setBatchId(accepted.batchId);
+  const preview = useMutation({
+    mutationFn: (selected: File) =>
+      previewImport({ file: selected, bankId: effectiveBankId, format: formatOf(selected.name) }),
+    onSuccess: (result) => {
+      setBatchId(result.batchId);
       setError(null);
+      setRollbackError(null);
     },
-    onError: (cause) => setError(cause instanceof Error ? cause.message : "上传失败"),
+    onError: (cause) => setError(cause instanceof Error ? cause.message : "预览失败"),
   });
 
-  const batch = useQuery({
+  const detail = useQuery({
     queryKey: ["admin", "uploads", batchId],
-    queryFn: ({ signal }) => getImport(batchId ?? "", signal),
+    queryFn: ({ signal }) => getImportBatch(batchId ?? "", { page: 1, size: 50 }, signal),
     enabled: batchId !== null,
-    refetchInterval: (query) => {
-      const current = query.state.data;
-      if (current?.status === "UPLOADED" || current?.status === "PROCESSING") {
-        return 1000;
-      }
-      return query.state.error ? 2000 : false;
-    },
     retry: 1,
   });
 
-  const errors = useQuery({
-    queryKey: ["admin", "uploads", batchId, "errors"],
-    queryFn: ({ signal }) => getImportErrors(batchId ?? "", signal),
-    enabled: batchId !== null && (batch.data?.failedRows ?? 0) > 0,
-    retry: false,
+  const commit = useMutation({
+    mutationFn: (id: string) => commitImport(id),
+    onSuccess: () => void detail.refetch(),
+    onError: (cause) => setError(cause instanceof Error ? cause.message : "提交失败"),
+  });
+
+  const rollback = useMutation({
+    mutationFn: (id: string) => rollbackImport(id, rollbackReason),
+    onSuccess: () => {
+      setRollbackReason("");
+      setRollbackError(null);
+      void detail.refetch();
+    },
+    onError: (cause) => setRollbackError(cause instanceof Error ? cause.message : "回滚失败"),
   });
 
   /** 文件选择的统一入口：清掉上一轮状态，做体量与格式的前端校验。 */
   const choose = (selected: File | null) => {
     setError(null);
     setBatchId(null);
+    setRollbackReason("");
+    setRollbackError(null);
     setFile(null);
     if (!selected) {
       return;
@@ -79,11 +86,14 @@ export function ImportSection() {
     setFile(selected);
   };
 
-  const processing = batch.data?.status === "PROCESSING" || batch.data?.status === "UPLOADED";
+  const batch = detail.data?.batch;
+  const committed = batch?.status === "COMMITTED";
+  const rolledBack = batch?.status === "ROLLED_BACK";
+  const invalidRows = detail.data?.rows.items.filter((row) => row.status === "INVALID") ?? [];
 
   return (
     <div>
-      {/* 原型 .import-target：导入目标题库，常显；上传时随 FormData 提交 bankId。 */}
+      {/* 原型 .import-target：导入目标题库，常显；预览时随 FormData 提交 bankId。 */}
       <div className="mb-4 flex items-center gap-2.5 text-xs text-ink-muted">
         <span>导入到</span>
         <Select
@@ -91,7 +101,7 @@ export function ImportSection() {
           value={effectiveBankId}
           onChange={(event) => setBankId(event.target.value)}
           className="w-auto rounded-[2px] border-rule bg-transparent px-2.5 py-[7px] text-xs text-ink-muted"
-          disabled={upload.isPending}
+          disabled={preview.isPending || committed}
         >
           {banks.length === 0 ? (
             <option value="">（暂无可用题库）</option>
@@ -120,7 +130,7 @@ export function ImportSection() {
         onDrop={(event) => {
           event.preventDefault();
           setDragging(false);
-          if (!upload.isPending) {
+          if (!preview.isPending) {
             choose(event.dataTransfer.files?.[0] ?? null);
           }
         }}
@@ -128,7 +138,7 @@ export function ImportSection() {
         <div>
           <p className="text-[13px] text-ink">拖入 JSON / CSV，或点右侧选择文件</p>
           <p className="mt-2 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
-            单文件上限 5MB · 先校验再入库
+            单文件上限 5MB · 先预览校验再确认入库
           </p>
         </div>
         <span
@@ -141,7 +151,7 @@ export function ImportSection() {
           ref={inputRef}
           type="file"
           accept=".csv,.json,text/csv,application/json"
-          disabled={upload.isPending}
+          disabled={preview.isPending || committed}
           className="sr-only"
           aria-label="选择导入文件"
           onChange={(event) => choose(event.target.files?.[0] ?? null)}
@@ -168,10 +178,10 @@ export function ImportSection() {
             <button
               type="button"
               className="btn primary px-5 py-2.5"
-              disabled={upload.isPending}
-              onClick={() => upload.mutate(file)}
+              disabled={preview.isPending}
+              onClick={() => preview.mutate(file)}
             >
-              {upload.isPending ? "上传中…" : "开始上传"}
+              {preview.isPending ? "预览中…" : "开始预览"}
             </button>
           </div>
         </div>
@@ -183,38 +193,22 @@ export function ImportSection() {
         </p>
       ) : null}
 
-      {batchId ? (
+      {batch ? (
         <div aria-live="polite">
           <p className="mt-5 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
-            批次 {batchId.slice(0, 8)}
-            {batch.data?.bankId
-              ? ` · ${banks.find((bank) => bank.id === batch.data?.bankId)?.name ?? batch.data.bankId}`
-              : ""}
-            {batch.data
-              ? processing
-                ? ` · 已处理 ${batch.data.processedRows} 行…`
-                : ` · 已处理 ${batch.data.processedRows} 行，成功 ${batch.data.successRows}，失败 ${batch.data.failedRows}`
-              : ""}
+            批次 {batch.batchId.slice(0, 8)} · 共 {batch.totalRows} 行，通过 {batch.validRows}，
+            失败 {batch.invalidRows}
+            {batch.importedRows > 0 ? `，已入库 ${batch.importedRows}` : ""}
           </p>
-          <progress
-            className="mt-2 h-0.5 w-full accent-vermilion"
-            aria-label="导入进度"
-            {...(processing ? {} : { value: 1, max: 1 })}
-          />
           <p className="mt-2 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
-            状态：{batch.data?.status ?? "…"}
+            状态：{batch.status}
           </p>
-          {batch.isError ? (
-            <p role="alert" className="mt-2 text-sm text-vermilion">
-              读取批次失败：{batch.error instanceof Error ? batch.error.message : "请重试"}
-            </p>
-          ) : null}
-          {batch.data?.errorMessage ? (
-            <p className="mt-2 text-sm text-vermilion">{batch.data.errorMessage}</p>
+          {batch.errorSummary ? (
+            <p className="mt-2 text-sm text-vermilion">{batch.errorSummary.message}</p>
           ) : null}
 
           {/* 行级失败清单：原型 validation-table 的行式语言，只保留真实存在的「行 / 原因」两列。 */}
-          {errors.data?.length ? (
+          {invalidRows.length ? (
             <table className="mt-5 w-full border-collapse">
               <thead>
                 <tr>
@@ -229,13 +223,13 @@ export function ImportSection() {
                 </tr>
               </thead>
               <tbody>
-                {errors.data.slice(0, 20).map((item) => (
-                  <tr key={`${item.lineNumber}-${item.reason}`} className="text-vermilion">
+                {invalidRows.slice(0, 20).map((item) => (
+                  <tr key={item.rowNo} className="text-vermilion">
                     <td className="w-9 border-b border-rule py-[13px] pr-3 font-mono text-[10px] text-ink-faint">
-                      {item.lineNumber}
+                      {item.rowNo}
                     </td>
                     <td className="border-b border-rule py-[13px] pr-3 text-[13px] leading-[1.6]">
-                      {item.reason}
+                      {item.errors.map((cause) => cause.message).join("；")}
                     </td>
                   </tr>
                 ))}
@@ -243,24 +237,73 @@ export function ImportSection() {
             </table>
           ) : null}
 
-          {batch.data?.status === "PAUSED" || batch.data?.status === "FAILED" ? (
+          {/* 提交：预览后有合法行即可入库；已提交或已回滚不再提供按钮。 */}
+          {batch.status === "PREVIEWED" && batch.validRows > 0 ? (
             <div className="mt-6 flex justify-end">
               <button
                 type="button"
                 className="btn primary px-5 py-2.5"
-                onClick={() =>
-                  resumeImport(batchId).then(
-                    () => void batch.refetch(),
-                    () => setError("继续导入失败"),
-                  )
-                }
+                disabled={commit.isPending}
+                onClick={() => commit.mutate(batch.batchId)}
               >
-                继续导入
+                {commit.isPending ? "提交中…" : `提交 ${batch.validRows} 行入库`}
               </button>
             </div>
+          ) : null}
+
+          {/* 回滚：仅已提交批次可回滚；原因必填（审计要求），重复回滚幂等。 */}
+          {committed ? (
+            <div className="mt-6 border-t border-rule pt-5">
+              <label htmlFor="rollback-reason" className={fieldLabelClass()}>
+                回滚原因（必填，写审计）
+              </label>
+              <div className="mt-2 flex items-center gap-3">
+                <input
+                  id="rollback-reason"
+                  value={rollbackReason}
+                  onChange={(event) => setRollbackReason(event.target.value)}
+                  placeholder="例如：误导入旧题库"
+                  className="flex-1 rounded-[2px] border border-rule bg-transparent px-3 py-2 text-[13px] text-ink"
+                />
+                <button
+                  type="button"
+                  className="btn primary px-5 py-2.5"
+                  disabled={rollback.isPending || !rollbackReason.trim()}
+                  onClick={() => rollback.mutate(batch.batchId)}
+                >
+                  {rollback.isPending ? "回滚中…" : "回滚批次"}
+                </button>
+              </div>
+              {rollbackError ? (
+                <p role="alert" className="mt-2 text-sm text-vermilion">
+                  {rollbackError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {rolledBack ? (
+            <p className="mt-4 text-sm text-ink-muted">
+              批次已回滚：题目进入回收站（软删），增量流将下发 tombstone。
+            </p>
           ) : null}
         </div>
       ) : null}
     </div>
   );
+}
+
+/**
+ * 由文件扩展名推断声明格式。
+ *
+ * @param filename 文件名
+ * @returns {@code JSON} / {@code CSV}
+ */
+function formatOf(filename: string): "JSON" | "CSV" {
+  return /\.csv$/i.test(filename) ? "CSV" : "JSON";
+}
+
+/** 字段标签样式（原型 field-label 语言）。 */
+function fieldLabelClass(): string {
+  return "font-mono text-[9px] font-normal tracking-[0.16em] text-ink-faint";
 }

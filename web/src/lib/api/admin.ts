@@ -255,7 +255,7 @@ export async function previewImport(input: {
   body.append("bankId", input.bankId);
   body.append("format", input.format);
   const data = await apiRequest<unknown>(
-    "/admin/imports/preview",
+    "/admin/uploads/preview",
     { method: "POST", body },
     { timeoutMs: 120_000 },
   );
@@ -270,7 +270,7 @@ export async function previewImport(input: {
  */
 export async function commitImport(batchId: string, reason?: string): Promise<ImportBatchView> {
   const data = await jsonRequest<unknown>(
-    `/admin/imports/${encodeURIComponent(batchId)}/commit`,
+    `/admin/uploads/${encodeURIComponent(batchId)}/commit`,
     "POST",
     reason ? { reason } : {},
   );
@@ -285,7 +285,7 @@ export async function commitImport(batchId: string, reason?: string): Promise<Im
  */
 export async function rollbackImport(batchId: string, reason: string): Promise<ImportBatchView> {
   const data = await jsonRequest<unknown>(
-    `/admin/imports/${encodeURIComponent(batchId)}/rollback`,
+    `/admin/uploads/${encodeURIComponent(batchId)}/rollback`,
     "POST",
     { reason },
   );
@@ -309,7 +309,7 @@ export async function getImportBatches(
   } = {},
   signal?: AbortSignal,
 ): Promise<PageResponse<ImportBatchView>> {
-  const data = await apiRequest<unknown>(`/admin/imports${toQueryString(params)}`, { signal });
+  const data = await apiRequest<unknown>(`/admin/uploads${toQueryString(params)}`, { signal });
   return parseData(importBatchPageSchema, data);
 }
 
@@ -326,7 +326,7 @@ export async function getImportBatch(
   signal?: AbortSignal,
 ): Promise<ImportBatchDetail> {
   const data = await apiRequest<unknown>(
-    `/admin/imports/${encodeURIComponent(batchId)}${toQueryString(params)}`,
+    `/admin/uploads/${encodeURIComponent(batchId)}${toQueryString(params)}`,
     { signal },
   );
   return parseData(importBatchDetailSchema, data);

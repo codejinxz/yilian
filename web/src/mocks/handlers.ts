@@ -26,7 +26,6 @@ import {
   type MockImportBatch,
   type MockReview,
   type MockSentence,
-  type MockUploadBatch,
   type MockUser,
   mockUlid,
   nextMockId,
@@ -733,9 +732,6 @@ function toImportBatchView(batch: MockImportBatch): ImportBatchView {
  * @param batch 上传批次
  * @returns 批次快照
  */
-function toUploadBatchView(batch: MockUploadBatch): MockUploadBatch {
-  return { ...batch };
-}
 
 /**
  * 模拟后台处理进度：上传后随时间推进 processedRows，超过 1.2 秒视为处理完成。
@@ -743,24 +739,6 @@ function toUploadBatchView(batch: MockUploadBatch): MockUploadBatch {
  * @param batch 上传批次
  * @returns 推进后的批次快照
  */
-function advanceUpload(batch: MockUploadBatch): MockUploadBatch {
-  if (batch.status !== "PROCESSING" && batch.status !== "UPLOADED") {
-    return toUploadBatchView(batch);
-  }
-  const elapsed = Date.now() - new Date(batch.createdAt).getTime();
-  if (elapsed < 1200) {
-    batch.processedRows = Math.min(batch.totalRows, Math.floor(batch.totalRows * (elapsed / 1200)));
-    persistMockDb();
-    return toUploadBatchView(batch);
-  }
-  batch.processedRows = batch.totalRows;
-  batch.status = "COMPLETED";
-  batch.successRows = Math.max(0, batch.totalRows - batch.failedRows);
-  batch.failedRows = batch.totalRows - batch.successRows;
-  batch.errorMessage = batch.failedRows > 0 ? `${batch.failedRows} 行未通过校验` : null;
-  persistMockDb();
-  return toUploadBatchView(batch);
-}
 
 /**
  * 校验导入行；返回逐行错误，空数组代表通过。
@@ -1920,92 +1898,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     return toSentence(sentence);
   }
 
-  if (pathname === "/admin/uploads" && method === "POST") {
-    requireAdmin(db);
-    if (!(body instanceof FormData)) {
-      fail(400, 40001, "请以 multipart/form-data 上传文件");
-    }
-    const file = body.get("file");
-    if (!(file instanceof File)) {
-      fail(400, 40001, "缺少上传文件");
-    }
-    if (!/\.(csv|json)$/i.test(file.name)) {
-      fail(415, 41500, "文件格式不受支持");
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      fail(413, 41300, "文件过大，无法上传");
-    }
-    // 行数按体量粗估（每行约 120 字节），只为驱动进度条演示。
-    const totalRows = Math.max(3, Math.min(500, Math.round(file.size / 120)));
-    const failedRows = totalRows >= 8 ? 2 : 0;
-    // TODO(mock): 服务端导入切片落地后 bankId 参与真实归属；这里只接收并回显在批次数据上。
-    const bankId = String(body.get("bankId") ?? "").trim() || null;
-    const batch: MockUploadBatch = {
-      batchId: `upload-${nextMockId()}`,
-      originalFilename: file.name,
-      bankId,
-      sizeBytes: file.size,
-      status: "PROCESSING",
-      totalRows,
-      processedRows: 0,
-      successRows: 0,
-      failedRows,
-      errorMessage: null,
-      createdAt: new Date().toISOString(),
-    };
-    db.uploads.unshift(batch);
-    persistMockDb();
-    return { batchId: batch.batchId, status: batch.status };
-  }
-
-  const uploadDetailMatch = pathname.match(/^\/admin\/uploads\/([^/]+)$/);
-  if (uploadDetailMatch && method === "GET") {
-    requireAdmin(db);
-    const batch = db.uploads.find(
-      (item) => item.batchId === decodeURIComponent(uploadDetailMatch[1] ?? ""),
-    );
-    if (!batch) {
-      fail(404, 40404, "上传批次不存在");
-    }
-    return advanceUpload(batch);
-  }
-
-  const uploadResumeMatch = pathname.match(/^\/admin\/uploads\/([^/]+)\/resume$/);
-  if (uploadResumeMatch && method === "POST") {
-    requireAdmin(db);
-    const batch = db.uploads.find(
-      (item) => item.batchId === decodeURIComponent(uploadResumeMatch[1] ?? ""),
-    );
-    if (!batch) {
-      fail(404, 40404, "上传批次不存在");
-    }
-    if (batch.status !== "PAUSED" && batch.status !== "FAILED") {
-      return advanceUpload(batch);
-    }
-    batch.status = "PROCESSING";
-    batch.errorMessage = null;
-    persistMockDb();
-    return toUploadBatchView(batch);
-  }
-
-  const uploadErrorsMatch = pathname.match(/^\/admin\/uploads\/([^/]+)\/errors$/);
-  if (uploadErrorsMatch && method === "GET") {
-    requireAdmin(db);
-    const batch = db.uploads.find(
-      (item) => item.batchId === decodeURIComponent(uploadErrorsMatch[1] ?? ""),
-    );
-    if (!batch) {
-      fail(404, 40404, "上传批次不存在");
-    }
-    // 行级失败样例：按失败行数生成稳定占位，演示「查看失败原因」链路。
-    const errors = Array.from({ length: batch.failedRows }, (_, index) => ({
-      lineNumber: index + 1,
-      reason: "语块 answers 拼接与参考译文不一致（演示数据）",
-    }));
-    return { errors };
-  }
-
-  if (pathname === "/admin/imports/preview" && method === "POST") {
+  if (pathname === "/admin/uploads/preview" && method === "POST") {
     requireAdmin(db);
     if (!(body instanceof FormData)) {
       fail(400, 40000, "请使用 multipart/form-data 上传文件");
@@ -2115,7 +2008,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     };
   }
 
-  if (pathname === "/admin/imports" && method === "GET") {
+  if (pathname === "/admin/uploads" && method === "GET") {
     requireAdmin(db);
     const bankId = params.get("bankId");
     const status = params.get("status");
@@ -2138,7 +2031,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     return { ...result, items: result.items.map(toImportBatchView) };
   }
 
-  const importCommitMatch = pathname.match(/^\/admin\/imports\/([^/]+)\/commit$/);
+  const importCommitMatch = pathname.match(/^\/admin\/uploads\/([^/]+)\/commit$/);
   if (importCommitMatch && method === "POST") {
     const admin = requireAdmin(db);
     const batch = db.imports.find(
@@ -2189,7 +2082,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     return toImportBatchView(batch);
   }
 
-  const importRollbackMatch = pathname.match(/^\/admin\/imports\/([^/]+)\/rollback$/);
+  const importRollbackMatch = pathname.match(/^\/admin\/uploads\/([^/]+)\/rollback$/);
   if (importRollbackMatch && method === "POST") {
     const admin = requireAdmin(db);
     const batch = db.imports.find(
@@ -2234,7 +2127,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     return toImportBatchView(batch);
   }
 
-  const importDetailMatch = pathname.match(/^\/admin\/imports\/([^/]+)$/);
+  const importDetailMatch = pathname.match(/^\/admin\/uploads\/([^/]+)$/);
   if (importDetailMatch && method === "GET") {
     requireAdmin(db);
     const batch = db.imports.find(
