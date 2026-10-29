@@ -121,12 +121,19 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
   const mutation = useMutation({
     mutationFn: (input: SubmitInput) =>
       input.kind === "login"
-        ? api.login({ username: input.username, password: input.password })
+        ? api.login({
+            username: input.username,
+            password: input.password,
+            captchaId: input.captchaId,
+            captchaCode: input.captchaCode,
+          })
         : api.register({
             email: input.email,
             username: input.username,
             password: input.password,
             inviteCode: input.inviteCode,
+            captchaId: input.captchaId,
+            captchaCode: input.captchaCode,
           }),
     onSuccess: (auth) => {
       setAuthenticated();
