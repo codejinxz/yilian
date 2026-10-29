@@ -4,7 +4,9 @@ import io.github.codejinxz.yilian.auth.dto.ChangePasswordRequest;
 import io.github.codejinxz.yilian.auth.dto.LoginRequest;
 import io.github.codejinxz.yilian.auth.dto.RegisterRequest;
 import io.github.codejinxz.yilian.auth.service.AuthService;
+import io.github.codejinxz.yilian.auth.service.CaptchaService;
 import io.github.codejinxz.yilian.auth.vo.AuthResponse;
+import io.github.codejinxz.yilian.auth.vo.CaptchaChallenge;
 import io.github.codejinxz.yilian.auth.vo.CsrfTokenResponse;
 import io.github.codejinxz.yilian.auth.vo.CurrentUserResponse;
 import io.github.codejinxz.yilian.common.api.ApiResponse;
@@ -50,13 +52,16 @@ public class AuthController {
 
     private final AuthService authService;
 
+    private final CaptchaService captchaService;
+
     /**
      * 只依赖 Service 接口，具体实现由 Spring 注入。
      *
      * @param authService 认证用例服务
      */
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, CaptchaService captchaService) {
         this.authService = authService;
+        this.captchaService = captchaService;
     }
 
     /**
@@ -197,10 +202,26 @@ public class AuthController {
                 description = "未预期异常；返回统一 ApiResponse 信封，data 为 null",
                 content = @Content(schema = @Schema(implementation = ApiResponse.class)))
     })
+    @RateLimit(
+            scene = "refresh",
+            dimensions = {RateLimitDimension.IP},
+            limit = 30,
+            windowSeconds = 60)
     @PostMapping("/refresh")
     public ApiResponse<AuthResponse> refresh(
             HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
         return ApiResponse.success(authService.refresh(httpRequest, httpResponse));
+    }
+
+    /**
+     * 发图形验证码挑战；公开端点，答案只存服务端、消费即作废。
+     *
+     * @return 验证码 id 与 base64 图片
+     */
+    @Operation(summary = "获取图形验证码", description = "登录/注册前调用；挑战 5 分钟内一次性有效。")
+    @GetMapping("/captcha-image")
+    public ApiResponse<CaptchaChallenge> captchaImage() {
+        return ApiResponse.success(captchaService.generate());
     }
 
     /**
@@ -286,6 +307,12 @@ public class AuthController {
                     "校验当前密码后更新密码，并吊销该用户全部 refresh 会话；access token 最多再存活 15 分钟。"
                             + "首次登录 passwordChanged=false 时，本接口与 me/logout/csrf 是唯一可用的认证接口。")
     @SecurityRequirement(name = "bearerAuth")
+    @RateLimit(
+            scene = "password-change",
+            dimensions = {RateLimitDimension.ACCOUNT},
+            limit = 5,
+            windowSeconds = 60,
+            accountExpression = "#principal.id()")
     @OperationLog(module = "account", action = "PASSWORD_CHANGE")
     @PutMapping("/password")
     public ApiResponse<Void> changePassword(

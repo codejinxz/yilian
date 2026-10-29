@@ -4,7 +4,7 @@ import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { z } from "zod";
 import { FieldError } from "@/components/feedback";
 import { useSessionStore } from "@/features/auth/session";
-import { api } from "@/lib/api";
+import { api, type CaptchaChallenge } from "@/lib/api";
 import { isMockEnabled } from "@/lib/mock-flag";
 import { queryKeys } from "@/lib/query";
 import { registerRequestSchema } from "@/lib/schemas/account";
@@ -20,13 +20,21 @@ export type AuthPageMode = "login" | "register";
 
 /** 提交载荷；kind 区分登录与注册，字段与对应 API 严格对齐。 */
 type SubmitInput =
-  | { kind: "login"; username: string; password: string }
+  | {
+      kind: "login";
+      username: string;
+      password: string;
+      captchaId?: string;
+      captchaCode?: string;
+    }
   | {
       kind: "register";
       email: string;
       username?: string;
       password: string;
       inviteCode: string;
+      captchaId?: string;
+      captchaCode?: string;
     };
 
 /** 表单字段；登录与注册共用一份状态，密码跨页签保留（与原型一致）。 */
@@ -37,6 +45,7 @@ interface AuthFormState {
   password: string;
   confirm: string;
   inviteCode: string;
+  captchaCode: string;
 }
 
 const INITIAL_FORM: AuthFormState = {
@@ -46,6 +55,7 @@ const INITIAL_FORM: AuthFormState = {
   password: "",
   confirm: "",
   inviteCode: "",
+  captchaCode: "",
 };
 
 /** 页签样式；.auth-tabs button：12px、10px 下距、激活朱红下边框压住容器底线。 */
@@ -89,10 +99,24 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
   const passwordId = useId();
   const confirmId = useId();
   const inviteId = useId();
+  const captchaFieldId = useId();
   const errorRef = useRef<HTMLParagraphElement>(null);
 
   const [form, setForm] = useState<AuthFormState>(INITIAL_FORM);
+  const [captcha, setCaptcha] = useState<CaptchaChallenge | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
+
+  /** 拉取图形验证码；失败即隐藏图形码块（后端开关关闭时本就无此要求），不阻塞表单。 */
+  function loadCaptcha() {
+    api
+      .getCaptcha()
+      .then(setCaptcha)
+      .catch(() => setCaptcha(null));
+  }
+
+  useEffect(() => {
+    loadCaptcha();
+  }, []);
 
   const mutation = useMutation({
     mutationFn: (input: SubmitInput) =>
@@ -108,6 +132,11 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
       setAuthenticated();
       queryClient.setQueryData(queryKeys.me, auth.user);
       void navigate({ to: "/today" });
+    },
+    onError: () => {
+      // 失败（含验证码错误）后旧挑战已消费，重取图形码并清空输入。
+      setForm((current) => ({ ...current, captchaCode: "" }));
+      loadCaptcha();
     },
   });
 
@@ -148,11 +177,17 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
         setFieldError("密码过长（最多 72 字节）");
         return;
       }
+      if (captcha && !form.captchaCode.trim()) {
+        setFieldError("请输入图形验证码");
+        return;
+      }
       setFieldError(null);
       mutation.mutate({
         kind: "login",
         username: parsed.data.username,
         password: parsed.data.password,
+        captchaId: captcha?.captchaId,
+        captchaCode: captcha ? form.captchaCode : undefined,
       });
       return;
     }
@@ -183,6 +218,10 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
       setFieldError("密码不能等于用户名或邮箱");
       return;
     }
+    if (captcha && !form.captchaCode.trim()) {
+      setFieldError("请输入图形验证码");
+      return;
+    }
     setFieldError(null);
     mutation.mutate({
       kind: "register",
@@ -190,6 +229,8 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
       username: parsed.data.username,
       password: parsed.data.password,
       inviteCode: parsed.data.inviteCode,
+      captchaId: captcha?.captchaId,
+      captchaCode: captcha ? form.captchaCode : undefined,
     });
   }
 
@@ -326,6 +367,40 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
               className={fieldInputClass()}
             />
           </div>
+
+          {captcha ? (
+            <div className="mb-5">
+              <label htmlFor={captchaFieldId} className={fieldLabelClass()}>
+                图形验证码
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  id={captchaFieldId}
+                  name="captchaCode"
+                  autoComplete="off"
+                  maxLength={8}
+                  aria-invalid={Boolean(errorMessage)}
+                  aria-describedby={errorMessage ? "auth-error" : undefined}
+                  value={form.captchaCode}
+                  onChange={(event) => updateField("captchaCode", event.target.value)}
+                  placeholder="输入图中字符"
+                  className={fieldInputClass()}
+                />
+                <button
+                  type="button"
+                  onClick={loadCaptcha}
+                  aria-label="刷新图形验证码"
+                  className="shrink-0"
+                >
+                  <img
+                    src={`data:image/png;base64,${captcha.imageBase64}`}
+                    alt="图形验证码，点击刷新"
+                    className="h-10 rounded border border-rule"
+                  />
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {mode === "register" ? (
             <>

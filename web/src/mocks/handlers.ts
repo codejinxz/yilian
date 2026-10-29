@@ -951,6 +951,15 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     return { token: "mock-csrf-token", headerName: "X-XSRF-TOKEN", parameterName: "_csrf" };
   }
 
+  if (pathname === "/auth/captcha-image" && method === "GET") {
+    // TODO(mock): 演示数据，真实接口落地后删除——演示态不校验验证码，仅回挑战形状。
+    return {
+      captchaId: `mock-captcha-${Date.now()}`,
+      imageBase64:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    };
+  }
+
   if (pathname === "/auth/login" && method === "POST") {
     const input = asObject(body);
     const username = String(input.username ?? "");

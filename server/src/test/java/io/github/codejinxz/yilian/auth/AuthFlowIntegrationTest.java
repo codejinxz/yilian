@@ -52,6 +52,7 @@ import java.util.stream.Collectors;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
             "yilian.ratelimit.enabled=false",
+            "yilian.security.captcha.enabled=false",
             "management.health.redis.enabled=false",
             "server.servlet.session.cookie.secure=false",
             "yilian.bootstrap-admin.username=admin",
@@ -199,6 +200,17 @@ class AuthFlowIntegrationTest {
 
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.body()).contains("\"status\":\"UP\"");
+    }
+
+    /** [AC-4] 图形验证码端点公开可取且返回挑战结构（本类开关关闭，仅验证端点与形状）。 */
+    @Test
+    void ac4_captchaImageEndpointIsPublicAndReturnsChallenge() throws Exception {
+        HttpResponse<String> response = get(newClient(), "/api/auth/captcha-image", Map.of());
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).contains("\"code\":0");
+        assertThat(response.body()).contains("\"captchaId\":");
+        assertThat(response.body()).contains("\"imageBase64\":");
     }
 
     /** 未知异常记录器确实把记录写入 error_log，而不是只调用 mock。 */

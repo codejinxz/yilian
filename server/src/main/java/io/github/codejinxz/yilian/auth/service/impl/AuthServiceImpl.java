@@ -5,6 +5,7 @@ import io.github.codejinxz.yilian.auth.dto.LoginRequest;
 import io.github.codejinxz.yilian.auth.dto.RegisterRequest;
 import io.github.codejinxz.yilian.auth.dto.UserSettingsRequest;
 import io.github.codejinxz.yilian.auth.service.AuthService;
+import io.github.codejinxz.yilian.auth.service.CaptchaService;
 import io.github.codejinxz.yilian.auth.service.JwtTokenService;
 import io.github.codejinxz.yilian.auth.vo.AccessToken;
 import io.github.codejinxz.yilian.auth.vo.AuthResponse;
@@ -50,6 +51,7 @@ public class AuthServiceImpl implements AuthService {
     private final CsrfTokenRepository csrfTokenRepository;
     private final JwtTokenService jwtTokenService;
     private final FindByIndexNameSessionRepository<? extends Session> refreshSessions;
+    private final CaptchaService captchaService;
 
     /**
      * 依赖全部面向接口，便于测试时替换账号查询、token 签发与会话吊销。
@@ -65,12 +67,14 @@ public class AuthServiceImpl implements AuthService {
             PasswordEncoder passwordEncoder,
             CsrfTokenRepository csrfTokenRepository,
             JwtTokenService jwtTokenService,
-            FindByIndexNameSessionRepository<? extends Session> refreshSessions) {
+            FindByIndexNameSessionRepository<? extends Session> refreshSessions,
+            CaptchaService captchaService) {
         this.userAccountService = userAccountService;
         this.passwordEncoder = passwordEncoder;
         this.csrfTokenRepository = csrfTokenRepository;
         this.jwtTokenService = jwtTokenService;
         this.refreshSessions = refreshSessions;
+        this.captchaService = captchaService;
     }
 
     @Override
@@ -86,6 +90,7 @@ public class AuthServiceImpl implements AuthService {
             LoginRequest request,
             HttpServletRequest httpRequest,
             HttpServletResponse httpResponse) {
+        captchaService.verifyOrThrow(request.captchaId(), request.captchaCode());
         if (PasswordUtils.exceedsBcryptLimit(request.password())) {
             throw new BusinessException(ApiCode.VALIDATION_FAILED, "密码过长（最多 72 字节）");
         }
@@ -110,6 +115,7 @@ public class AuthServiceImpl implements AuthService {
             RegisterRequest request,
             HttpServletRequest httpRequest,
             HttpServletResponse httpResponse) {
+        captchaService.verifyOrThrow(request.captchaId(), request.captchaCode());
         UserCredentials user =
                 userAccountService.register(
                         new RegisterCommand(

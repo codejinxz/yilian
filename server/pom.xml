@@ -37,6 +37,16 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-validation</artifactId>
     </dependency>
+    <!--
+      图形验证码生成（登录/注册防爆破）：纯图片渲染、零传递依赖、不参与任何 IO。
+      白名单外依赖说明（AGENTS §3.3）：kaptcha 多年失修、Java 2D 自绘约百行维护成本，
+      均劣于本依赖；经项目主人 2026-10-29 批准引入。
+    -->
+    <dependency>
+      <groupId>com.github.whvcse</groupId>
+      <artifactId>easy-captcha</artifactId>
+      <version>1.6.2</version>
+    </dependency>
     <!-- 操作日志切面：只对显式标注 @OperationLog 的写接口生效，不给读接口增加代理开销。 -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

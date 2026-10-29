@@ -108,6 +108,9 @@ public class SecurityConfig {
                                     .permitAll()
                                     .requestMatchers(HttpMethod.POST, "/api/auth/logout")
                                     .permitAll()
+                                    // 图形验证码挑战：公开只读，答案只存服务端，泄露面为图片本身。
+                                    .requestMatchers(HttpMethod.GET, "/api/auth/captcha-image")
+                                    .permitAll()
                                     // 公开题库允许匿名浏览；私有题库在 Service 层按当前用户过滤。
                                     .requestMatchers(HttpMethod.GET, "/api/banks", "/api/banks/**")
                                     .permitAll()

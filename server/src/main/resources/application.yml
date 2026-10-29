@@ -95,6 +95,9 @@ yilian:
     # prod 默认强制邀请码；local 可在 application-local.yml 关闭，方便本机联调。
     invite-required: ${YILIAN_REGISTRATION_INVITE_REQUIRED:false}
   security:
+    captcha:
+      # 登录/注册图形验证码；关闭时前后端都不出图形码（本地联调/自动化测试）。
+      enabled: ${YILIAN_SECURITY_CAPTCHA_ENABLED:true}
     jwt:
       issuer: ${YILIAN_JWT_ISSUER:yilian}
       # 空值会让 JwtConfiguration 启动失败；local 在 application-local.yml 提供开发默认值。

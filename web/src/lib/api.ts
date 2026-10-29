@@ -13,6 +13,9 @@ import {
 export { ApiError } from "@/lib/api-error";
 export type { AuthResponse, CurrentUser } from "@/lib/schemas/account";
 
+/** 图形验证码挑战；imageBase64 为 PNG 的 base64（不含 data: 前缀）。 */
+export type CaptchaChallenge = { captchaId: string; imageBase64: string };
+
 const API_BASE = "/api";
 const REQUEST_TIMEOUT_MS = 10_000;
 const FALLBACK_ERROR_CODE = -1;
@@ -875,7 +878,35 @@ export const api = {
    * @returns access token、有效期与当前用户
    * @throws ApiError 网络失败、凭据错误、限流或响应结构异常
    */
-  async login(credentials: { username: string; password: string }): Promise<AuthResponse> {
+  async getCaptcha(): Promise<CaptchaChallenge> {
+    const data = await request<unknown>(
+      "/auth/captcha-image",
+      { method: "GET" },
+      { skipRefresh: true, skipUnauthorizedRedirect: true },
+    );
+    if (
+      data &&
+      typeof data === "object" &&
+      typeof (data as Record<string, unknown>).captchaId === "string" &&
+      typeof (data as Record<string, unknown>).imageBase64 === "string"
+    ) {
+      return data as CaptchaChallenge;
+    }
+    throw new ApiError(0, FALLBACK_ERROR_CODE, "服务响应异常，请稍后重试");
+  },
+
+  /**
+   * 登录并把 access token 存入内存；refresh token 由响应 Set-Cookie 写入 HttpOnly Cookie。
+   * @param credentials 用户名与密码；验证码开关开启时附图形验证码
+   * @returns access token、有效期与当前用户
+   * @throws ApiError 网络失败、凭据错误、验证码错误、限流或响应结构异常
+   */
+  async login(credentials: {
+    username: string;
+    password: string;
+    captchaId?: string;
+    captchaCode?: string;
+  }): Promise<AuthResponse> {
     const data = await request<unknown>(
       "/auth/login",
       { method: "POST", body: JSON.stringify(credentials) },
@@ -933,7 +964,7 @@ export const api = {
 
   /**
    * 邀请码注册；成功后后端直接返回登录态。
-   * @param input 邮箱、可选用户名、密码与邀请码
+   * @param input 邮箱、可选用户名、密码、邀请码；验证码开关开启时附图形验证码
    * @returns 登录响应
    * @throws ApiError 邀请码失效、重复账号或参数校验失败
    */
@@ -942,6 +973,8 @@ export const api = {
     username?: string;
     password: string;
     inviteCode: string;
+    captchaId?: string;
+    captchaCode?: string;
   }): Promise<AuthResponse> {
     const data = await request<unknown>(
       "/auth/register",

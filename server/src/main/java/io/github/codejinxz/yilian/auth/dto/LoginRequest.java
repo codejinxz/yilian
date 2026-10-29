@@ -13,6 +13,8 @@ import jakarta.validation.constraints.Size;
  *
  * @param username 登录名，首尾空白不会被自动去除
  * @param password 明文密码，仅在本次请求内使用，不落库也不写日志
+ * @param captchaId 图形验证码 id；验证码开关关闭或前端未取到挑战时为 null
+ * @param captchaCode 图形验证码输入
  */
 @Schema(description = "登录请求体：登录名与明文密码；密码只在本次请求内校验，不落库、不写日志。")
 public record LoginRequest(
@@ -32,4 +34,8 @@ public record LoginRequest(
                         maxLength = 72)
                 @NotBlank(message = "请输入密码")
                 @Size(max = 72, message = "密码最多 72 个字符")
-                String password) {}
+                String password,
+        @Schema(description = "图形验证码 id；开关开启时必填") @Size(max = 64, message = "验证码 id 不合法")
+                String captchaId,
+        @Schema(description = "图形验证码输入；开关开启时必填") @Size(max = 8, message = "验证码最多 8 个字符")
+                String captchaCode) {}

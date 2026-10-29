@@ -13,6 +13,8 @@ import jakarta.validation.constraints.Size;
  * @param username 登录名，可空；为空时由邮箱本地部分派生
  * @param password 明文密码，8–72 字节
  * @param inviteCode 邀请码，开启邀请制时必填
+ * @param captchaId 图形验证码 id；验证码开关关闭或前端未取到挑战时为 null
+ * @param captchaCode 图形验证码输入
  */
 @Schema(description = "注册请求：邀请码是否必填由 yilian.registration.invite-required 决定。")
 public record RegisterRequest(
@@ -30,4 +32,8 @@ public record RegisterRequest(
                 String password,
         @Schema(description = "邀请码明文；只用于比对哈希，不写日志", accessMode = Schema.AccessMode.WRITE_ONLY)
                 @Size(max = 64, message = "邀请码最多 64 个字符")
-                String inviteCode) {}
+                String inviteCode,
+        @Schema(description = "图形验证码 id；开关开启时必填") @Size(max = 64, message = "验证码 id 不合法")
+                String captchaId,
+        @Schema(description = "图形验证码输入；开关开启时必填") @Size(max = 8, message = "验证码最多 8 个字符")
+                String captchaCode) {}

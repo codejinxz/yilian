@@ -232,6 +232,10 @@ describe("auth flow", () => {
       if (url.endsWith("/api/auth/refresh")) {
         return jsonResponse(errorEnvelope(40100, "请先登录"), 401);
       }
+      if (url.endsWith("/api/auth/captcha-image")) {
+        // 登录页挂载即取图形码；给规范响应让页面走完整路径（取码失败本可优雅降级）。
+        return jsonResponse(successEnvelope({ captchaId: "captcha-1", imageBase64: "cG5n" }));
+      }
       throw new Error(`unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -241,10 +245,11 @@ describe("auth flow", () => {
     expect(await screen.findByRole("heading", { name: "登录" })).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/login"));
     // 断言认证链路只有 refresh：管理门与壳层 me 查询各触发一次 refresh（登录页并入壳层后是两次独立查询），
-    // refresh 失败后绝不重放 /api/auth/me 或 /api/auth/login；非认证的今日查询不计入。
+    // refresh 失败后绝不重放 /api/auth/me 或 /api/auth/login；图形码是登录页挑战、非认证链路，
+    // 非认证的今日查询不计入。
     const authUrls = fetchMock.mock.calls
       .map((call) => String(call[0]))
-      .filter((url) => url.includes("/api/auth/"));
+      .filter((url) => url.includes("/api/auth/") && !url.includes("/api/auth/captcha-image"));
     expect(authUrls).not.toHaveLength(0);
     expect(authUrls.every((url) => url.includes("/api/auth/refresh"))).toBe(true);
   });
