@@ -131,6 +131,10 @@ public class ContentQueryServiceImpl implements ContentQueryService {
     /**
      * 按 sinceVersion 增量拉取题目。
      *
+     * <p>不可练状态（DRAFT/DISABLED/RECYCLED/ARCHIVED）对练习端一律返回 tombstone——增量流不变式：
+     * 任何不可练状态都给 tombstone（切片设计 §4.5 P1-2），客户端据此清理本地缓存；从未发布过的
+     * DRAFT 行多给一条 tombstone 对客户端无害（未知 id 直接忽略）。
+     *
      * <p>游标语义遵循 API §1.6：{@code version > sinceVersion}，升序返回； {@code nextSinceVersion} 取本页最大
      * version，无数据时等于 {@code sinceVersion}； {@code hasMore} 以「取满 limit」近似，客户端拉到空页自然终止。
      *
@@ -158,10 +162,6 @@ public class ContentQueryServiceImpl implements ContentQueryService {
         List<Sentence> rows = sentenceDao.findChangedSince(bankId, sinceVersion, limit);
         List<SentenceDetail> items = new ArrayList<>(rows.size());
         for (Sentence row : rows) {
-            if (!admin && row.getStatus() == ContentStatus.DRAFT) {
-                // 未发布内容对练习端不可见；跳过不影响游标：一旦发布必然 bump version。
-                continue;
-            }
             if (!admin && !isPublishedActive(row)) {
                 items.add(
                         SentenceDetail.tombstone(

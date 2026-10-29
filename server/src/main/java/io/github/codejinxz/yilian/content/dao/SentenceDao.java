@@ -55,6 +55,15 @@ public interface SentenceDao {
     List<Sentence> findChangedSince(long bankId, long sinceVersion, int limit);
 
     /**
+     * 批量查询题库内未删题目命中的活跃指纹（preview 去重用）。
+     *
+     * @param bankId 题库 id
+     * @param fingerprints 候选指纹集合
+     * @return 命中的指纹子集
+     */
+    List<String> findActiveFingerprints(long bankId, Collection<String> fingerprints);
+
+    /**
      * 保存内容快照。
      *
      * @param version 快照

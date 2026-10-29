@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -50,6 +51,19 @@ public interface SentenceJpaRepository extends JpaRepository<Sentence, String> {
             @Param("bankId") long bankId,
             @Param("sinceVersion") long sinceVersion,
             Pageable pageable);
+
+    /**
+     * 批量查询题库内未删题目命中的活跃指纹。
+     *
+     * @param bankId 题库 id
+     * @param fingerprints 候选指纹集合
+     * @return 命中的指纹
+     */
+    @Query(
+            "select s.fingerprint from Sentence s where s.bankId = :bankId"
+                    + " and s.deletedAt is null and s.fingerprint in :fingerprints")
+    List<String> findActiveFingerprints(
+            @Param("bankId") long bankId, @Param("fingerprints") Collection<String> fingerprints);
 
     /**
      * 统计题库内已发布且未删的题目数。

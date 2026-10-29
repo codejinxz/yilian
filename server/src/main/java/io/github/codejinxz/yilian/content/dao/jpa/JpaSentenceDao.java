@@ -68,4 +68,9 @@ public class JpaSentenceDao implements SentenceDao {
     public Optional<SentenceVersion> findLatestVersion(String sentenceId) {
         return versions.findFirstBySentenceIdOrderByVersionNoDesc(sentenceId);
     }
+
+    @Override
+    public List<String> findActiveFingerprints(long bankId, Collection<String> fingerprints) {
+        return sentences.findActiveFingerprints(bankId, fingerprints);
+    }
 }

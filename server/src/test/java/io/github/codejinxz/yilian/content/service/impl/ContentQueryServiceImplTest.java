@@ -45,7 +45,7 @@ import java.util.Optional;
 /**
  * {@link ContentQueryServiceImpl} 的纯单元测试：Mock Dao，不启动 Spring 容器。
  *
- * <p>重点覆盖可见性规则（匿名只看公开、登录附私有）、增量拉取的 tombstone 与 DRAFT 过滤、 以及分页/游标参数校验，对应 API §5.1–§5.3 与 §1.6。
+ * <p>重点覆盖可见性规则（匿名只看公开、登录附私有）、增量拉取的 tombstone 映射（含 P1-2 DRAFT）、 以及分页/游标参数校验，对应 API §5.1–§5.3 与 §1.6。
  */
 class ContentQueryServiceImplTest {
 
@@ -255,9 +255,9 @@ class ContentQueryServiceImplTest {
 
     // ---------- 增量拉取 ----------
 
-    /** 增量拉取映射：DRAFT 跳过、停用回 tombstone、已发布回完整内容，游标取本页最大 version。 */
+    /** 增量拉取映射（P1-2）：DRAFT/停用都回 tombstone、已发布回完整内容，游标取本页最大 version。 */
     @Test
-    void listSentencesSkipsDraftAndMapsTombstones() {
+    void listSentencesMapsDraftAndDisabledToTombstones() {
         SentenceBank bank = publishedPublicBank(1L, 12);
         when(bankDao.findById(1L)).thenReturn(Optional.of(bank));
         Sentence draft = demotedDraftSentence("01JDRAFT000000000000000000A", 10);
@@ -270,8 +270,13 @@ class ContentQueryServiceImplTest {
         SentencePage page = service.listSentences(1L, 0, 100, null, false);
 
         assertThat(page.version()).isEqualTo(12);
-        assertThat(page.items()).hasSize(2);
-        SentenceDetail tombstone = page.items().getFirst();
+        assertThat(page.items()).hasSize(3);
+        SentenceDetail draftTombstone = page.items().getFirst();
+        assertThat(draftTombstone.id()).isEqualTo(draft.getId());
+        assertThat(draftTombstone.deleted()).isTrue();
+        assertThat(draftTombstone.status()).isEqualTo("DRAFT");
+        assertThat(draftTombstone.zh()).isNull();
+        SentenceDetail tombstone = page.items().get(1);
         assertThat(tombstone.id()).isEqualTo(disabled.getId());
         assertThat(tombstone.deleted()).isTrue();
         assertThat(tombstone.status()).isEqualTo("DISABLED");
