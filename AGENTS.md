@@ -205,3 +205,4 @@ yilian/
 
 1. **bootstrap 管理员**：`local` 允许默认值，`prod` fail-fast；忘记密码用一次性重置开关。
 2. **第一个切片**：登录 → 拉题 → 填空 → 判分。
+AI 工作流约定见 .workflow-kit/AGENTS.md，每次会话必读
