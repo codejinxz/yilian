@@ -11,5 +11,4 @@ import jakarta.validation.constraints.Size;
  */
 @Schema(description = "提交导入批次请求")
 public record CommitImportRequest(
-        @Schema(description = "可选审计原因") @Size(max = 500, message = "原因最多 500 个字符")
-                String reason) {}
+        @Schema(description = "可选审计原因") @Size(max = 500, message = "原因最多 500 个字符") String reason) {}

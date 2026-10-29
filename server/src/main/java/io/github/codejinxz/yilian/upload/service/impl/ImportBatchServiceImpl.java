@@ -30,8 +30,6 @@ import io.github.codejinxz.yilian.upload.support.ImportFilePolicy;
 import io.github.codejinxz.yilian.upload.validation.ImportBusinessValidator;
 import io.github.codejinxz.yilian.upload.validation.ImportRowParser;
 
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -40,7 +38,6 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -48,7 +45,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -59,9 +55,8 @@ import java.util.UUID;
 /**
  * 导入批次服务实现（preview→commit→rollback 编排）。
  *
- * <p>事务边界：preview 的「批次 + 行」单事务落库（对象存储在事务外，失败清孤儿文件）；
- * commit 的「内容快照 + 题目」单事务在 {@code ContentImportService} 内，批次状态推进
- * 为独立小事务（PREVIEWED→COMMITTING 乐观兜底，失败落 FAILED 可追溯）；rollback 同理。
+ * <p>事务边界：preview 的「批次 + 行」单事务落库（对象存储在事务外，失败清孤儿文件）； commit 的「内容快照 + 题目」单事务在 {@code
+ * ContentImportService} 内，批次状态推进 为独立小事务（PREVIEWED→COMMITTING 乐观兜底，失败落 FAILED 可追溯）；rollback 同理。
  */
 @Service
 public class ImportBatchServiceImpl implements ImportBatchService {
@@ -130,8 +125,7 @@ public class ImportBatchServiceImpl implements ImportBatchService {
         String derivedFormat = derivedFormat(file.getOriginalFilename(), file.getContentType());
         if (!derivedFormat.equals(format)) {
             throw new BusinessException(
-                    ApiCode.VALIDATION_FAILED,
-                    "文件扩展名与声明的 format 不一致（应为 " + derivedFormat + "）");
+                    ApiCode.VALIDATION_FAILED, "文件扩展名与声明的 format 不一致（应为 " + derivedFormat + "）");
         }
         if (!contentImportService.isImportableBank(bankId)) {
             throw new BusinessException(ApiCode.BANK_NOT_FOUND);
@@ -165,7 +159,9 @@ public class ImportBatchServiceImpl implements ImportBatchService {
                 List<ImportRowError> errors =
                         businessValidator.validate(objectMapper.readTree(row.rawJson()));
                 ImportBatchRowStatus status =
-                        errors.isEmpty() ? ImportBatchRowStatus.VALID : ImportBatchRowStatus.INVALID;
+                        errors.isEmpty()
+                                ? ImportBatchRowStatus.VALID
+                                : ImportBatchRowStatus.INVALID;
                 rowEntities.add(
                         ImportBatchRow.previewed(
                                 batchId,
@@ -175,11 +171,14 @@ public class ImportBatchServiceImpl implements ImportBatchService {
                                 status,
                                 errors.isEmpty() ? null : writeJson(errors),
                                 now));
-                outcomes.add(new RowOutcome(row.rowNo(), row.externalKey(), row.rawJson(), status, errors));
+                outcomes.add(
+                        new RowOutcome(
+                                row.rowNo(), row.externalKey(), row.rawJson(), status, errors));
             }
             markDuplicates(bankId, outcomes, rowEntities, now);
 
-            long validRows = outcomes.stream().filter(o -> o.status() == ImportBatchRowStatus.VALID).count();
+            long validRows =
+                    outcomes.stream().filter(o -> o.status() == ImportBatchRowStatus.VALID).count();
             long invalidRows = outcomes.size() - validRows;
             ImportErrorSummary summary =
                     invalidRows > 0
@@ -207,7 +206,11 @@ public class ImportBatchServiceImpl implements ImportBatchService {
                             actor.getUsername(),
                             now);
             batch.markPreviewed(
-                    outcomes.size(), validRows, invalidRows, summary == null ? null : writeJson(summary), now);
+                    outcomes.size(),
+                    validRows,
+                    invalidRows,
+                    summary == null ? null : writeJson(summary),
+                    now);
             importBatchDao.save(batch);
             importBatchRowDao.saveAll(rowEntities);
 
@@ -240,7 +243,8 @@ public class ImportBatchServiceImpl implements ImportBatchService {
         if (batch.isCommitted()) {
             return toView(batch); // 重复 commit 幂等返回
         }
-        if (batch.getStatus() != io.github.codejinxz.yilian.upload.entity.ImportBatchStatus.PREVIEWED) {
+        if (batch.getStatus()
+                != io.github.codejinxz.yilian.upload.entity.ImportBatchStatus.PREVIEWED) {
             throw new BusinessException(ApiCode.IMPORT_NOT_COMMITTABLE, "当前批次不可提交");
         }
         Instant now = Instant.now();
@@ -251,7 +255,8 @@ public class ImportBatchServiceImpl implements ImportBatchService {
                 importBatchRowDao.findByBatchIdAndStatus(batchId, ImportBatchRowStatus.VALID);
         List<SentenceContent> contents = new ArrayList<>(validRows.size());
         for (ImportBatchRow row : validRows) {
-            contents.add(toSentenceContent(objectMapper.readTree(row.getRaw()), row.getExternalKey()));
+            contents.add(
+                    toSentenceContent(objectMapper.readTree(row.getRaw()), row.getExternalKey()));
         }
         try {
             var results =
@@ -278,12 +283,15 @@ public class ImportBatchServiceImpl implements ImportBatchService {
     }
 
     @Override
-    public ImportBatchViewResponse rollback(String batchId, String reason, YilianUserPrincipal actor) {
+    public ImportBatchViewResponse rollback(
+            String batchId, String reason, YilianUserPrincipal actor) {
         ImportBatch batch = requireBatch(batchId);
-        if (batch.getStatus() == io.github.codejinxz.yilian.upload.entity.ImportBatchStatus.ROLLED_BACK) {
+        if (batch.getStatus()
+                == io.github.codejinxz.yilian.upload.entity.ImportBatchStatus.ROLLED_BACK) {
             return toView(batch); // 重复回滚幂等返回
         }
-        if (batch.getStatus() != io.github.codejinxz.yilian.upload.entity.ImportBatchStatus.COMMITTED) {
+        if (batch.getStatus()
+                != io.github.codejinxz.yilian.upload.entity.ImportBatchStatus.COMMITTED) {
             throw new BusinessException(ApiCode.IMPORT_NOT_COMMITTABLE, "只有已提交的批次可以回滚");
         }
         List<String> sentenceIds =
@@ -306,7 +314,8 @@ public class ImportBatchServiceImpl implements ImportBatchService {
         requireKnownStatus(status);
         long offset = (long) (page - 1) * size;
         List<ImportBatchListItem> items =
-                importBatchQueryDao.findBatches(bankId, status, utcStart(from), utcEnd(to), offset, size);
+                importBatchQueryDao.findBatches(
+                        bankId, status, utcStart(from), utcEnd(to), offset, size);
         long total = importBatchQueryDao.countBatches(bankId, status, utcStart(from), utcEnd(to));
         List<ImportBatchViewResponse> views = items.stream().map(this::toView).toList();
         return PageResponse.of(views, page, size, total);
@@ -320,8 +329,7 @@ public class ImportBatchServiceImpl implements ImportBatchService {
         List<ImportBatchRowItem> items =
                 importBatchQueryDao.findRows(batchId, rowStatus, offset, size);
         long total = importBatchQueryDao.countRows(batchId, rowStatus);
-        List<ImportRowView> views =
-                items.stream().map(item -> toRowView(item)).toList();
+        List<ImportRowView> views = items.stream().map(item -> toRowView(item)).toList();
         return new ImportBatchDetailResponse(
                 toView(batch), PageResponse.of(views, page, size, total));
     }
@@ -329,7 +337,11 @@ public class ImportBatchServiceImpl implements ImportBatchService {
     // ---------- 内部 ----------
 
     private record RowOutcome(
-            int rowNo, String externalKey, String rawJson, ImportBatchRowStatus status, List<ImportRowError> errors) {}
+            int rowNo,
+            String externalKey,
+            String rawJson,
+            ImportBatchRowStatus status,
+            List<ImportRowError> errors) {}
 
     /**
      * 标记指纹重复行：题库已存在或批内重复的 VALID 行改为 INVALID + DUPLICATE_SENTENCE。
@@ -340,10 +352,7 @@ public class ImportBatchServiceImpl implements ImportBatchService {
      * @param now 当前时间
      */
     private void markDuplicates(
-            Long bankId,
-            List<RowOutcome> outcomes,
-            List<ImportBatchRow> rowEntities,
-            Instant now) {
+            Long bankId, List<RowOutcome> outcomes, List<ImportBatchRow> rowEntities, Instant now) {
         List<SentenceContent> validContents = new ArrayList<>();
         List<Integer> validIndexes = new ArrayList<>();
         for (int index = 0; index < outcomes.size(); index++) {
@@ -361,26 +370,43 @@ public class ImportBatchServiceImpl implements ImportBatchService {
         // §4.3：批内重复与命中题库的行「均标 INVALID」（不静默保留首行，由管理员决定去留）。
         Map<String, List<Integer>> grouped = new LinkedHashMap<>();
         for (int index = 0; index < fingerprints.size(); index++) {
-            grouped.computeIfAbsent(fingerprints.get(index), key -> new ArrayList<>()).add(validIndexes.get(index));
+            grouped.computeIfAbsent(fingerprints.get(index), key -> new ArrayList<>())
+                    .add(validIndexes.get(index));
         }
         Map<Integer, ImportRowError> duplicates = new LinkedHashMap<>();
         grouped.forEach(
                 (fingerprint, indexes) -> {
                     if (indexes.size() > 1 || existing.contains(fingerprint)) {
-                        String message =
-                                indexes.size() > 1
-                                        ? "批次内重复题目（指纹重复）"
-                                        : "题库已存在相同题目（指纹重复）";
+                        String message = indexes.size() > 1 ? "批次内重复题目（指纹重复）" : "题库已存在相同题目（指纹重复）";
                         indexes.forEach(
                                 validIndex ->
-                                        duplicates.put(validIndex, new ImportRowError("DUPLICATE_SENTENCE", null, message)));
+                                        duplicates.put(
+                                                validIndex,
+                                                new ImportRowError(
+                                                        "DUPLICATE_SENTENCE", null, message)));
                     }
                 });
         for (Map.Entry<Integer, ImportRowError> entry : duplicates.entrySet()) {
             int index = entry.getKey();
             RowOutcome outcome = outcomes.get(index);
-            outcomes.set(index, new RowOutcome(outcome.rowNo(), outcome.externalKey(), outcome.rawJson(), ImportBatchRowStatus.INVALID, List.of(entry.getValue())));
-            rowEntities.set(index, ImportBatchRow.previewed(rowEntities.get(index).getBatchId(), outcome.rowNo(), outcome.externalKey(), outcome.rawJson(), ImportBatchRowStatus.INVALID, writeJson(List.of(entry.getValue())), now));
+            outcomes.set(
+                    index,
+                    new RowOutcome(
+                            outcome.rowNo(),
+                            outcome.externalKey(),
+                            outcome.rawJson(),
+                            ImportBatchRowStatus.INVALID,
+                            List.of(entry.getValue())));
+            rowEntities.set(
+                    index,
+                    ImportBatchRow.previewed(
+                            rowEntities.get(index).getBatchId(),
+                            outcome.rowNo(),
+                            outcome.externalKey(),
+                            outcome.rawJson(),
+                            ImportBatchRowStatus.INVALID,
+                            writeJson(List.of(entry.getValue())),
+                            now));
         }
     }
 
@@ -416,7 +442,8 @@ public class ImportBatchServiceImpl implements ImportBatchService {
      */
     private static String derivedFormat(String filename, String contentType) {
         ImportFileDescriptor descriptor = ImportFilePolicy.validate(filename, 1, contentType);
-        return descriptor.format() == io.github.codejinxz.yilian.upload.validation.ImportFileFormat.CSV
+        return descriptor.format()
+                        == io.github.codejinxz.yilian.upload.validation.ImportFileFormat.CSV
                 ? "CSV"
                 : "JSON";
     }
@@ -482,7 +509,9 @@ public class ImportBatchServiceImpl implements ImportBatchService {
      * @return Instant
      */
     private static Instant utcStart(String from) {
-        return from == null || from.isBlank() ? null : LocalDate.parse(from).atStartOfDay(ZoneOffset.UTC).toInstant();
+        return from == null || from.isBlank()
+                ? null
+                : LocalDate.parse(from).atStartOfDay(ZoneOffset.UTC).toInstant();
     }
 
     /**
@@ -518,7 +547,9 @@ public class ImportBatchServiceImpl implements ImportBatchService {
                                 chunk.path("zh").asText(""),
                                 answers,
                                 chunk.path("tag").isTextual() ? chunk.path("tag").asText() : null,
-                                chunk.path("note").isTextual() ? chunk.path("note").asText() : null));
+                                chunk.path("note").isTextual()
+                                        ? chunk.path("note").asText()
+                                        : null));
                 index++;
             }
         }
@@ -681,11 +712,17 @@ public class ImportBatchServiceImpl implements ImportBatchService {
         }
         try {
             List<ImportRowError> errors = new ArrayList<>();
-            objectMapper.readTree(json).forEach(node ->
-                    errors.add(new ImportRowError(
-                            node.path("code").asText(""),
-                            node.path("field").isTextual() ? node.path("field").asText() : null,
-                            node.path("message").asText(""))));
+            objectMapper
+                    .readTree(json)
+                    .forEach(
+                            node ->
+                                    errors.add(
+                                            new ImportRowError(
+                                                    node.path("code").asText(""),
+                                                    node.path("field").isTextual()
+                                                            ? node.path("field").asText()
+                                                            : null,
+                                                    node.path("message").asText(""))));
             return errors;
         } catch (RuntimeException exception) {
             return List.of();

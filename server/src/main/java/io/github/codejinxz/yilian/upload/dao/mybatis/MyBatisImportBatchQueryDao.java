@@ -10,8 +10,8 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * {@link ImportBatchQueryDao} 的 MyBatis 适配器，与 {@code dao.jpa.JpaXxxDao} 模式对称：
- * 契约在 {@code dao} 包，实现在 {@code dao.mybatis}，业务层无感知。
+ * {@link ImportBatchQueryDao} 的 MyBatis 适配器，与 {@code dao.jpa.JpaXxxDao} 模式对称： 契约在 {@code dao} 包，实现在
+ * {@code dao.mybatis}，业务层无感知。
  */
 @Repository
 public class MyBatisImportBatchQueryDao implements ImportBatchQueryDao {
@@ -37,7 +37,8 @@ public class MyBatisImportBatchQueryDao implements ImportBatchQueryDao {
     }
 
     @Override
-    public List<ImportBatchRowItem> findRows(String batchId, String status, long offset, int limit) {
+    public List<ImportBatchRowItem> findRows(
+            String batchId, String status, long offset, int limit) {
         return mapper.findRows(batchId, status, offset, limit);
     }
 

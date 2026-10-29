@@ -341,6 +341,7 @@ erDiagram
 - 唯一 `uk_sentence_bank_external (bank_id, external_key)`
 - 唯一 `uk_sentence_bank_active_fingerprint (bank_id, active_fingerprint)`
 - 普通 `idx_sentence_bank_version (bank_id, version)`（增量拉取）
+- `version` 在导入提交/回滚中「每题递增」：同批次每行获得独立银行修订号（P1-1），增量分页不丢行。
 - 普通 `idx_sentence_bank_status (bank_id, status, deleted_at)`
 - 普通 `idx_sentence_current_version (current_version_id)`
 

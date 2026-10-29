@@ -11,8 +11,7 @@ import java.util.Set;
 /**
  * 导入落库服务（content 模块对 upload 模块的唯一接缝，AGENTS §3.2 跨模块只依赖 service 接口）。
  *
- * <p>commit 在单事务内逐行写内容快照与题目身份，并按「每题递增」推进银行级修订号
- * （切片设计 §4.5 P1-1：同批次每行拿独立 version，增量游标永不重版本分组）。
+ * <p>commit 在单事务内逐行写内容快照与题目身份，并按「每题递增」推进银行级修订号 （切片设计 §4.5 P1-1：同批次每行拿独立 version，增量游标永不重版本分组）。
  */
 public interface ContentImportService {
 
@@ -25,10 +24,15 @@ public interface ContentImportService {
      * @param actorId 操作管理员 id
      * @param now 统一时钟
      * @return 逐行落库结果（题目 id、快照 id、版本号恒为 1）
-     * @throws io.github.codejinxz.yilian.common.api.BusinessException 题库不可用或指纹重复（IMPORT_NOT_COMMITTABLE）
+     * @throws io.github.codejinxz.yilian.common.api.BusinessException
+     *     题库不可用或指纹重复（IMPORT_NOT_COMMITTABLE）
      */
     List<ImportedSentence> importSentences(
-            long bankId, String importBatchId, List<SentenceContent> rows, Long actorId, Instant now);
+            long bankId,
+            String importBatchId,
+            List<SentenceContent> rows,
+            Long actorId,
+            Instant now);
 
     /**
      * 批量查询题库内已存在的活跃指纹（preview 去重用，只读）。
@@ -48,8 +52,7 @@ public interface ContentImportService {
     List<String> fingerprintsOf(List<SentenceContent> rows);
 
     /**
-     * 回滚已导入题目：逐题置 RECYCLED（deleted_at/by 回写）并每题递增银行修订号，
-     * 使增量流下发 tombstone；单事务。题目不存在时跳过（幂等）。
+     * 回滚已导入题目：逐题置 RECYCLED（deleted_at/by 回写）并每题递增银行修订号， 使增量流下发 tombstone；单事务。题目不存在时跳过（幂等）。
      *
      * @param bankId 题库 id
      * @param sentenceIds 待回收的题目 id
@@ -57,7 +60,8 @@ public interface ContentImportService {
      * @param now 统一时钟
      * @return 实际回收的题目数
      */
-    int recycleImportedSentences(long bankId, Collection<String> sentenceIds, Long actorId, Instant now);
+    int recycleImportedSentences(
+            long bankId, Collection<String> sentenceIds, Long actorId, Instant now);
 
     /**
      * 校验题库可导入（存在、未软删、状态为 DRAFT/PUBLISHED）。

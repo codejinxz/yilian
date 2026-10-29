@@ -8,14 +8,11 @@ import io.github.codejinxz.yilian.upload.dto.ImportPreviewResponse;
 
 import org.springframework.web.multipart.MultipartFile;
 
-/**
- * 导入批次服务（preview→commit→rollback 编排，切片设计 §4.1 五端点）。
- */
+/** 导入批次服务（preview→commit→rollback 编排，切片设计 §4.1 五端点）。 */
 public interface ImportBatchService {
 
     /**
-     * 同步预览：校验文件 → 存对象存储 → 解析 → 逐行业务校验 + 指纹去重 →
-     * 单事务落批次（PREVIEWED）与行级结果；不写题目。
+     * 同步预览：校验文件 → 存对象存储 → 解析 → 逐行业务校验 + 指纹去重 → 单事务落批次（PREVIEWED）与行级结果；不写题目。
      *
      * @param file 上传文件
      * @param bankId 目标题库 id
@@ -36,8 +33,7 @@ public interface ImportBatchService {
     ImportBatchViewResponse commit(String batchId, YilianUserPrincipal actor);
 
     /**
-     * 回滚已提交批次：题目 RECYCLED 软删 + 银行修订号逐题递增（增量流下发 tombstone）；
-     * 已回滚批次幂等返回。
+     * 回滚已提交批次：题目 RECYCLED 软删 + 银行修订号逐题递增（增量流下发 tombstone）； 已回滚批次幂等返回。
      *
      * @param batchId 批次 id
      * @param reason 回滚原因（审计必填）
@@ -58,12 +54,7 @@ public interface ImportBatchService {
      * @return 分页批次
      */
     PageResponse<ImportBatchViewResponse> list(
-            int page,
-            int size,
-            Long bankId,
-            String status,
-            String from,
-            String to);
+            int page, int size, Long bankId, String status, String from, String to);
 
     /**
      * 批次详情 + 行分页。

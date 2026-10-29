@@ -30,11 +30,10 @@ import java.util.Set;
 /**
  * 导入落库实现：单事务逐行写「内容快照 → 题目身份 → 银行修订号」。
  *
- * <p>银行修订号按「每题递增」推进（P1-1）：同一批次内每行拿到独立 version，
- * 增量游标 {@code version > sinceVersion} 分页永不重版本分组。指纹为
- * {@code SHA-256(normalize(zh)|normalize(ref)|规范化 chunks JSON)}，批内与库内
- * 重复一律 {@link ApiCode#IMPORT_NOT_COMMITTABLE} 整批回滚；commit 阶段的并发漏检
- * 由唯一索引 {@code uk_sentence_bank_active_fingerprint} 兜底。
+ * <p>银行修订号按「每题递增」推进（P1-1）：同一批次内每行拿到独立 version， 增量游标 {@code version > sinceVersion} 分页永不重版本分组。指纹为
+ * {@code SHA-256(normalize(zh)|normalize(ref)|规范化 chunks JSON)}，批内与库内 重复一律 {@link
+ * ApiCode#IMPORT_NOT_COMMITTABLE} 整批回滚；commit 阶段的并发漏检 由唯一索引 {@code
+ * uk_sentence_bank_active_fingerprint} 兜底。
  */
 @Service
 public class ContentImportServiceImpl implements ContentImportService {
@@ -71,8 +70,7 @@ public class ContentImportServiceImpl implements ContentImportService {
             return List.of();
         }
         SentenceBank bank =
-                bankDao
-                        .lockById(bankId)
+                bankDao.lockById(bankId)
                         .orElseThrow(() -> new BusinessException(ApiCode.BANK_NOT_FOUND));
         if (bank.getDeletedAt() != null
                 || (bank.getStatus() != ContentStatus.DRAFT
@@ -98,12 +96,26 @@ public class ContentImportServiceImpl implements ContentImportService {
             String tagsJson = writeJson(row.tags());
             String contentHash =
                     TextNormalizer.sha256(
-                            row.zh() + "|" + row.ref() + "|" + row.note() + "|"
-                                    + chunksJson + "|" + blankJson + "|" + tagsJson);
+                            row.zh()
+                                    + "|"
+                                    + row.ref()
+                                    + "|"
+                                    + row.note()
+                                    + "|"
+                                    + chunksJson
+                                    + "|"
+                                    + blankJson
+                                    + "|"
+                                    + tagsJson);
 
             Sentence sentence =
                     Sentence.create(
-                            IdUtils.newUlid(), bankId, row.externalKey(), fingerprint, actorId, now);
+                            IdUtils.newUlid(),
+                            bankId,
+                            row.externalKey(),
+                            fingerprint,
+                            actorId,
+                            now);
             sentenceDao.save(sentence);
 
             SentenceVersion version =
@@ -131,8 +143,7 @@ public class ContentImportServiceImpl implements ContentImportService {
                     savedVersion.getId(), 1, bank.getVersion(), fingerprint, actorId);
             sentenceDao.save(sentence);
 
-            results.add(
-                    new ImportedSentence(sentence.getId(), savedVersion.getId(), 1));
+            results.add(new ImportedSentence(sentence.getId(), savedVersion.getId(), 1));
         }
         bankDao.save(bank);
         return results;
@@ -160,8 +171,7 @@ public class ContentImportServiceImpl implements ContentImportService {
             return 0;
         }
         SentenceBank bank =
-                bankDao
-                        .lockById(bankId)
+                bankDao.lockById(bankId)
                         .orElseThrow(() -> new BusinessException(ApiCode.BANK_NOT_FOUND));
         java.util.concurrent.atomic.AtomicInteger recycled =
                 new java.util.concurrent.atomic.AtomicInteger();
@@ -171,7 +181,10 @@ public class ContentImportServiceImpl implements ContentImportService {
                     .ifPresent(
                             sentence -> {
                                 sentence.changeStatus(
-                                        ContentStatus.RECYCLED, bank.getVersion() + 1, actorId, now);
+                                        ContentStatus.RECYCLED,
+                                        bank.getVersion() + 1,
+                                        actorId,
+                                        now);
                                 bank.advanceVersion(bank.getVersion() + 1, actorId, now);
                                 sentenceDao.save(sentence);
                                 recycled.incrementAndGet();
@@ -184,8 +197,7 @@ public class ContentImportServiceImpl implements ContentImportService {
     @Override
     @Transactional(readOnly = true)
     public boolean isImportableBank(long bankId) {
-        return bankDao
-                .findById(bankId)
+        return bankDao.findById(bankId)
                 .filter(bank -> bank.getDeletedAt() == null)
                 .filter(
                         bank ->

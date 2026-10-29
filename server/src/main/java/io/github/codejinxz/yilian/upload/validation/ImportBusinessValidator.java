@@ -14,10 +14,9 @@ import java.util.Set;
 /**
  * 导入行业务校验器：逐行产出 DATA-MODEL §6.7 结构的字段级错误。
  *
- * <p>校验口径与 mock 的 validateImportRow 一致（zh 4–60 字、ref 8–300、note 20–300、
- * chunks 非空且每块至少一个非空答案、blank 下标必须命中语块、chunks[].answers[0]
- * 按序拼接 normalize 后与 ref 一致），并补充设计文档要求的 tags 1–5 个。
- * 指纹去重（批内 + 题库）由服务层叠加为 DUPLICATE_SENTENCE，不在本器职责内。
+ * <p>校验口径与 mock 的 validateImportRow 一致（zh 4–60 字、ref 8–300、note 20–300、 chunks 非空且每块至少一个非空答案、blank
+ * 下标必须命中语块、chunks[].answers[0] 按序拼接 normalize 后与 ref 一致），并补充设计文档要求的 tags 1–5 个。 指纹去重（批内 +
+ * 题库）由服务层叠加为 DUPLICATE_SENTENCE，不在本器职责内。
  */
 @Component
 public final class ImportBusinessValidator {
@@ -98,7 +97,9 @@ public final class ImportBusinessValidator {
                 if (!value.isInt() || !chunkIndexes.contains(value.asInt())) {
                     errors.add(
                             new ImportRowError(
-                                    "BLANK_INDEX_INVALID", "blank", "blank 下标 " + value + " 不存在于 chunks"));
+                                    "BLANK_INDEX_INVALID",
+                                    "blank",
+                                    "blank 下标 " + value + " 不存在于 chunks"));
                 }
             }
         }
@@ -108,9 +109,7 @@ public final class ImportBusinessValidator {
                         .equals(normalize(ref))) {
             errors.add(
                     new ImportRowError(
-                            "CHUNK_REF_MISMATCH",
-                            "chunks",
-                            "chunks[].answers[0] 按序拼接与 ref 不一致"));
+                            "CHUNK_REF_MISMATCH", "chunks", "chunks[].answers[0] 按序拼接与 ref 不一致"));
         }
 
         JsonNode tags = row.path("tags");

@@ -12,8 +12,8 @@ import java.util.List;
 /**
  * 导入行 Dao：业务层只依赖本接口，不直接使用 Spring Data Repository。
  *
- * <p>行写入只在 preview（批量落库）与 commit（回写关联）时发生；分页查询走本接口的
- * 派生方法，动态筛选的批次列表见 {@link ImportBatchQueryDao}（MyBatis）。
+ * <p>行写入只在 preview（批量落库）与 commit（回写关联）时发生；分页查询走本接口的 派生方法，动态筛选的批次列表见 {@link
+ * ImportBatchQueryDao}（MyBatis）。
  */
 public interface ImportBatchRowDao {
 

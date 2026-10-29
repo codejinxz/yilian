@@ -179,6 +179,8 @@ class AuthFlowIntegrationTest {
         // 先删属性表再删会话表，避免触发 spring_session_attributes 的外键约束。
         jdbcTemplate.update("DELETE FROM spring_session_attributes");
         jdbcTemplate.update("DELETE FROM spring_session");
+        jdbcTemplate.update("DELETE FROM import_batch_rows");
+        jdbcTemplate.update("DELETE FROM import_batches");
         jdbcTemplate.update("DELETE FROM error_log");
         jdbcTemplate.update("DELETE FROM admin_audit_log");
         // 保留 bootstrap 创建的 admin；其他账号（如本类测试用的 bob）全部清理。

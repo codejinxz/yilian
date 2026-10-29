@@ -9,7 +9,6 @@ import io.github.codejinxz.yilian.upload.dto.ImportBatchViewResponse;
 import io.github.codejinxz.yilian.upload.dto.ImportPreviewResponse;
 import io.github.codejinxz.yilian.upload.dto.RollbackImportRequest;
 import io.github.codejinxz.yilian.upload.service.ImportBatchService;
-
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
@@ -21,13 +20,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 导入批次五端点（/api/admin/uploads，切片设计 §4.1）：
- * preview（multipart 同步校验）→ commit（单事务入库）→ rollback（软删 + tombstone），
- * 外加批次列表与详情分页。管理员权限由 /api/admin/** 路径矩阵保证。
+ * 导入批次五端点（/api/admin/uploads，切片设计 §4.1）： preview（multipart 同步校验）→ commit（单事务入库）→ rollback（软删 +
+ * tombstone）， 外加批次列表与详情分页。管理员权限由 /api/admin/** 路径矩阵保证。
  */
 @RestController
 @RequestMapping("/api/admin/uploads")
@@ -74,8 +71,7 @@ public class ImportBatchController {
     @OperationLog(module = "content", action = "IMPORT_COMMIT")
     @PostMapping("/{batchId}/commit")
     public ApiResponse<ImportBatchViewResponse> commit(
-            @PathVariable String batchId,
-            @AuthenticationPrincipal YilianUserPrincipal actor) {
+            @PathVariable String batchId, @AuthenticationPrincipal YilianUserPrincipal actor) {
         return ApiResponse.success(importBatchService.commit(batchId, actor));
     }
 
@@ -92,10 +88,10 @@ public class ImportBatchController {
     @PostMapping("/{batchId}/rollback")
     public ApiResponse<ImportBatchViewResponse> rollback(
             @PathVariable String batchId,
-            @org.springframework.validation.annotation.Validated @RequestBody RollbackImportRequest request,
+            @org.springframework.validation.annotation.Validated @RequestBody
+                    RollbackImportRequest request,
             @AuthenticationPrincipal YilianUserPrincipal actor) {
-        return ApiResponse.success(
-                importBatchService.rollback(batchId, request.reason(), actor));
+        return ApiResponse.success(importBatchService.rollback(batchId, request.reason(), actor));
     }
 
     /**
@@ -118,8 +114,7 @@ public class ImportBatchController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to) {
-        return ApiResponse.success(
-                importBatchService.list(page, size, bankId, status, from, to));
+        return ApiResponse.success(importBatchService.list(page, size, bankId, status, from, to));
     }
 
     /**
@@ -138,7 +133,6 @@ public class ImportBatchController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String status) {
-        return ApiResponse.success(
-                importBatchService.detail(batchId, page, size, status));
+        return ApiResponse.success(importBatchService.detail(batchId, page, size, status));
     }
 }

@@ -11,6 +11,7 @@ import io.github.codejinxz.yilian.content.service.dto.SentenceContent;
 import io.github.codejinxz.yilian.content.service.vo.SentencePage;
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -68,6 +69,27 @@ class ContentImportServiceIntegrationTest {
                                 + "&allowPublicKeyRetrieval=true&useSSL=false");
         registry.add("spring.datasource.username", () -> "root");
         registry.add("spring.datasource.password", () -> "123456");
+    }
+
+    /** 用例后清掉批次与内容表，避免 RESTRICT 外键污染其他集成套件（AuthFlow 清 users）。 */
+    @AfterEach
+    void cleanAfter() {
+        jdbcTemplate.update("DROP TRIGGER IF EXISTS trg_sentence_versions_no_update");
+        jdbcTemplate.update("DROP TRIGGER IF EXISTS trg_sentence_versions_no_delete");
+        jdbcTemplate.update("UPDATE sentences SET current_version_id = NULL");
+        jdbcTemplate.update("DELETE FROM import_batch_rows");
+        jdbcTemplate.update("DELETE FROM sentence_versions");
+        jdbcTemplate.update("DELETE FROM sentences");
+        jdbcTemplate.update("DELETE FROM import_batches");
+        jdbcTemplate.update("DELETE FROM sentence_banks");
+        jdbcTemplate.update(
+                "CREATE TRIGGER trg_sentence_versions_no_update BEFORE UPDATE ON sentence_versions"
+                        + " FOR EACH ROW SIGNAL SQLSTATE '45000'"
+                        + " SET MESSAGE_TEXT = 'sentence_versions is immutable'");
+        jdbcTemplate.update(
+                "CREATE TRIGGER trg_sentence_versions_no_delete BEFORE DELETE ON sentence_versions"
+                        + " FOR EACH ROW SIGNAL SQLSTATE '45000'"
+                        + " SET MESSAGE_TEXT = 'sentence_versions is immutable'");
     }
 
     /** 清空内容三表（先断指针再删），与练习候选集成测试同口径。 */

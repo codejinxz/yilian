@@ -14,6 +14,7 @@ import io.github.codejinxz.yilian.upload.dto.ImportBatchViewResponse;
 import io.github.codejinxz.yilian.upload.dto.ImportPreviewResponse;
 import io.github.codejinxz.yilian.upload.service.ImportBatchService;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -74,6 +75,17 @@ class ImportBatchServiceIntegrationTest {
                                 + "&allowPublicKeyRetrieval=true&useSSL=false");
         registry.add("spring.datasource.username", () -> "root");
         registry.add("spring.datasource.password", () -> "123456");
+    }
+
+    /** 用例后清掉批次与内容表，避免 RESTRICT 外键污染其他集成套件（AuthFlow 清 users）。 */
+    @AfterEach
+    void cleanAfter() {
+        jdbcTemplate.update("UPDATE sentences SET current_version_id = NULL");
+        jdbcTemplate.update("DELETE FROM import_batch_rows");
+        jdbcTemplate.update("DELETE FROM sentence_versions");
+        jdbcTemplate.update("DELETE FROM sentences");
+        jdbcTemplate.update("DELETE FROM import_batches");
+        jdbcTemplate.update("DELETE FROM sentence_banks");
     }
 
     /** 清空内容与批次表（RESTRICT 外键按序删除），并幂等播种操作者。 */

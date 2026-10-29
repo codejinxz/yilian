@@ -37,14 +37,16 @@ public class JpaImportBatchRowDao implements ImportBatchRowDao {
     }
 
     @Override
-    public List<ImportBatchRow> findByBatchIdAndStatus(String batchId, ImportBatchRowStatus status) {
+    public List<ImportBatchRow> findByBatchIdAndStatus(
+            String batchId, ImportBatchRowStatus status) {
         return rows.findByBatchIdAndStatusOrderByRowNoAsc(batchId, status);
     }
 
     @Override
     public Page<ImportBatchRow> findPage(
             String batchId, ImportBatchRowStatus status, Pageable pageable) {
-        Pageable ordered = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.by("rowNo"));
+        Pageable ordered =
+                PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.by("rowNo"));
         if (status == null) {
             return rows.findByBatchId(batchId, ordered);
         }

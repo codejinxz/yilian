@@ -75,8 +75,10 @@ class PracticeCandidateQueryDaoIntegrationTest {
         jdbcTemplate.update("DROP TRIGGER IF EXISTS trg_sentence_versions_no_delete");
         // sentences 与 sentence_versions 互为 RESTRICT 外键：先断 current_version_id 指针再按子→父删除。
         jdbcTemplate.update("UPDATE sentences SET current_version_id = NULL");
+        jdbcTemplate.update("DELETE FROM import_batch_rows");
         jdbcTemplate.update("DELETE FROM sentence_versions");
         jdbcTemplate.update("DELETE FROM sentences");
+        jdbcTemplate.update("DELETE FROM import_batches");
         jdbcTemplate.update("DELETE FROM sentence_banks");
         jdbcTemplate.update(
                 "CREATE TRIGGER trg_sentence_versions_no_update BEFORE UPDATE ON sentence_versions"

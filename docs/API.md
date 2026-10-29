@@ -191,6 +191,8 @@
 - `version` 是当前题库游标；`items[].version` 是该题最后一次变更的银行级修订号。
 - 删除/停用也返回 item，`deleted=true`，只带 `id`/`version`；客户端据此移除本地缓存。
 - `nextSinceVersion` 取本页最大 `version`；无数据时等于 `sinceVersion`。
+- 银行修订号按「每题递增」：导入提交与回滚中每行获得独立 version（不共享同批号），分页不丢行。
+- 不可练状态（DRAFT/DISABLED/RECYCLED/ARCHIVED）一律返回 `deleted=true` 的 item（未知 id 客户端直接忽略）。
 - `hasMore=true` 时继续用 `nextSinceVersion` 拉下一页；不要用 page。
 - 没有“全量快照”接口；首次拉取 `sinceVersion=0`，循环到 `hasMore=false`。
 

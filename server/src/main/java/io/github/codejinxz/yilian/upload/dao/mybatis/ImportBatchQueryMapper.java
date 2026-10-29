@@ -1,6 +1,5 @@
 package io.github.codejinxz.yilian.upload.dao.mybatis;
 
-import io.github.codejinxz.yilian.upload.dao.ImportBatchQueryDao;
 import io.github.codejinxz.yilian.upload.dto.ImportBatchListItem;
 import io.github.codejinxz.yilian.upload.dto.ImportBatchRowItem;
 
