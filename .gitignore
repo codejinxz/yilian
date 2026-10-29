@@ -139,3 +139,5 @@ blob-report/
 docs/retro/
 docs/plans/
 docs/pr/
+# 项目分析报告（独立分析产出；按项目主人指示暂不入库）
+docs/analysis/

@@ -68,6 +68,7 @@
 - Spring AI（模型接入）
 - Spring Data JPA、MyBatis 官方 starter
 - Spring Security OAuth2 JOSE（仅用于 JWT 签发/校验，不引入资源服务器）
+- easy-captcha（图形验证码图片生成；零传递依赖纯渲染，2026-10-29 项目主人批准）
 
 白名单外新增依赖，必须说明：解决什么问题、替代方案、维护状态、体积与漏洞影响。
 
