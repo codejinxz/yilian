@@ -954,6 +954,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
   if (pathname === "/auth/captcha-image" && method === "GET") {
     // TODO(mock): 演示数据，真实接口落地后删除——演示态不校验验证码，仅回挑战形状。
     return {
+      enabled: true,
       captchaId: `mock-captcha-${Date.now()}`,
       imageBase64:
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",

@@ -14,7 +14,7 @@ export { ApiError } from "@/lib/api-error";
 export type { AuthResponse, CurrentUser } from "@/lib/schemas/account";
 
 /** 图形验证码挑战；imageBase64 为 PNG 的 base64（不含 data: 前缀）。 */
-export type CaptchaChallenge = { captchaId: string; imageBase64: string };
+export type CaptchaChallenge = { captchaId: string; imageBase64: string; enabled: boolean };
 
 const API_BASE = "/api";
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -878,6 +878,11 @@ export const api = {
    * @returns access token、有效期与当前用户
    * @throws ApiError 网络失败、凭据错误、限流或响应结构异常
    */
+  /**
+   * 获取图形验证码挑战；获取失败由调用方优雅降级（隐藏图形码块）。
+   * @returns 验证码 id、base64 图片与开关状态（enabled=false 时前端不渲染图形码）
+   * @throws ApiError 网络失败或响应结构异常
+   */
   async getCaptcha(): Promise<CaptchaChallenge> {
     const data = await request<unknown>(
       "/auth/captcha-image",
@@ -888,7 +893,8 @@ export const api = {
       data &&
       typeof data === "object" &&
       typeof (data as Record<string, unknown>).captchaId === "string" &&
-      typeof (data as Record<string, unknown>).imageBase64 === "string"
+      typeof (data as Record<string, unknown>).imageBase64 === "string" &&
+      typeof (data as Record<string, unknown>).enabled === "boolean"
     ) {
       return data as CaptchaChallenge;
     }

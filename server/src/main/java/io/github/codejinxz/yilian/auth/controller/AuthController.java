@@ -218,6 +218,11 @@ public class AuthController {
      *
      * @return 验证码 id 与 base64 图片
      */
+    @RateLimit(
+            scene = "captcha",
+            dimensions = {RateLimitDimension.IP},
+            limit = 30,
+            windowSeconds = 60)
     @Operation(summary = "获取图形验证码", description = "登录/注册前调用；挑战 5 分钟内一次性有效。")
     @GetMapping("/captcha-image")
     public ApiResponse<CaptchaChallenge> captchaImage() {

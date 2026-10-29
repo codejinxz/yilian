@@ -23,6 +23,7 @@ import jakarta.validation.constraints.NotBlank;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.MethodParameter;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -65,6 +66,19 @@ class ApiExceptionHandlerTest {
                 MockMvcBuilders.standaloneSetup(new TestController())
                         .setControllerAdvice(handler)
                         .build();
+    }
+
+    /**
+     * [AC-1] 唯一约束兜底：应用层预检漏出的 DuplicateKeyException 翻译为 40900「请勿重复提交」， 不写 error_log（已知业务结果，非未知异常）。
+     *
+     * @throws Exception MockMvc 调用异常
+     */
+    @Test
+    void ac1_duplicateKeyTranslatesToIdempotentConflict409() throws Exception {
+        mockMvc.perform(get("/test/duplicate"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(40900));
+        verifyNoInteractions(errorLogRecorder);
     }
 
     /**
@@ -252,6 +266,11 @@ class ApiExceptionHandlerTest {
         @PostMapping(value = "/test/body", consumes = MediaType.APPLICATION_JSON_VALUE)
         public ApiResponse<Void> body(@RequestBody Map<String, Object> body) {
             return ApiResponse.success();
+        }
+
+        @GetMapping("/test/duplicate")
+        public ApiResponse<Void> duplicate() {
+            throw new DuplicateKeyException("uk_users_email duplicate entry");
         }
 
         @GetMapping("/test/type/{id}")

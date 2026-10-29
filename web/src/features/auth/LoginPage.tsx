@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useEffect, useId, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { z } from "zod";
 import { FieldError } from "@/components/feedback";
 import { useSessionStore } from "@/features/auth/session";
@@ -106,17 +106,17 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
   const [captcha, setCaptcha] = useState<CaptchaChallenge | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
 
-  /** 拉取图形验证码；失败即隐藏图形码块（后端开关关闭时本就无此要求），不阻塞表单。 */
-  function loadCaptcha() {
+  // useCallback 固定引用，供挂载 effect 与提交失败刷新共用；api 为模块级依赖，依赖数组为空。
+  const loadCaptcha = useCallback(() => {
     api
       .getCaptcha()
       .then(setCaptcha)
       .catch(() => setCaptcha(null));
-  }
+  }, []);
 
   useEffect(() => {
     loadCaptcha();
-  }, []);
+  }, [loadCaptcha]);
 
   const mutation = useMutation({
     mutationFn: (input: SubmitInput) =>
@@ -177,7 +177,7 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
         setFieldError("密码过长（最多 72 字节）");
         return;
       }
-      if (captcha && !form.captchaCode.trim()) {
+      if (captcha?.enabled && !form.captchaCode.trim()) {
         setFieldError("请输入图形验证码");
         return;
       }
@@ -186,8 +186,8 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
         kind: "login",
         username: parsed.data.username,
         password: parsed.data.password,
-        captchaId: captcha?.captchaId,
-        captchaCode: captcha ? form.captchaCode : undefined,
+        captchaId: captcha?.enabled ? captcha.captchaId : undefined,
+        captchaCode: captcha?.enabled ? form.captchaCode : undefined,
       });
       return;
     }
@@ -218,7 +218,7 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
       setFieldError("密码不能等于用户名或邮箱");
       return;
     }
-    if (captcha && !form.captchaCode.trim()) {
+    if (captcha?.enabled && !form.captchaCode.trim()) {
       setFieldError("请输入图形验证码");
       return;
     }
@@ -229,8 +229,8 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
       username: parsed.data.username,
       password: parsed.data.password,
       inviteCode: parsed.data.inviteCode,
-      captchaId: captcha?.captchaId,
-      captchaCode: captcha ? form.captchaCode : undefined,
+      captchaId: captcha?.enabled ? captcha.captchaId : undefined,
+      captchaCode: captcha?.enabled ? form.captchaCode : undefined,
     });
   }
 
@@ -368,7 +368,7 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
             />
           </div>
 
-          {captcha ? (
+          {captcha?.enabled ? (
             <div className="mb-5">
               <label htmlFor={captchaFieldId} className={fieldLabelClass()}>
                 图形验证码

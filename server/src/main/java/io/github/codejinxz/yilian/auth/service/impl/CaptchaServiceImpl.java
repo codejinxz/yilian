@@ -51,6 +51,10 @@ public class CaptchaServiceImpl implements CaptchaService {
 
     @Override
     public CaptchaChallenge generate() {
+        if (!enabled) {
+            // 开关关闭：不发挑战，enabled=false 让前端隐藏图形码输入。
+            return new CaptchaChallenge("", "", false);
+        }
         SpecCaptcha captcha = new SpecCaptcha(WIDTH, HEIGHT, LENGTH);
         captcha.setCharType(Captcha.TYPE_DEFAULT);
         String code = captcha.text();
@@ -59,7 +63,7 @@ public class CaptchaServiceImpl implements CaptchaService {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             captcha.out(out);
             String imageBase64 = Base64.getEncoder().encodeToString(out.toByteArray());
-            return new CaptchaChallenge(captchaId, imageBase64);
+            return new CaptchaChallenge(captchaId, imageBase64, true);
         } catch (Exception exception) {
             throw new IllegalStateException("验证码图片渲染失败", exception);
         }
@@ -73,8 +77,8 @@ public class CaptchaServiceImpl implements CaptchaService {
         if (StringUtils.isBlank(captchaId) || StringUtils.isBlank(captchaCode)) {
             throw new BusinessException(ApiCode.VALIDATION_FAILED, "请输入图形验证码");
         }
-        String expected = answers.getIfPresent(captchaId);
-        answers.invalidate(captchaId);
+        // asMap().remove 原子取走并删除：并发同 id 双校验只有一个能拿到答案，堵住消费竞态。
+        String expected = answers.asMap().remove(captchaId);
         if (expected == null || !expected.equalsIgnoreCase(captchaCode.trim())) {
             throw new BusinessException(ApiCode.VALIDATION_FAILED, "验证码错误或已过期");
         }

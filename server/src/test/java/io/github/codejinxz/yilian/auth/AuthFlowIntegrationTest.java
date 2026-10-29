@@ -209,8 +209,8 @@ class AuthFlowIntegrationTest {
 
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.body()).contains("\"code\":0");
-        assertThat(response.body()).contains("\"captchaId\":");
-        assertThat(response.body()).contains("\"imageBase64\":");
+        assertThat(response.body()).contains("\"captchaId\":\"\"");
+        assertThat(response.body()).contains("\"enabled\":false");
     }
 
     /** 未知异常记录器确实把记录写入 error_log，而不是只调用 mock。 */
