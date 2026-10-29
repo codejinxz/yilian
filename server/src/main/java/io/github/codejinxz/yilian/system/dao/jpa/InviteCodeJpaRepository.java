@@ -2,7 +2,10 @@ package io.github.codejinxz.yilian.system.dao.jpa;
 
 import io.github.codejinxz.yilian.system.entity.InviteCode;
 
+import jakarta.persistence.LockModeType;
+
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 
 import java.util.Optional;
 
@@ -10,10 +13,11 @@ import java.util.Optional;
 public interface InviteCodeJpaRepository extends JpaRepository<InviteCode, Long> {
 
     /**
-     * 按哈希查邀请码。
+     * 按哈希查邀请码；行级悲观锁串行化注册事务中的核销判定， 消除「读→校验→核销」的 check-then-act 竞态（唯一约束 uk_invite_used_by 兜底）。
      *
      * @param codeHash SHA-256 十六进制
      * @return 邀请码实体
      */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<InviteCode> findByCodeHash(String codeHash);
 }

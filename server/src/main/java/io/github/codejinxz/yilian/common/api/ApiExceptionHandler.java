@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.MessageSourceResolvable;
 import org.springframework.core.MethodParameter;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -246,6 +247,18 @@ public class ApiExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiResponse<Void>> handleAccessDenied(AccessDeniedException exception) {
         return respond(ApiCode.ACCESS_DENIED);
+    }
+
+    /**
+     * 唯一约束兜底：应用层预检漏出的并发冲突（邮箱/用户名/邀请码核销等）按 「请勿重复提交」友好返回，不写 error_log——这是数据库唯一约束的正常工作方式，
+     * 不是未知异常（AGENTS §3 幂等以数据库唯一约束为准）。
+     *
+     * @param exception 唯一约束冲突异常
+     * @return 409 + 统一信封
+     */
+    @ExceptionHandler(DuplicateKeyException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDuplicateKey(DuplicateKeyException exception) {
+        return respond(ApiCode.IDEMPOTENT_CONFLICT);
     }
 
     /**
