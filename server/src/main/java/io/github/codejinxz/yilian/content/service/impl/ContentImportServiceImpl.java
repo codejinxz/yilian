@@ -147,6 +147,53 @@ public class ContentImportServiceImpl implements ContentImportService {
         return Set.copyOf(sentenceDao.findActiveFingerprints(bankId, fingerprints));
     }
 
+    @Override
+    public List<String> fingerprintsOf(List<SentenceContent> rows) {
+        return rows.stream().map(this::fingerprintOf).toList();
+    }
+
+    @Override
+    @Transactional
+    public int recycleImportedSentences(
+            long bankId, Collection<String> sentenceIds, Long actorId, Instant now) {
+        if (sentenceIds.isEmpty()) {
+            return 0;
+        }
+        SentenceBank bank =
+                bankDao
+                        .lockById(bankId)
+                        .orElseThrow(() -> new BusinessException(ApiCode.BANK_NOT_FOUND));
+        java.util.concurrent.atomic.AtomicInteger recycled =
+                new java.util.concurrent.atomic.AtomicInteger();
+        for (String sentenceId : sentenceIds) {
+            sentenceDao
+                    .findById(sentenceId)
+                    .ifPresent(
+                            sentence -> {
+                                sentence.changeStatus(
+                                        ContentStatus.RECYCLED, bank.getVersion() + 1, actorId, now);
+                                bank.advanceVersion(bank.getVersion() + 1, actorId, now);
+                                sentenceDao.save(sentence);
+                                recycled.incrementAndGet();
+                            });
+        }
+        bankDao.save(bank);
+        return recycled.get();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isImportableBank(long bankId) {
+        return bankDao
+                .findById(bankId)
+                .filter(bank -> bank.getDeletedAt() == null)
+                .filter(
+                        bank ->
+                                bank.getStatus() == ContentStatus.DRAFT
+                                        || bank.getStatus() == ContentStatus.PUBLISHED)
+                .isPresent();
+    }
+
     /**
      * 计算行指纹：规范化 zh/ref 与 chunks 内文本后序列化，再取 SHA-256。
      *

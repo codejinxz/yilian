@@ -38,4 +38,32 @@ public interface ContentImportService {
      * @return 命中的指纹子集
      */
     Set<String> findExistingFingerprints(long bankId, Collection<String> fingerprints);
+
+    /**
+     * 计算行指纹（与落库时完全一致的纯函数，preview 去重用）。
+     *
+     * @param rows 导入行内容
+     * @return 按入参顺序的指纹列表
+     */
+    List<String> fingerprintsOf(List<SentenceContent> rows);
+
+    /**
+     * 回滚已导入题目：逐题置 RECYCLED（deleted_at/by 回写）并每题递增银行修订号，
+     * 使增量流下发 tombstone；单事务。题目不存在时跳过（幂等）。
+     *
+     * @param bankId 题库 id
+     * @param sentenceIds 待回收的题目 id
+     * @param actorId 操作管理员 id
+     * @param now 统一时钟
+     * @return 实际回收的题目数
+     */
+    int recycleImportedSentences(long bankId, Collection<String> sentenceIds, Long actorId, Instant now);
+
+    /**
+     * 校验题库可导入（存在、未软删、状态为 DRAFT/PUBLISHED）。
+     *
+     * @param bankId 题库 id
+     * @return 可导入返回 true
+     */
+    boolean isImportableBank(long bankId);
 }

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="io.github.codejinxz.yilian.upload.dao.mybatis.ImportBatchQueryMapper">
+
+    <!--
+      导入批次动态筛选列表（管理端）：全部 #{} 占位，无 ${} 拼接；
+      条件与前端契约一致（page,size,bankId,status,from,to），创建时间倒序。
+    -->
+    <select id="findBatches"
+            resultType="io.github.codejinxz.yilian.upload.dto.ImportBatchListItem">
+        SELECT id              AS id,
+               bank_id         AS bank_id,
+               format          AS format,
+               original_filename AS original_filename,
+               status          AS status,
+               total_rows      AS total_rows,
+               valid_rows      AS valid_rows,
+               invalid_rows    AS invalid_rows,
+               imported_rows   AS imported_rows,
+               created_by_name AS created_by_name,
+               created_at      AS created_at,
+               previewed_at    AS previewed_at,
+               committed_at    AS committed_at,
+               error_summary   AS error_summary
+        FROM import_batches
+        <where>
+            <if test="bankId != null">AND bank_id = #{bankId}</if>
+            <if test="status != null and status != ''">AND status = #{status}</if>
+            <if test="from != null">AND created_at &gt;= #{from}</if>
+            <if test="to != null">AND created_at &lt;= #{to}</if>
+        </where>
+        ORDER BY created_at DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countBatches" resultType="long">
+        SELECT COUNT(*) FROM import_batches
+        <where>
+            <if test="bankId != null">AND bank_id = #{bankId}</if>
+            <if test="status != null and status != ''">AND status = #{status}</if>
+            <if test="from != null">AND created_at &gt;= #{from}</if>
+            <if test="to != null">AND created_at &lt;= #{to}</if>
+        </where>
+    </select>
+
+    <!-- 行分页：行号升序，可选状态过滤。 -->
+    <select id="findRows"
+            resultType="io.github.codejinxz.yilian.upload.dto.ImportBatchRowItem">
+        SELECT row_no              AS row_no,
+               external_key        AS external_key,
+               status              AS status,
+               error_codes         AS error_codes,
+               sentence_id         AS sentence_id,
+               sentence_version_id AS sentence_version_id,
+               updated_at          AS updated_at
+        FROM import_batch_rows
+        WHERE batch_id = #{batchId}
+        <if test="status != null and status != ''">AND status = #{status}</if>
+        ORDER BY row_no ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countRows" resultType="long">
+        SELECT COUNT(*) FROM import_batch_rows WHERE batch_id = #{batchId}
+        <if test="status != null and status != ''">AND status = #{status}</if>
+    </select>
+</mapper>
