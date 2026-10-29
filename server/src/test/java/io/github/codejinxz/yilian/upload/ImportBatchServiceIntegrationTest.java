@@ -86,6 +86,14 @@ class ImportBatchServiceIntegrationTest {
         jdbcTemplate.update("DELETE FROM sentences");
         jdbcTemplate.update("DELETE FROM import_batches");
         jdbcTemplate.update("DELETE FROM sentence_banks");
+        jdbcTemplate.update(
+                "CREATE TRIGGER trg_sentence_versions_no_update BEFORE UPDATE ON sentence_versions"
+                        + " FOR EACH ROW SIGNAL SQLSTATE '45000'"
+                        + " SET MESSAGE_TEXT = 'sentence_versions is immutable'");
+        jdbcTemplate.update(
+                "CREATE TRIGGER trg_sentence_versions_no_delete BEFORE DELETE ON sentence_versions"
+                        + " FOR EACH ROW SIGNAL SQLSTATE '45000'"
+                        + " SET MESSAGE_TEXT = 'sentence_versions is immutable'");
     }
 
     /** 清空内容与批次表（RESTRICT 外键按序删除），并幂等播种操作者。 */
@@ -150,6 +158,14 @@ class ImportBatchServiceIntegrationTest {
         assertThat(sentenceCount).isEqualTo(5L);
 
         String anotherBatchId = previewBatch(bankId, fileJson(2, 0));
+        jdbcTemplate.update(
+                "UPDATE import_batches SET status = 'COMMITTING' WHERE id = ?", anotherBatchId);
+        assertThatThrownBy(() -> importBatchService.commit(anotherBatchId, ADMIN))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.IMPORT_NOT_COMMITTABLE));
         jdbcTemplate.update(
                 "UPDATE import_batches SET status = 'ROLLED_BACK' WHERE id = ?", anotherBatchId);
         assertThatThrownBy(() -> importBatchService.commit(anotherBatchId, ADMIN))

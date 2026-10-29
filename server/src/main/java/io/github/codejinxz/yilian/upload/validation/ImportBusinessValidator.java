@@ -43,7 +43,7 @@ public final class ImportBusinessValidator {
         if (zh.codePoints().count() < 4 || zh.codePoints().count() > 60) {
             errors.add(new ImportRowError("ZH_LENGTH_INVALID", "zh", "中文长度必须为 4–60 字"));
         }
-        if (ref.length() < 8 || ref.length() > 300) {
+        if (ref.codePoints().count() < 8 || ref.codePoints().count() > 300) {
             errors.add(new ImportRowError("REF_LENGTH_INVALID", "ref", "参考译文长度必须为 8–300"));
         }
         if (note.codePoints().count() < 20 || note.codePoints().count() > 300) {

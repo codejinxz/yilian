@@ -55,7 +55,7 @@ import java.util.UUID;
 /**
  * 导入批次服务实现（preview→commit→rollback 编排）。
  *
- * <p>事务边界：preview 的「批次 + 行」单事务落库（对象存储在事务外，失败清孤儿文件）； commit 的「内容快照 + 题目」单事务在 {@code
+ * <p>事务边界：preview 的「批次 + 行」单事务落库（对象存储写入在事务窗口内但非事务资源，落库失败清孤儿文件补偿）； commit 的「内容快照 + 题目」单事务在 {@code
  * ContentImportService} 内，批次状态推进 为独立小事务（PREVIEWED→COMMITTING 乐观兜底，失败落 FAILED 可追溯）；rollback 同理。
  */
 @Service
@@ -273,6 +273,11 @@ public class ImportBatchServiceImpl implements ImportBatchService {
             }
             batch.markCommitted(results.size(), Instant.now());
         } catch (RuntimeException exception) {
+            // 只包「落库事务」：行回写/状态推进失败不会被误标 FAILED（题目已入库时状态与库内一致）。
+            if (!validRows.isEmpty()
+                    && validRows.getFirst().getSentenceId() != null) {
+                throw exception;
+            }
             ImportBatch failed = requireBatch(batchId);
             failed.markFailed(writeJson(failureSummary(exception)), Instant.now());
             importBatchDao.save(failed);
@@ -456,7 +461,7 @@ public class ImportBatchServiceImpl implements ImportBatchService {
      */
     private static String storageKey(String filename) {
         String extension = filename.substring(filename.lastIndexOf('.'));
-        String[] parts = LocalDate.now().toString().split("-");
+        String[] parts = LocalDate.now(ZoneOffset.UTC).toString().split("-");
         return "imports/" + parts[0] + "/" + parts[1] + "/" + UUID.randomUUID() + extension;
     }
 
