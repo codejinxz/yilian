@@ -1,17 +1,13 @@
 package io.github.codejinxz.yilian.practice.dao.jpa;
 
 import io.github.codejinxz.yilian.practice.dao.AppealDao;
-
 import io.github.codejinxz.yilian.practice.entity.Appeal;
-
 import io.github.codejinxz.yilian.practice.entity.Appeal.AppealKind;
 
 import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
-
 import java.util.List;
-
 import java.util.Optional;
 
 /** 申诉/不认同 Dao 的 JPA 实现。 */

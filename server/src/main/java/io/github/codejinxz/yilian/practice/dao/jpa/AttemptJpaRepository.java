@@ -5,9 +5,7 @@ import io.github.codejinxz.yilian.practice.entity.Attempt;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.Instant;
-
 import java.util.List;
-
 import java.util.Optional;
 
 /** 提交 Spring Data 仓库，只允许同包 JpaAttemptDao 使用。 */
@@ -20,7 +18,8 @@ public interface AttemptJpaRepository extends JpaRepository<Attempt, String> {
      * @param sentenceId 题目 ULID
      * @return 最近提交
      */
-    Optional<Attempt> findFirstByUserIdAndSentenceIdOrderByCreatedAtDesc(Long userId, String sentenceId);
+    Optional<Attempt> findFirstByUserIdAndSentenceIdOrderByCreatedAtDesc(
+            Long userId, String sentenceId);
 
     /**
      * 用户在某题某模式是否存在指定类型的提交。

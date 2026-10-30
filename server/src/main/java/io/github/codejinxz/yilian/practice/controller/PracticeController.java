@@ -1,74 +1,44 @@
 package io.github.codejinxz.yilian.practice.controller;
 
 import io.github.codejinxz.yilian.common.api.ApiCode;
-
 import io.github.codejinxz.yilian.common.api.ApiResponse;
-
 import io.github.codejinxz.yilian.common.api.BusinessException;
-
 import io.github.codejinxz.yilian.common.api.PageResponse;
-
 import io.github.codejinxz.yilian.common.ratelimit.RateLimit;
-
 import io.github.codejinxz.yilian.common.ratelimit.RateLimitDimension;
-
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
-
 import io.github.codejinxz.yilian.practice.service.PracticeService;
-
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
-
 import io.github.codejinxz.yilian.practice.service.dto.PostponeRequest;
-
 import io.github.codejinxz.yilian.practice.service.dto.ReviewResetRequest;
-
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
-
 import io.github.codejinxz.yilian.practice.service.vo.NextPracticeView;
-
 import io.github.codejinxz.yilian.practice.service.vo.OverloadView;
-
 import io.github.codejinxz.yilian.practice.service.vo.PostponeView;
-
 import io.github.codejinxz.yilian.practice.service.vo.ReviewCardView;
-
 import io.github.codejinxz.yilian.practice.service.vo.TodayView;
-
 import io.github.codejinxz.yilian.practice.service.vo.WrongQuestionView;
-
 import io.swagger.v3.oas.annotations.Operation;
-
 import io.swagger.v3.oas.annotations.media.Content;
-
 import io.swagger.v3.oas.annotations.media.Schema;
-
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
-
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import jakarta.validation.Valid;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-
 import org.springframework.web.bind.annotation.GetMapping;
-
 import org.springframework.web.bind.annotation.PathVariable;
-
 import org.springframework.web.bind.annotation.PostMapping;
-
 import org.springframework.web.bind.annotation.RequestBody;
-
 import org.springframework.web.bind.annotation.RequestMapping;
-
 import org.springframework.web.bind.annotation.RequestParam;
-
 import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 练习接口层：只做参数校验、调用 {@link PracticeService} 并组装 {@link ApiResponse}。
  *
- * <p>提交接口按用户限流 60 次/分钟（离线攒批重放也在该额度内）；判分与排程全部在服务端完成，
- * 客户端本地判分只做即时反馈。
+ * <p>提交接口按用户限流 60 次/分钟（离线攒批重放也在该额度内）；判分与排程全部在服务端完成， 客户端本地判分只做即时反馈。
  */
 @Tag(name = "练习", description = "作答提交（判分 + FSRS 排程）、作答详情与复习队列外围。")
 @RestController
@@ -172,8 +142,7 @@ public class PracticeController {
     @Operation(
             summary = "取下一题",
             description =
-                    "优先到期复习（selection=DUE），其次新题（selection=NEW）；"
-                            + "没有可练题时 data=null，客户端显示空状态。")
+                    "优先到期复习（selection=DUE），其次新题（selection=NEW）；" + "没有可练题时 data=null，客户端显示空状态。")
     @GetMapping("/next")
     public ApiResponse<NextPracticeView> next(
             @RequestParam(required = false) Long bankId,
@@ -291,7 +260,9 @@ public class PracticeController {
      * @param principal 当前用户
      * @return 今日概览
      */
-    @Operation(summary = "今日概览", description = "dueCount/doneCount 按用户本地日界；streakDays 由 attempts 派生。")
+    @Operation(
+            summary = "今日概览",
+            description = "dueCount/doneCount 按用户本地日界；streakDays 由 attempts 派生。")
     @GetMapping("/today")
     public ApiResponse<TodayView> today(@AuthenticationPrincipal YilianUserPrincipal principal) {
         return ApiResponse.success(practiceService.today(principal.id()));

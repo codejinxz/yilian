@@ -1,123 +1,70 @@
 package io.github.codejinxz.yilian.practice.service.impl;
 
 import io.github.codejinxz.yilian.common.api.ApiCode;
-
 import io.github.codejinxz.yilian.common.api.BusinessException;
-
 import io.github.codejinxz.yilian.common.api.PageResponse;
-
 import io.github.codejinxz.yilian.content.service.ContentQueryService;
-
 import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
-
 import io.github.codejinxz.yilian.practice.dao.AppealDao;
-
 import io.github.codejinxz.yilian.practice.dao.AttemptDao;
-
 import io.github.codejinxz.yilian.practice.dao.AttemptGradingDao;
-
 import io.github.codejinxz.yilian.practice.dao.FsrsParameterVersionDao;
-
 import io.github.codejinxz.yilian.practice.dao.ReviewDao;
-
 import io.github.codejinxz.yilian.practice.dao.ReviewLogDao;
-
 import io.github.codejinxz.yilian.practice.entity.Appeal;
-
 import io.github.codejinxz.yilian.practice.entity.Attempt;
-
 import io.github.codejinxz.yilian.practice.entity.AttemptGrading;
-
 import io.github.codejinxz.yilian.practice.entity.Review;
-
 import io.github.codejinxz.yilian.practice.entity.ReviewLog;
-
 import io.github.codejinxz.yilian.practice.grading.Grader;
-
 import io.github.codejinxz.yilian.practice.grading.GradingAnnotation;
-
 import io.github.codejinxz.yilian.practice.grading.GradingResult;
-
 import io.github.codejinxz.yilian.practice.service.PracticeService;
-
 import io.github.codejinxz.yilian.practice.service.dto.AnswerPayload;
-
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
-
 import io.github.codejinxz.yilian.practice.service.dto.GuestUpgradeCommand;
-
 import io.github.codejinxz.yilian.practice.service.vo.AccuracyView;
-
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
-
 import io.github.codejinxz.yilian.practice.service.vo.ErrorTagsView;
-
 import io.github.codejinxz.yilian.practice.service.vo.GuestUpgradeView;
-
 import io.github.codejinxz.yilian.practice.service.vo.NextPracticeView;
-
 import io.github.codejinxz.yilian.practice.service.vo.OverloadView;
-
 import io.github.codejinxz.yilian.practice.service.vo.PostponeView;
-
 import io.github.codejinxz.yilian.practice.service.vo.ReviewCardView;
-
 import io.github.codejinxz.yilian.practice.service.vo.TodayView;
-
 import io.github.codejinxz.yilian.practice.service.vo.WrongQuestionView;
-
 import io.github.codejinxz.yilian.system.service.UserAccountService;
-
 import io.github.codejinxz.yilian.system.service.dto.UserSettings;
 
 import org.slf4j.Logger;
-
 import org.slf4j.LoggerFactory;
-
 import org.springframework.dao.DataIntegrityViolationException;
-
 import org.springframework.stereotype.Service;
-
 import org.springframework.transaction.annotation.Transactional;
 
 import tools.jackson.databind.ObjectMapper;
 
 import java.security.MessageDigest;
-
 import java.security.NoSuchAlgorithmException;
-
 import java.time.Instant;
-
 import java.time.LocalDate;
-
 import java.time.ZoneId;
-
 import java.util.ArrayList;
-
 import java.util.Comparator;
-
 import java.util.HexFormat;
-
 import java.util.LinkedHashMap;
-
 import java.util.List;
-
 import java.util.Map;
-
 import java.util.Objects;
-
 import java.util.Optional;
-
 import java.util.Set;
-
 import java.util.stream.Collectors;
 
 /**
  * 练习用例实现：判分/幂等/SRS 排程的唯一写入口。
  *
- * <p>SRS 四分支与本地引擎（web/src/lib/local-engine/engine.ts 的 scheduleReview）逐值对齐：
- * RETRY 不排程；失败（REVEAL 或 score&lt;100）回炉 LEARNING 明天到期；学习中全对按
- * interval=min(7, scheduled+2) 推进、≥5 归档；归档全对只刷新复习痕迹；新题全对不入队。
+ * <p>SRS 四分支与本地引擎（web/src/lib/local-engine/engine.ts 的 scheduleReview）逐值对齐： RETRY 不排程；失败（REVEAL 或
+ * score&lt;100）回炉 LEARNING 明天到期；学习中全对按 interval=min(7, scheduled+2) 推进、≥5 归档；归档全对只刷新复习痕迹；新题全对不入队。
  * 每次排程写一行 review_logs（before/after），uk_review_log_attempt 保证一次排程。
  */
 @Service
@@ -194,7 +141,8 @@ public class PracticeServiceImpl implements PracticeService {
         Optional<Attempt> existing = attemptDao.findById(command.attemptId());
         if (existing.isPresent()) {
             Attempt stored = existing.get();
-            if (!stored.getUserId().equals(userId) || !stored.getAnswerHash().equals(payloadHash(command))) {
+            if (!stored.getUserId().equals(userId)
+                    || !stored.getAnswerHash().equals(payloadHash(command))) {
                 throw new BusinessException(ApiCode.ATTEMPT_ID_REUSED);
             }
             return buildReplayView(stored);
@@ -229,7 +177,8 @@ public class PracticeServiceImpl implements PracticeService {
         } catch (DataIntegrityViolationException exception) {
             // 并发同 id：PK 兜底（幂等以数据库唯一约束为准）。重读比对，读不到按复用拒绝。
             Attempt winner = attemptDao.findById(command.attemptId()).orElse(null);
-            if (winner != null && winner.getUserId().equals(userId)
+            if (winner != null
+                    && winner.getUserId().equals(userId)
                     && winner.getAnswerHash().equals(answerHash)) {
                 return buildReplayView(winner);
             }
@@ -238,7 +187,10 @@ public class PracticeServiceImpl implements PracticeService {
 
         GradingResult result = gradeForCommand(detail, command);
         int sequence =
-                gradingDao.findLatestByAttemptId(command.attemptId()).map(g -> g.getSequence() + 1).orElse(1);
+                gradingDao
+                        .findLatestByAttemptId(command.attemptId())
+                        .map(g -> g.getSequence() + 1)
+                        .orElse(1);
         AttemptGrading grading =
                 gradingDao.save(
                         AttemptGrading.createLocal(
@@ -248,9 +200,13 @@ public class PracticeServiceImpl implements PracticeService {
                                 objectMapper.writeValueAsString(result),
                                 now));
 
-        int rating = deriveRating(result.score(), command.effectiveHintsUsed(), command.durationMs(), command.kind());
-        Review review =
-                scheduleReview(attempt, result.score(), rating, command, now);
+        int rating =
+                deriveRating(
+                        result.score(),
+                        command.effectiveHintsUsed(),
+                        command.durationMs(),
+                        command.kind());
+        Review review = scheduleReview(attempt, result.score(), rating, command, now);
 
         return buildView(attempt, detail, grading, result, review, rating, false);
     }
@@ -279,16 +235,23 @@ public class PracticeServiceImpl implements PracticeService {
                         .orElseThrow(
                                 () ->
                                         new BusinessException(
-                                                ApiCode.INTERNAL_ERROR, "判分记录缺失：" + attempt.getId()));
+                                                ApiCode.INTERNAL_ERROR,
+                                                "判分记录缺失：" + attempt.getId()));
         GradingResult result = objectMapper.readValue(grading.getResult(), GradingResult.class);
         SentenceDetail detail =
                 contentQueryService.findSentence(attempt.getSentenceId()).orElse(null);
-        Review review = reviewDao.findByUserIdAndSentenceId(attempt.getUserId(), attempt.getSentenceId()).orElse(null);
+        Review review =
+                reviewDao
+                        .findByUserIdAndSentenceId(attempt.getUserId(), attempt.getSentenceId())
+                        .orElse(null);
         Integer rating =
                 reviewLogDao
                         .findByAttemptId(attempt.getId())
                         .map(log -> (int) log.getRating())
-                        .or(() -> Optional.ofNullable(review == null ? null : review.getLastRating()))
+                        .or(
+                                () ->
+                                        Optional.ofNullable(
+                                                review == null ? null : review.getLastRating()))
                         .orElse(null);
         int displayRating = rating == null ? 0 : rating;
         return buildView(attempt, detail, grading, result, review, displayRating, true);
@@ -315,7 +278,8 @@ public class PracticeServiceImpl implements PracticeService {
             int rating,
             boolean replayed) {
         Integer score = grading.getScore();
-        boolean retryRequired = score != null && score < 100 && attempt.getKind() == Attempt.AttemptKind.FIRST;
+        boolean retryRequired =
+                score != null && score < 100 && attempt.getKind() == Attempt.AttemptKind.FIRST;
         AttemptView.ReviewView reviewView =
                 review == null
                         ? null
@@ -347,9 +311,7 @@ public class PracticeServiceImpl implements PracticeService {
                         grading.getRubricVersion(),
                         grading.getCreatedAt()),
                 reviewView,
-                detail == null
-                        ? null
-                        : new AttemptView.ReferenceView(detail.ref(), detail.note()),
+                detail == null ? null : new AttemptView.ReferenceView(detail.ref(), detail.note()),
                 new AttemptView.NextActionView(retryRequired, retryRequired),
                 replayed);
     }
@@ -388,7 +350,10 @@ public class PracticeServiceImpl implements PracticeService {
         Attempt parent =
                 attemptDao
                         .findById(command.retryOfId())
-                        .orElseThrow(() -> new BusinessException(ApiCode.ATTEMPT_NOT_FOUND, "重打来源提交不存在"));
+                        .orElseThrow(
+                                () ->
+                                        new BusinessException(
+                                                ApiCode.ATTEMPT_NOT_FOUND, "重打来源提交不存在"));
         if (!parent.getUserId().equals(userId)
                 || !parent.getSentenceId().equals(command.sentenceId())
                 || !parent.getMode().name().equals(command.mode().name())) {
@@ -478,26 +443,36 @@ public class PracticeServiceImpl implements PracticeService {
                         .orElseThrow(
                                 () ->
                                         new BusinessException(
-                                                ApiCode.INTERNAL_ERROR, "缺少 GLOBAL ACTIVE 的 FSRS 权重版本"));
+                                                ApiCode.INTERNAL_ERROR,
+                                                "缺少 GLOBAL ACTIVE 的 FSRS 权重版本"));
 
         if (failed) {
             if (card == null) {
                 Review created =
                         Review.createFailed(
-                                attempt.getUserId(), attempt.getSentenceId(), attempt.getMode(),
-                                attempt.getId(), rating, now);
+                                attempt.getUserId(),
+                                attempt.getSentenceId(),
+                                attempt.getMode(),
+                                attempt.getId(),
+                                rating,
+                                now);
                 reviewDao.save(created);
                 reviewLogDao.save(
                         ReviewLog.forNewCard(
-                                created, attempt.getId(), rating, attempt.getDurationMs(),
-                                weightsVersionId, now));
+                                created,
+                                attempt.getId(),
+                                rating,
+                                attempt.getDurationMs(),
+                                weightsVersionId,
+                                now));
                 return created;
             }
             Review.Snapshot snapshot = Review.Snapshot.of(card, now);
             card.applyFailed(attempt.getId(), rating, now);
             card.touchMode(attempt.getMode());
             reviewDao.save(card);
-            reviewLogDao.save(logForExisting(snapshot, card, attempt, rating, weightsVersionId, now));
+            reviewLogDao.save(
+                    logForExisting(snapshot, card, attempt, rating, weightsVersionId, now));
             return card;
         }
 
@@ -550,8 +525,8 @@ public class PracticeServiceImpl implements PracticeService {
     }
 
     /**
-     * 四档评分派生（DATA-MODEL §8.2 / engine.ts deriveRating）：
-     * REVEAL、无分、&lt;60 → 1；&lt;100 → 2；全对有提示 → 3；全对无提示 ≤60s → 4，否则 3。
+     * 四档评分派生（DATA-MODEL §8.2 / engine.ts deriveRating）： REVEAL、无分、&lt;60 → 1；&lt;100 → 2；全对有提示 →
+     * 3；全对无提示 ≤60s → 4，否则 3。
      *
      * @param score 判分；REVEAL 为 null
      * @param hintsUsed 提示次数
@@ -559,7 +534,8 @@ public class PracticeServiceImpl implements PracticeService {
      * @param kind 提交类型
      * @return 1–4
      */
-    private int deriveRating(Integer score, int hintsUsed, Integer durationMs, AttemptCommand.Kind kind) {
+    private int deriveRating(
+            Integer score, int hintsUsed, Integer durationMs, AttemptCommand.Kind kind) {
         if (kind == AttemptCommand.Kind.REVEAL || score == null || score < 60) {
             return 1;
         }
@@ -589,8 +565,7 @@ public class PracticeServiceImpl implements PracticeService {
         canonical.put("hintsUsed", command.effectiveHintsUsed());
         byte[] bytes = objectMapper.writeValueAsBytes(canonical);
         try {
-            return HexFormat.of().formatHex(
-                    MessageDigest.getInstance("SHA-256").digest(bytes));
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
         } catch (NoSuchAlgorithmException exception) {
             // JDK 必带 SHA-256，不可能到达；保留受检异常语义。
             throw new IllegalStateException("SHA-256 不可用", exception);
@@ -635,7 +610,8 @@ public class PracticeServiceImpl implements PracticeService {
     public NextPracticeView next(Long userId, Long bankId, String excludeSentenceId) {
         // 到期复习优先：due_at 升序取第一张可练卡的题目。
         for (Review card : reviewDao.findDue(userId, Instant.now())) {
-            Optional<SentenceDetail> detail = contentQueryService.findSentence(card.getSentenceId());
+            Optional<SentenceDetail> detail =
+                    contentQueryService.findSentence(card.getSentenceId());
             if (detail.isPresent() && detail.get().practiceable()) {
                 return new NextPracticeView(detail.get(), toCardView(card), "DUE");
             }
@@ -643,13 +619,11 @@ public class PracticeServiceImpl implements PracticeService {
         // 新题：跳过已入队（非 NEW）的句子，与本地引擎 selectNew 同语义。
         for (SentenceDetail candidate :
                 contentQueryService.findPracticeCandidates(bankId, excludeSentenceId, 20)) {
-            Optional<Review> card =
-                    reviewDao.findByUserIdAndSentenceId(userId, candidate.id());
+            Optional<Review> card = reviewDao.findByUserIdAndSentenceId(userId, candidate.id());
             if (card.isPresent() && card.get().getState() != Review.ReviewState.NEW) {
                 continue;
             }
-            return new NextPracticeView(
-                    candidate, card.map(this::toCardView).orElse(null), "NEW");
+            return new NextPracticeView(candidate, card.map(this::toCardView).orElse(null), "NEW");
         }
         return null;
     }
@@ -667,14 +641,18 @@ public class PracticeServiceImpl implements PracticeService {
         List<WrongQuestionView> items = new ArrayList<>();
         for (Review card : learning) {
             SentenceDetail detail =
-                    contentQueryService.findSentence(card.getSentenceId()).filter(SentenceDetail::practiceable).orElse(null);
+                    contentQueryService
+                            .findSentence(card.getSentenceId())
+                            .filter(SentenceDetail::practiceable)
+                            .orElse(null);
             if (detail == null || !matchBank(detail, bankId) || !matchTag(detail, tag)) {
                 continue;
             }
             Optional<Attempt> latestAttempt =
                     attemptDao.findLatestByUserAndSentence(userId, card.getSentenceId());
             Optional<AttemptGrading> latestGrading =
-                    latestAttempt.flatMap(attempt -> gradingDao.findLatestByAttemptId(attempt.getId()));
+                    latestAttempt.flatMap(
+                            attempt -> gradingDao.findLatestByAttemptId(attempt.getId()));
             if (latestAttempt.isEmpty() || latestGrading.isEmpty()) {
                 continue;
             }
@@ -684,9 +662,7 @@ public class PracticeServiceImpl implements PracticeService {
                 continue;
             }
             Set<String> disputedKeys =
-                    disputesBySentence
-                            .getOrDefault(card.getSentenceId(), List.of())
-                            .stream()
+                    disputesBySentence.getOrDefault(card.getSentenceId(), List.of()).stream()
                             .map(Appeal::getAnnotationKey)
                             .collect(Collectors.toSet());
             List<GradingAnnotation> wrongAnnotations =
@@ -707,9 +683,7 @@ public class PracticeServiceImpl implements PracticeService {
                                                     annotation.tag(),
                                                     annotation.message(),
                                                     disputedKeys.contains(annotation.key())))
-                            .filter(
-                                    annotation ->
-                                            includeDisputed || !annotation.disputed())
+                            .filter(annotation -> includeDisputed || !annotation.disputed())
                             .toList();
             // 批注全部被排除且无其他错误的题不出现在错题列表（API §6.6）。
             if (annotations.isEmpty()) {
@@ -764,7 +738,8 @@ public class PracticeServiceImpl implements PracticeService {
     @Override
     public OverloadView overload(Long userId) {
         long dueCount = reviewDao.countDue(userId, Instant.now());
-        return new OverloadView(dueCount, OVERLOAD_THRESHOLD, PUSH_LIMIT, dueCount > OVERLOAD_THRESHOLD);
+        return new OverloadView(
+                dueCount, OVERLOAD_THRESHOLD, PUSH_LIMIT, dueCount > OVERLOAD_THRESHOLD);
     }
 
     @Override
@@ -779,8 +754,12 @@ public class PracticeServiceImpl implements PracticeService {
             reviewDao.save(card);
             postponed++;
         }
-        log.info("review_postpone userId={} postponed={} kept={} reason={}",
-                userId, postponed, Math.min(due.size(), PUSH_LIMIT), reason);
+        log.info(
+                "review_postpone userId={} postponed={} kept={} reason={}",
+                userId,
+                postponed,
+                Math.min(due.size(), PUSH_LIMIT),
+                reason);
         return new PostponeView(postponed, Math.min(due.size(), PUSH_LIMIT));
     }
 
@@ -843,7 +822,8 @@ public class PracticeServiceImpl implements PracticeService {
     }
 
     @Override
-    public AccuracyView accuracy(Long userId, LocalDate from, LocalDate to, Long bankId, String mode) {
+    public AccuracyView accuracy(
+            Long userId, LocalDate from, LocalDate to, Long bankId, String mode) {
         UserSettings settings = userAccountService.getSettings(userId);
         ZoneId zone = ZoneId.of(settings.timezone());
         LocalDate today = LocalDate.now(zone);
@@ -852,9 +832,7 @@ public class PracticeServiceImpl implements PracticeService {
         if (start.isAfter(end)) {
             throw new BusinessException(ApiCode.VALIDATION_FAILED, "from 不能晚于 to");
         }
-        List<Attempt> attempts =
-                filterAttempts(
-                        userId, start, end, zone, bankId, mode);
+        List<Attempt> attempts = filterAttempts(userId, start, end, zone, bankId, mode);
         List<Integer> scores = latestScores(attempts);
         long totalAttempts = attempts.size();
         Double correctRate =
@@ -879,7 +857,8 @@ public class PracticeServiceImpl implements PracticeService {
                             modeAttempts.size(),
                             modeScores.isEmpty()
                                     ? null
-                                    : round1(correctCount(modeScores) * 100.0 / modeScores.size())));
+                                    : round1(
+                                            correctCount(modeScores) * 100.0 / modeScores.size())));
         }
         List<AccuracyView.DailyAccuracyView> daily14 = new ArrayList<>();
         for (LocalDate day = end.minusDays(13); !day.isAfter(end); day = day.plusDays(1)) {
@@ -918,7 +897,8 @@ public class PracticeServiceImpl implements PracticeService {
                                                         .orElse(null),
                                                 attempt.getCreatedAt()))
                         .toList();
-        return new AccuracyView(start, end, totalAttempts, correctRate, averageScore, byMode, daily14, recent);
+        return new AccuracyView(
+                start, end, totalAttempts, correctRate, averageScore, byMode, daily14, recent);
     }
 
     @Override
@@ -951,7 +931,8 @@ public class PracticeServiceImpl implements PracticeService {
                     objectMapper.readValue(grading.get().getResult(), GradingResult.class);
             for (GradingAnnotation annotation : result.annotations()) {
                 if (annotation.correct()
-                        || disputedKeys.contains(attempt.getSentenceId() + "|" + annotation.key())) {
+                        || disputedKeys.contains(
+                                attempt.getSentenceId() + "|" + annotation.key())) {
                     continue;
                 }
                 counts.merge(annotation.tag(), 1L, Long::sum);
@@ -970,7 +951,8 @@ public class PracticeServiceImpl implements PracticeService {
                                                 grandTotal == 0
                                                         ? 0.0
                                                         : round1(
-                                                                entry.getValue() * 100.0
+                                                                entry.getValue()
+                                                                        * 100.0
                                                                         / grandTotal)))
                         .toList();
         return new ErrorTagsView(start, end, items);
@@ -992,7 +974,8 @@ public class PracticeServiceImpl implements PracticeService {
             Optional<Attempt> existing = attemptDao.findById(item.attemptId());
             if (existing.isPresent()) {
                 Attempt stored = existing.get();
-                if (stored.getUserId().equals(userId) && stored.getAnswerHash().equals(payloadHash(item))) {
+                if (stored.getUserId().equals(userId)
+                        && stored.getAnswerHash().equals(payloadHash(item))) {
                     skipped++;
                     continue;
                 }
@@ -1023,7 +1006,8 @@ public class PracticeServiceImpl implements PracticeService {
                 attemptDao.save(attempt);
             } catch (DataIntegrityViolationException exception) {
                 Attempt winner = attemptDao.findById(item.attemptId()).orElse(null);
-                if (winner != null && winner.getUserId().equals(userId)
+                if (winner != null
+                        && winner.getUserId().equals(userId)
                         && winner.getAnswerHash().equals(payloadHash(item))) {
                     skipped++;
                     continue;
@@ -1182,8 +1166,7 @@ public class PracticeServiceImpl implements PracticeService {
      * @return 是否匹配
      */
     private boolean matchTag(SentenceDetail detail, String tag) {
-        return tag == null
-                || detail.tags() != null && detail.tags().contains(tag);
+        return tag == null || detail.tags() != null && detail.tags().contains(tag);
     }
 
     /**

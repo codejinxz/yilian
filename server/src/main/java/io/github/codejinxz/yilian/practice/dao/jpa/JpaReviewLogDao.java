@@ -1,7 +1,6 @@
 package io.github.codejinxz.yilian.practice.dao.jpa;
 
 import io.github.codejinxz.yilian.practice.dao.ReviewLogDao;
-
 import io.github.codejinxz.yilian.practice.entity.ReviewLog;
 
 import org.springframework.stereotype.Repository;

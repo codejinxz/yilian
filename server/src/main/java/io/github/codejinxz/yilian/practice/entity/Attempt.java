@@ -18,8 +18,7 @@ import java.util.Objects;
 /**
  * 答题提交（append-only，attempts 表）；attemptId 即幂等键。
  *
- * <p>触发器 trg_attempts_no_update/no_delete 保证只增不改；answer_hash 用于幂等
- * 重放判定（同载荷重放、异载荷 40903）。
+ * <p>触发器 trg_attempts_no_update/no_delete 保证只增不改；answer_hash 用于幂等 重放判定（同载荷重放、异载荷 40903）。
  */
 @Entity
 @Table(name = "attempts")

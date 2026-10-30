@@ -7,8 +7,8 @@ import java.util.List;
 /**
  * 判分结果，结构与前端 {@code gradingResultSchema} 逐字段一致（API §6.2 / DATA-MODEL §6.4）。
  *
- * <p>{@code score} 在 REVEAL（看答案）时为 null；其余场景 0–100。
- * 该对象以 JSON 原文落库到 {@code attempt_gradings.result}，字段增删必须升 schemaVersion。
+ * <p>{@code score} 在 REVEAL（看答案）时为 null；其余场景 0–100。 该对象以 JSON 原文落库到 {@code
+ * attempt_gradings.result}，字段增删必须升 schemaVersion。
  *
  * @param schemaVersion 结果结构版本，当前恒为 1
  * @param score 得分；REVEAL 为 null

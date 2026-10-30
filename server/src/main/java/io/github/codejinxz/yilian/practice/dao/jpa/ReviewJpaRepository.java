@@ -5,9 +5,7 @@ import io.github.codejinxz.yilian.practice.entity.Review;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.Instant;
-
 import java.util.List;
-
 import java.util.Optional;
 
 /** 复习卡 Spring Data 仓库，只允许同包 JpaReviewDao 使用。 */
@@ -50,7 +48,8 @@ public interface ReviewJpaRepository extends JpaRepository<Review, Long> {
      * @param now 当前时间
      * @return 数量
      */
-    long countByUserIdAndStateAndDueAtLessThanEqual(Long userId, Review.ReviewState state, Instant now);
+    long countByUserIdAndStateAndDueAtLessThanEqual(
+            Long userId, Review.ReviewState state, Instant now);
 
     /**
      * 用户全部卡。

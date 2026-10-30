@@ -1,13 +1,11 @@
 package io.github.codejinxz.yilian.practice.dao.jpa;
 
 import io.github.codejinxz.yilian.practice.dao.AttemptGradingDao;
-
 import io.github.codejinxz.yilian.practice.entity.AttemptGrading;
 
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
-
 import java.util.Optional;
 
 /** 判分记录 Dao 的 JPA 实现。 */

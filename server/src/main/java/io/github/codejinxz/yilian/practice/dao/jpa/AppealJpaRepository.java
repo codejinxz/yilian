@@ -1,15 +1,12 @@
 package io.github.codejinxz.yilian.practice.dao.jpa;
 
 import io.github.codejinxz.yilian.practice.entity.Appeal;
-
 import io.github.codejinxz.yilian.practice.entity.Appeal.AppealKind;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Collection;
-
 import java.util.List;
-
 import java.util.Optional;
 
 /** 申诉/不认同 Spring Data 仓库，只允许同包 JpaAppealDao 使用。 */

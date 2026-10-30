@@ -1,29 +1,18 @@
 package io.github.codejinxz.yilian.practice.controller;
 
 import io.github.codejinxz.yilian.common.api.ApiResponse;
-
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
-
 import io.github.codejinxz.yilian.practice.service.PracticeService;
-
 import io.github.codejinxz.yilian.practice.service.vo.AccuracyView;
-
 import io.github.codejinxz.yilian.practice.service.vo.ErrorTagsView;
-
 import io.swagger.v3.oas.annotations.Operation;
-
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import org.springframework.format.annotation.DateTimeFormat;
-
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-
 import org.springframework.web.bind.annotation.GetMapping;
-
 import org.springframework.web.bind.annotation.RequestMapping;
-
 import org.springframework.web.bind.annotation.RequestParam;
-
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
@@ -59,7 +48,9 @@ public class AnalyticsController {
      * @param principal 当前用户
      * @return 统计视图
      */
-    @Operation(summary = "正确率统计", description = "correctRate/averageScore 以最新判分的有分数记录为口径；daily14 补零输出完整 14 天。")
+    @Operation(
+            summary = "正确率统计",
+            description = "correctRate/averageScore 以最新判分的有分数记录为口径；daily14 补零输出完整 14 天。")
     @GetMapping("/accuracy")
     public ApiResponse<AccuracyView> accuracy(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)

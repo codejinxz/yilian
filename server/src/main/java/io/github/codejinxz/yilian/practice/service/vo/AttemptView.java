@@ -1,7 +1,6 @@
 package io.github.codejinxz.yilian.practice.service.vo;
 
 import io.github.codejinxz.yilian.practice.grading.GradingResult;
-
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Instant;

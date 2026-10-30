@@ -3,7 +3,6 @@ package io.github.codejinxz.yilian.practice.dao.jpa;
 import io.github.codejinxz.yilian.practice.entity.FsrsParameterVersion;
 
 import org.springframework.data.jpa.repository.JpaRepository;
-
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;

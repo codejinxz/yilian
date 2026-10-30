@@ -1,34 +1,22 @@
 package io.github.codejinxz.yilian.practice.service;
 
 import io.github.codejinxz.yilian.common.api.PageResponse;
-
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
-
 import io.github.codejinxz.yilian.practice.service.dto.GuestUpgradeCommand;
-
 import io.github.codejinxz.yilian.practice.service.vo.AccuracyView;
-
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
-
 import io.github.codejinxz.yilian.practice.service.vo.ErrorTagsView;
-
 import io.github.codejinxz.yilian.practice.service.vo.GuestUpgradeView;
-
 import io.github.codejinxz.yilian.practice.service.vo.NextPracticeView;
-
 import io.github.codejinxz.yilian.practice.service.vo.OverloadView;
-
 import io.github.codejinxz.yilian.practice.service.vo.PostponeView;
-
 import io.github.codejinxz.yilian.practice.service.vo.ReviewCardView;
-
 import io.github.codejinxz.yilian.practice.service.vo.TodayView;
-
 import io.github.codejinxz.yilian.practice.service.vo.WrongQuestionView;
 
-import java.time.LocalDate;
-
 import org.springframework.lang.Nullable;
+
+import java.time.LocalDate;
 
 /**
  * 练习用例服务：作答提交（判分 + 幂等 + FSRS 排程）、作答详情与查询外围。
@@ -38,8 +26,7 @@ import org.springframework.lang.Nullable;
 public interface PracticeService {
 
     /**
-     * 提交一次作答：校验题目与版本、幂等判定、本地判分、写 attempt_gradings、
-     * 按 SRS 四分支推进复习卡并写 review_logs。
+     * 提交一次作答：校验题目与版本、幂等判定、本地判分、写 attempt_gradings、 按 SRS 四分支推进复习卡并写 review_logs。
      *
      * @param userId 当前用户 id
      * @param command 已校验的提交命令

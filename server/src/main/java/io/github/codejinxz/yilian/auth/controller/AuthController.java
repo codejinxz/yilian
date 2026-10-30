@@ -386,7 +386,11 @@ public class AuthController {
                     "把游客期间攒在本机的 attempts 批量提交到账号；最多 100 条/次，"
                             + "同 attemptId 同载荷跳过，异载荷返回 40903 且整体回滚。"
                             + "迁移只落提交与判分记录，不触发 FSRS 排程。")
-    @RateLimit(scene = "guest-upgrade", dimensions = RateLimitDimension.ACCOUNT, limit = 5, windowSeconds = 3600)
+    @RateLimit(
+            scene = "guest-upgrade",
+            dimensions = RateLimitDimension.ACCOUNT,
+            limit = 5,
+            windowSeconds = 3600)
     @PostMapping("/guest-upgrade")
     public ApiResponse<GuestUpgradeView> guestUpgrade(
             @Valid @RequestBody GuestUpgradeCommand command,

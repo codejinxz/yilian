@@ -1,15 +1,12 @@
 package io.github.codejinxz.yilian.practice.dao.jpa;
 
 import io.github.codejinxz.yilian.practice.dao.ReviewDao;
-
 import io.github.codejinxz.yilian.practice.entity.Review;
 
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
-
 import java.util.List;
-
 import java.util.Optional;
 
 /** 复习卡 Dao 的 JPA 实现。 */

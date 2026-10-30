@@ -1,17 +1,11 @@
 package io.github.codejinxz.yilian.practice.service.dto;
 
 import jakarta.validation.Valid;
-
 import jakarta.validation.constraints.Max;
-
 import jakarta.validation.constraints.Min;
-
 import jakarta.validation.constraints.NotBlank;
-
 import jakarta.validation.constraints.NotNull;
-
 import jakarta.validation.constraints.Pattern;
-
 import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
@@ -33,7 +27,8 @@ import java.time.Instant;
 public record AttemptCommand(
         @NotBlank(message = "attemptId 不能为空")
                 @Pattern(
-                        regexp = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                        regexp =
+                                "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
                         message = "attemptId 必须是 UUID")
                 String attemptId,
         @NotBlank(message = "sentenceId 不能为空") @Size(max = 26) String sentenceId,

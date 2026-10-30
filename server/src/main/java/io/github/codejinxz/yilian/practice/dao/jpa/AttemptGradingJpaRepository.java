@@ -3,13 +3,10 @@ package io.github.codejinxz.yilian.practice.dao.jpa;
 import io.github.codejinxz.yilian.practice.entity.AttemptGrading;
 
 import org.springframework.data.jpa.repository.JpaRepository;
-
 import org.springframework.data.jpa.repository.Query;
-
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
-
 import java.util.Optional;
 
 /** 判分记录 Spring Data 仓库，只允许同包 JpaAttemptGradingDao 使用。 */

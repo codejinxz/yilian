@@ -8,10 +8,9 @@ import java.util.List;
 /**
  * 判分器：语块填空 / 整句翻译 / 看答案三分支的纯函数实现。
  *
- * <p>语义基准是前端 {@code web/src/features/practice/grading.ts} 的 {@code gradeCloze} 与
- * {@code gradeFree}、{@code engine.ts} 的 {@code revealGrading}，服务端逐值移植；
- * golden 单测锁定全角、弯引号、句末标点、部分命中与 FREE 覆盖率等样例。
- * 判分输入经 {@link Norm1Normalizer}（norm-1）归一化，与幂等哈希共用同一口径。
+ * <p>语义基准是前端 {@code web/src/features/practice/grading.ts} 的 {@code gradeCloze} 与 {@code
+ * gradeFree}、{@code engine.ts} 的 {@code revealGrading}，服务端逐值移植； golden 单测锁定全角、弯引号、句末标点、部分命中与 FREE
+ * 覆盖率等样例。 判分输入经 {@link Norm1Normalizer}（norm-1）归一化，与幂等哈希共用同一口径。
  */
 public final class Grader {
 
@@ -20,8 +19,7 @@ public final class Grader {
     }
 
     /**
-     * 语块填空判分：整块命中任一可接受答案即该语块全对；否则按规范答案逐词位置比对，
-     * 部分对 = 命中词数 / 总词数 × 100。
+     * 语块填空判分：整块命中任一可接受答案即该语块全对；否则按规范答案逐词位置比对， 部分对 = 命中词数 / 总词数 × 100。
      *
      * @param chunks 题目语块（含可接受答案与考点标签）
      * @param blank 挖空语块下标，顺序即题面编号顺序
@@ -95,13 +93,10 @@ public final class Grader {
                             wholeHit || canonical.isEmpty() ? null : canonical));
         }
 
-        int score =
-                totalCount == 0 ? 0 : (int) Math.round((double) hitCount / totalCount * 100);
+        int score = totalCount == 0 ? 0 : (int) Math.round((double) hitCount / totalCount * 100);
         long missed = annotations.stream().filter(annotation -> !annotation.correct()).count();
         String summary =
-                annotations.isEmpty()
-                        ? "没有需要判定的语块"
-                        : missed == 0 ? "全部命中" : "还差 " + missed + " 处";
+                annotations.isEmpty() ? "没有需要判定的语块" : missed == 0 ? "全部命中" : "还差 " + missed + " 处";
         return new GradingResult(1, score, 100, hitCount, totalCount, annotations, summary);
     }
 
@@ -133,7 +128,11 @@ public final class Grader {
 
         int totalCount = expected.size();
         int score =
-                exact ? 100 : totalCount == 0 ? 0 : (int) Math.round((double) hitCount / totalCount * 100);
+                exact
+                        ? 100
+                        : totalCount == 0
+                                ? 0
+                                : (int) Math.round((double) hitCount / totalCount * 100);
         boolean blankAnswer = text == null || text.trim().isEmpty();
         List<GradingAnnotation> annotations =
                 exact || blankAnswer
@@ -235,7 +234,10 @@ public final class Grader {
             return List.of();
         }
         return chunk.answers().stream()
-                .filter(answer -> answer != null && !Norm1Normalizer.normalizeAnswer(answer).isEmpty())
+                .filter(
+                        answer ->
+                                answer != null
+                                        && !Norm1Normalizer.normalizeAnswer(answer).isEmpty())
                 .toList();
     }
 }

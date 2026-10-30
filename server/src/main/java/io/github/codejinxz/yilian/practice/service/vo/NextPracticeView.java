@@ -1,7 +1,6 @@
 package io.github.codejinxz.yilian.practice.service.vo;
 
 import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
-
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**

@@ -274,8 +274,7 @@ public class ImportBatchServiceImpl implements ImportBatchService {
             batch.markCommitted(results.size(), Instant.now());
         } catch (RuntimeException exception) {
             // 只包「落库事务」：行回写/状态推进失败不会被误标 FAILED（题目已入库时状态与库内一致）。
-            if (!validRows.isEmpty()
-                    && validRows.getFirst().getSentenceId() != null) {
+            if (!validRows.isEmpty() && validRows.getFirst().getSentenceId() != null) {
                 throw exception;
             }
             ImportBatch failed = requireBatch(batchId);

@@ -10,15 +10,12 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.Duration;
-
 import java.time.Instant;
 
 /**
- * 复习卡（reviews 表，可变投影）；Q1 一句一卡：唯一键 (user_id, sentence_id)，
- * mode 为最近练习模式。
+ * 复习卡（reviews 表，可变投影）；Q1 一句一卡：唯一键 (user_id, sentence_id)， mode 为最近练习模式。
  *
- * <p>state 是三档 UI 投影（NEW/LEARNING/MASTERED），fsrsState 是 FSRS 四态；
- * 排程四分支与本地引擎逐值一致（切片设计 §3.6）。
+ * <p>state 是三档 UI 投影（NEW/LEARNING/MASTERED），fsrsState 是 FSRS 四态； 排程四分支与本地引擎逐值一致（切片设计 §3.6）。
  */
 @Entity
 @Table(name = "reviews")
@@ -165,11 +162,7 @@ public class Review {
      * @param elapsedDays 距上次复习天数（不足一天记 0）
      */
     public record Snapshot(
-            FsrsState state,
-            Instant dueAt,
-            Double stability,
-            Double difficulty,
-            int elapsedDays) {
+            FsrsState state, Instant dueAt, Double stability, Double difficulty, int elapsedDays) {
 
         /**
          * 捕获当前卡状态快照。
@@ -182,7 +175,9 @@ public class Review {
             int elapsedDays =
                     review.lastReviewAt == null
                             ? 0
-                            : (int) Math.max(0, Duration.between(review.lastReviewAt, now).toDays());
+                            : (int)
+                                    Math.max(
+                                            0, Duration.between(review.lastReviewAt, now).toDays());
             return new Snapshot(
                     review.fsrsState,
                     review.dueAt,
@@ -259,9 +254,7 @@ public class Review {
         this.mode = mode;
     }
 
-    /**
-     * 顺延一天（降载推送范围外的到期卡整体后移；非 FSRS 排程事件，不写 review_logs）。
-     */
+    /** 顺延一天（降载推送范围外的到期卡整体后移；非 FSRS 排程事件，不写 review_logs）。 */
     public void postponeOneDay() {
         this.dueAt = this.dueAt.plusSeconds(86_400);
     }
