@@ -41,7 +41,7 @@ public class ReviewLog {
     private String attemptId;
 
     @Column(nullable = false)
-    private int rating;
+    private short rating;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "state_before", nullable = false, length = 16)
@@ -117,7 +117,7 @@ public class ReviewLog {
         this.sentenceId = sentenceId;
         this.mode = mode;
         this.attemptId = attemptId;
-        this.rating = rating;
+        this.rating = (short) rating;
         this.stateBefore = stateBefore;
         this.stateAfter = stateAfter;
         this.dueBefore = dueBefore;
@@ -242,5 +242,14 @@ public class ReviewLog {
      */
     public String getAttemptId() {
         return attemptId;
+    }
+
+    /**
+     * 四档评分。
+     *
+     * @return 1–4
+     */
+    public short getRating() {
+        return rating;
     }
 }

@@ -9,6 +9,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import java.time.Duration;
+
 import java.time.Instant;
 
 /**
@@ -88,7 +90,7 @@ public class Review {
     private int scheduledDays;
 
     @Column(name = "last_rating")
-    private Integer lastRating;
+    private Short lastRating;
 
     @Column(name = "last_review_at")
     private Instant lastReviewAt;
@@ -138,7 +140,7 @@ public class Review {
         review.lapses = 1;
         review.elapsedDays = 0;
         review.scheduledDays = 1;
-        review.lastRating = rating;
+        review.lastRating = (short) rating;
         review.lastReviewAt = now;
         review.lastAttemptId = attemptId;
         return review;
@@ -151,6 +153,43 @@ public class Review {
      */
     public boolean isPersisted() {
         return id != null;
+    }
+
+    /**
+     * 排程前的卡快照：review_logs 的 before 值与 elapsed_days 的数据源。
+     *
+     * @param state 变更前 FSRS 态
+     * @param dueAt 变更前到期
+     * @param stability 变更前稳定度
+     * @param difficulty 变更前难度
+     * @param elapsedDays 距上次复习天数（不足一天记 0）
+     */
+    public record Snapshot(
+            FsrsState state,
+            Instant dueAt,
+            Double stability,
+            Double difficulty,
+            int elapsedDays) {
+
+        /**
+         * 捕获当前卡状态快照。
+         *
+         * @param review 复习卡
+         * @param now 服务端时钟（计算 elapsedDays）
+         * @return 不可变快照
+         */
+        public static Snapshot of(Review review, Instant now) {
+            int elapsedDays =
+                    review.lastReviewAt == null
+                            ? 0
+                            : (int) Math.max(0, Duration.between(review.lastReviewAt, now).toDays());
+            return new Snapshot(
+                    review.fsrsState,
+                    review.dueAt,
+                    review.stability,
+                    review.difficulty,
+                    elapsedDays);
+        }
     }
 
     /**
@@ -170,7 +209,7 @@ public class Review {
         this.difficulty = 5.1;
         this.reps = this.reps + 1;
         this.scheduledDays = interval;
-        this.lastRating = rating;
+        this.lastRating = (short) rating;
         this.lastReviewAt = now;
         this.lastAttemptId = attemptId;
     }
@@ -186,7 +225,7 @@ public class Review {
         this.lapses = this.lapses + 1;
         this.elapsedDays = 0;
         this.scheduledDays = 1;
-        this.lastRating = rating;
+        this.lastRating = (short) rating;
         this.lastReviewAt = now;
         this.lastAttemptId = attemptId;
     }
@@ -194,7 +233,7 @@ public class Review {
     /** 归档全对：只刷新复习痕迹。 */
     public void applyMasteredReview(String attemptId, int rating, Instant now) {
         this.reps = this.reps + 1;
-        this.lastRating = rating;
+        this.lastRating = (short) rating;
         this.lastReviewAt = now;
         this.lastAttemptId = attemptId;
     }
@@ -334,7 +373,7 @@ public class Review {
      * @return 1–4，可空
      */
     public Integer getLastRating() {
-        return lastRating;
+        return lastRating == null ? null : lastRating.intValue();
     }
 
     /**

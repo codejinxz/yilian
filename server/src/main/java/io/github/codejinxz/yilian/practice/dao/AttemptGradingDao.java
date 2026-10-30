@@ -19,10 +19,10 @@ public interface AttemptGradingDao {
     /**
      * 某提交的判分记录，序号倒序（最新在前）。
      *
-     * @param attemptId 提交 id
+     * @param attemptId 提交 id（UUID）
      * @return 判分记录
      */
-    List<AttemptGrading> findByAttemptId(Long attemptId);
+    List<AttemptGrading> findByAttemptId(String attemptId);
 
     /**
      * 某提交的最新判分。

@@ -1,9 +1,9 @@
 package io.github.codejinxz.yilian.practice.dao.jpa;
 
 import io.github.codejinxz.yilian.practice.dao.ReviewLogDao;
+
 import io.github.codejinxz.yilian.practice.entity.ReviewLog;
 
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
@@ -12,22 +12,10 @@ import java.util.Optional;
 @Repository
 public class JpaReviewLogDao implements ReviewLogDao {
 
-    /** Spring Data 仓储（包内可见）。 */
-    interface ReviewLogJpaRepository extends JpaRepository<ReviewLog, Long> {
-
-        /**
-         * 按提交取日志。
-         *
-         * @param attemptId 提交 id
-         * @return 日志
-         */
-        Optional<ReviewLog> findByAttemptId(String attemptId);
-    }
-
     private final ReviewLogJpaRepository logs;
 
     /**
-     * @param logs Spring Data 仓储
+     * @param logs 排程日志 Spring Data 仓库
      */
     public JpaReviewLogDao(ReviewLogJpaRepository logs) {
         this.logs = logs;

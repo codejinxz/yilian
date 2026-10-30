@@ -39,6 +39,18 @@ public interface AttemptDao {
     Optional<Attempt> findLatestByUserAndSentence(Long userId, String sentenceId);
 
     /**
+     * 用户在某题某模式是否存在指定类型的提交（「没有 FIRST 的 REVEAL」判定用）。
+     *
+     * @param userId 用户 id
+     * @param sentenceId 题目 ULID
+     * @param mode 模式
+     * @param kind 提交类型
+     * @return 存在返回 true
+     */
+    boolean existsByUserAndSentenceAndModeAndKind(
+            Long userId, String sentenceId, Attempt.AttemptMode mode, Attempt.AttemptKind kind);
+
+    /**
      * 用户在本地日界区间内的提交数（today.doneCount）。
      *
      * @param userId 用户 id

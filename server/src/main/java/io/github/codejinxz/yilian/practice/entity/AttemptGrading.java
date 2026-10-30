@@ -120,6 +120,42 @@ public class AttemptGrading {
     }
 
     /**
+     * 判分器。
+     *
+     * @return LOCAL
+     */
+    public String getGrader() {
+        return grader;
+    }
+
+    /**
+     * 归一化版本。
+     *
+     * @return norm-1
+     */
+    public String getNormalizerVersion() {
+        return normalizerVersion;
+    }
+
+    /**
+     * 评分口径版本。
+     *
+     * @return rubric-1
+     */
+    public String getRubricVersion() {
+        return rubricVersion;
+    }
+
+    /**
+     * 满分。
+     *
+     * @return 恒 100
+     */
+    public int getMaxScore() {
+        return maxScore;
+    }
+
+    /**
      * 创建时间。
      *
      * @return UTC

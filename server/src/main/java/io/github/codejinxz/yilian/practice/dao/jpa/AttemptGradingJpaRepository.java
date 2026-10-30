@@ -1,0 +1,54 @@
+package io.github.codejinxz.yilian.practice.dao.jpa;
+
+import io.github.codejinxz.yilian.practice.entity.AttemptGrading;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import org.springframework.data.jpa.repository.Query;
+
+import org.springframework.data.repository.query.Param;
+
+import java.util.List;
+
+import java.util.Optional;
+
+/** 判分记录 Spring Data 仓库，只允许同包 JpaAttemptGradingDao 使用。 */
+public interface AttemptGradingJpaRepository extends JpaRepository<AttemptGrading, Long> {
+
+    /**
+     * 某提交的判分记录（序号倒序）。
+     *
+     * @param attemptId 提交 id
+     * @return 判分记录
+     */
+    List<AttemptGrading> findByAttemptIdOrderBySequenceDesc(String attemptId);
+
+    /**
+     * 最新判分。
+     *
+     * @param attemptId 提交 id
+     * @return 判分记录
+     */
+    Optional<AttemptGrading> findFirstByAttemptIdOrderBySequenceDesc(String attemptId);
+
+    /**
+     * score&lt;100 的判分数（跨聚合 JPQL 联接）。
+     *
+     * @param userId 用户 id
+     * @param sentenceId 题目 ULID
+     * @return 未全对次数
+     */
+    @Query(
+            "select count(g) from AttemptGrading g join Attempt a on a.id = g.attemptId"
+                    + " where a.userId = :userId and a.sentenceId = :sentenceId"
+                    + " and g.score is not null and g.score < 100")
+    long countWrong(@Param("userId") Long userId, @Param("sentenceId") String sentenceId);
+
+    /**
+     * 是否存在判分。
+     *
+     * @param attemptId 提交 id
+     * @return 存在返回 true
+     */
+    boolean existsByAttemptId(String attemptId);
+}
