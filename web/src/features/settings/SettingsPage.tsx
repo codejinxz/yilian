@@ -8,6 +8,7 @@ import { type GradingMode, type ThemeMode, useSettingsStore } from "@/features/s
 import { api } from "@/lib/api";
 import { updateSettings } from "@/lib/api/account";
 import {
+  filterUnmigratedAttempts,
   type GuestUpgradeState,
   readGuestUpgradeState,
   syncGuestAttempts,
@@ -122,6 +123,22 @@ function RadioOption({
 }
 
 /**
+ * 读取迁移状态并统计「尚未并入账号」的本机记录数；入口显隐与文案的数据源。
+ * 增量语义：已迁移 attemptId 集合只增不减，同步不删本地数据，重算只依赖集合增长。
+ * @returns 迁移状态快照与未迁移记录数
+ */
+async function loadUpgradeSummary(): Promise<{ state: GuestUpgradeState; unmigrated: number }> {
+  const state = readGuestUpgradeState();
+  try {
+    const attempts = await listAttempts();
+    return { state, unmigrated: filterUnmigratedAttempts(attempts, state.migratedIds).length };
+  } catch {
+    // 本地引擎读不出来时入口隐藏，不阻塞设置页其余部分。
+    return { state, unmigrated: 0 };
+  }
+}
+
+/**
  * 设置页：按原型 view-settings 全量对齐 —— 账号、批改方式、外观、每日目标、评分标准、
  * 提醒、时区、更多、数据与隐私、数据、快捷键。
  *
@@ -160,10 +177,14 @@ export function SettingsPage() {
   const [clearOpen, setClearOpen] = useState(false);
   const [clearPending, setClearPending] = useState(false);
   const [exporting, setExporting] = useState(false);
-  // 游客记录迁移状态：登录后读一次（完成标记 + 欠账数量 + 本机记录数），
-  // 手动同步完成后刷新。游客不需要该入口，保持零值不发引擎查询。
-  const [upgradeState, setUpgradeState] = useState<GuestUpgradeState>({ done: false, unsynced: 0 });
-  const [localAttemptCount, setLocalAttemptCount] = useState(0);
+  // 游客记录迁移状态：登录后读一次（已迁移 id 集合 + 欠账数量 + 未迁移记录数），
+  // 手动同步完成后刷新。增量语义下入口显隐由「存在未迁移记录」决定——完成标记之后
+  // 登出又练的新记录也会再次出现入口（browser-smoke-wave4 缺陷修复）。
+  const [upgradeState, setUpgradeState] = useState<GuestUpgradeState>({
+    migratedIds: [],
+    unsynced: 0,
+  });
+  const [unmigratedCount, setUnmigratedCount] = useState(0);
 
   // 游客每日目标读本地引擎；引擎没有单独的 getter，今日快照里的 goal 就是权威值。
   useEffect(() => {
@@ -197,26 +218,20 @@ export function SettingsPage() {
     [],
   );
 
-  // 登录后读取迁移状态与本机记录数；「同步本地记录」入口只在有未完成迁移时出现。
+  // 登录后读取迁移状态与未迁移记录数；「同步本地记录」入口只在有未迁移记录时出现。
   useEffect(() => {
     if (!user) {
-      setUpgradeState({ done: false, unsynced: 0 });
-      setLocalAttemptCount(0);
+      setUpgradeState({ migratedIds: [], unsynced: 0 });
+      setUnmigratedCount(0);
       return;
     }
     let cancelled = false;
-    setUpgradeState(readGuestUpgradeState());
-    void listAttempts()
-      .then((attempts) => {
-        if (!cancelled) {
-          setLocalAttemptCount(attempts.length);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setLocalAttemptCount(0);
-        }
-      });
+    void loadUpgradeSummary().then(({ state, unmigrated }) => {
+      if (!cancelled) {
+        setUpgradeState(state);
+        setUnmigratedCount(unmigrated);
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -269,12 +284,16 @@ export function SettingsPage() {
 
   /**
    * 手动迁移本机练习记录到账号（与登录/注册后的自动触发共用同一函数）；
-   * 失败批保留在本机，重试时服务端按 attemptId 幂等跳过，不会产生重复记录。
+   * 只发送未迁移的记录，失败批保留在本机作为欠账，重试幂等（已迁移 id 不重发）。
    */
   const syncUpgrade = useMutation({
     mutationFn: syncGuestAttempts,
     onSuccess: (result) => {
-      setUpgradeState(readGuestUpgradeState());
+      // 同步不删本地数据，只是已迁移集合增长：重算入口显隐与未迁移计数。
+      void loadUpgradeSummary().then(({ state, unmigrated }) => {
+        setUpgradeState(state);
+        setUnmigratedCount(unmigrated);
+      });
       if (result.unsynced === 0) {
         showToast(
           result.imported > 0
@@ -784,12 +803,13 @@ export function SettingsPage() {
                 清空本地数据
               </button>
             </div>
-            {/* 游客记录迁移入口（切片 §5.2）：登录且迁移未完成时出现；失败欠账给明确提示，
-                重试幂等（服务端按 attemptId 同载荷跳过）。本地 IndexedDB 记录不清理。 */}
-            {user && !upgradeState.done && localAttemptCount > 0 ? (
+            {/* 游客记录迁移入口（切片 §5.2）：登录且存在未并入账号的本机记录时出现（增量语义，
+                完成标记后新练的记录也会再次出现入口）；失败欠账给明确提示，重试幂等
+                （已迁移 id 不重发，服务端按 attemptId 同载荷跳过）。本地 IndexedDB 记录不清理。 */}
+            {user && unmigratedCount > 0 ? (
               <div className="mt-5 border-t border-rule pt-4">
                 <p className="text-[13px] leading-[1.7] text-ink-muted">
-                  本机有 {localAttemptCount} 条练习记录尚未并入账号。
+                  本机有 {unmigratedCount} 条练习记录尚未并入账号。
                   {upgradeState.unsynced > 0 ? "上次同步有部分记录未完成，可重试。" : ""}
                 </p>
                 <div className="mt-3">

@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { flushQueuedAttempts, useOfflineQueueCount } from "@/features/practice/offline-queue";
 import { useSettingsStore } from "@/features/settings/store";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
 import { useOnlineStatus } from "@/hooks/use-online-status";
+import { GUEST_UPGRADE_SYNCED_EVENT, type GuestUpgradeSyncedDetail } from "@/lib/api/guest-upgrade";
 import { applyUpdate, registerServiceWorker, subscribePwaUpdate } from "@/lib/pwa";
 import { meQueryOptions, queryKeys, settingsQueryOptions, todayQueryOptions } from "@/lib/query";
 
@@ -70,6 +71,10 @@ export function AppShell() {
   const [queueMessage, setQueueMessage] = useState<string | null>(null);
   // 有新版本待用户确认生效时为 true；状态由 pwa.ts 的 SW 事件驱动。
   const [updateReady, setUpdateReady] = useState(false);
+  // 登录后自动迁移本机记录的结果提示；guest-upgrade 模块派发事件，壳层统一展示
+  // （迁移发生在登录页跳转瞬间，页面内 toast 挂不住，冒烟曾报「迁移成功无任何反馈」）。
+  const [upgradeMessage, setUpgradeMessage] = useState<string | null>(null);
+  const upgradeTimerRef = useRef<number | null>(null);
 
   useKeyboardInset();
 
@@ -110,6 +115,35 @@ export function AppShell() {
       cancelled = true;
     };
   }, [online, pendingAttempts, queryClient]);
+
+  // 登录后自动迁移本机记录的结果提示：只对有实际迁入/欠账的结果播报，
+  // 全零（无事发生）保持安静；6 秒自动消失，与页内 toast 的克制程度一致。
+  useEffect(() => {
+    function onGuestUpgradeSynced(event: Event) {
+      const detail = (event as CustomEvent<GuestUpgradeSyncedDetail>).detail;
+      if (!detail || (detail.imported <= 0 && detail.unsynced <= 0)) {
+        return;
+      }
+      setUpgradeMessage(
+        detail.imported > 0 && detail.unsynced > 0
+          ? `已同步 ${detail.imported} 条本地练习记录到账号；${detail.unsynced} 条未能同步，可在设置页重试。`
+          : detail.imported > 0
+            ? `已同步 ${detail.imported} 条本地练习记录到账号。`
+            : `${detail.unsynced} 条本地练习记录未能同步到账号，可在设置页重试。`,
+      );
+      if (upgradeTimerRef.current !== null) {
+        window.clearTimeout(upgradeTimerRef.current);
+      }
+      upgradeTimerRef.current = window.setTimeout(() => setUpgradeMessage(null), 6000);
+    }
+    window.addEventListener(GUEST_UPGRADE_SYNCED_EVENT, onGuestUpgradeSynced);
+    return () => {
+      window.removeEventListener(GUEST_UPGRADE_SYNCED_EVENT, onGuestUpgradeSynced);
+      if (upgradeTimerRef.current !== null) {
+        window.clearTimeout(upgradeTimerRef.current);
+      }
+    };
+  }, []);
 
   const nextTheme = theme === "paper" ? "night" : "paper";
   // 游客在真实模式下读本地引擎的今日快照，能看到自己的连续天数；无数据时不显示，
@@ -193,6 +227,11 @@ export function AppShell() {
       {queueMessage ? (
         <div role="status" className="sysbar">
           {queueMessage}
+        </div>
+      ) : null}
+      {upgradeMessage ? (
+        <div role="status" className="sysbar">
+          {upgradeMessage}
         </div>
       ) : null}
 
