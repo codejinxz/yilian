@@ -435,7 +435,7 @@
 
 字段回溯：`users.id`、`users.username`、`users.role`、`users.password_changed`。
 
-### 4.6 `POST /api/auth/register`（planned，M1）
+### 4.6 `POST /api/auth/register`（implemented）
 
 用途：邀请码注册，创建用户并直接登录。
 
@@ -472,7 +472,7 @@
 | `password` | `users.password_hash` | 派生 BCrypt |
 | `inviteCode` | `invite_codes.code_hash` | 派生 SHA-256 比对 |
 
-### 4.7 `PUT /api/auth/password`（planned，M1）
+### 4.7 `PUT /api/auth/password`（implemented）
 
 用途：改密并吊销全部 refresh 会话。
 
@@ -490,7 +490,7 @@
 
 字段回溯：`users.password_hash`、`users.password_updated_at`、`users.password_changed`。
 
-### 4.8 `POST /api/auth/guest-upgrade`（planned，M2）
+### 4.8 `POST /api/auth/guest-upgrade`（implemented）
 
 用途：注册后把本地未同步的 attempt 批量提交到账号；不迁移服务端游客记录（游客只落本地）。
 
@@ -527,7 +527,7 @@
 
 字段回溯：`attempts.*`；`user_id` 由当前登录用户写入，不回填旧本地记录。
 
-### 4.9 `GET/PUT /api/me/settings`（planned，M1）
+### 4.9 `GET/PUT /api/me/settings`（implemented）
 
 用途：读取/更新用户设置。
 
@@ -560,7 +560,7 @@
 
 ## 5. Content
 
-### 5.1 `GET /api/banks`（planned，M1）
+### 5.1 `GET /api/banks`（implemented）
 
 用途：题库列表；匿名只返回公开题库，登录后附自己的私有题库。
 
@@ -594,7 +594,7 @@
 
 字段回溯：`sentence_banks.*`；`sentenceCount` 派生 `COUNT(sentences WHERE status='PUBLISHED' AND deleted_at IS NULL)`。
 
-### 5.2 `GET /api/banks/{bankId}`（planned，M1）
+### 5.2 `GET /api/banks/{bankId}`（implemented）
 
 用途：题库详情 + 当前版本。
 
@@ -602,7 +602,7 @@
 
 字段回溯：`sentence_banks.*`；`ownerId` 为 null 表示官方。
 
-### 5.3 `GET /api/banks/{bankId}/sentences`（planned，M1/M2）
+### 5.3 `GET /api/banks/{bankId}/sentences`（implemented）
 
 用途：按版本增量拉取题目，支持离线缓存。
 
@@ -810,11 +810,23 @@
 
 ## 6. Practice
 
-### 6.1 `GET /api/practice/next`（planned，M2）
+### 6.1 `GET /api/practice/next`（implemented）
 
 用途：取下一题；优先到期复习，其次新题；返回当前 review 状态。
 
 请求：`bankId`（可选）、`mode`（可选 `CLOZE`/`FREE`）、`excludeSentenceId`（可选）。
+
+D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实标注）：
+
+| 参数 | 语义 | 服务端 | 本地引擎 / mock |
+|---|---|---|---|
+| `bankId` | 限定题库 | 支持 | 支持 |
+| `mode` | 模式筛选 | 支持（校验 CLOZE/FREE；Q1 一句一卡下不参与选题） | 支持 |
+| `excludeSentenceId` | 单题排除（跳句） | 支持 | 支持（并进 `excludeIds`） |
+| `sentenceId` | 指定句重练（复习页「重练」），优先级最高 | 未实现（M2.1 补齐） | 支持 |
+| `errors=1` | 只在错题里取下一题（今日页「错题」chip） | 未实现（M2.1 补齐） | 支持 |
+| `excludeIds` | 多题排除（热身排除已练） | 未实现（M2.1 补齐） | 支持（逗号分隔） |
+| `tag` | 考点筛选 | 未实现（M2.1 补齐） | 支持 |
 
 响应：
 
@@ -856,7 +868,7 @@
 
 字段回溯：`sentences.*`、`sentence_versions.*`、`reviews.*`；`selection` 派生。
 
-### 6.2 `POST /api/practice/attempts`（planned，M2）
+### 6.2 `POST /api/practice/attempts`（implemented）
 
 用途：提交一次作答；幂等；判分；更新 FSRS；返回参考译文/解析/批注。
 
@@ -966,7 +978,7 @@
 - `score<100` 时 `retryRequired=true`；必须重打或 `REVEAL` 才能下一题。
 - 只有 `FIRST`（或没有 FIRST 的 `REVEAL`）触发 FSRS；`RETRY` 不排程。
 - `REVEAL` 的 `score=null`；`review.rating=1`。
-- 幂等重复：同载荷返回同一响应，`replayed=true`；不同载荷 40903。
+- 幂等重复：同载荷返回同一响应，`replayed=true`；不同载荷 40903。**幂等口径（payloadHash）**：参与哈希的字段为 `sentenceId`、`sentenceVersionId`、`mode`、`kind`、`retryOfId`、`answer`、`hintsUsed`；**不含** `durationMs` 与 `clientCreatedAt`（耗时与本机时间不影响「同一次作答」的判定，重放/补交都按同一载荷幂等）。
 
 错误：`40000`、`40001`、`40100`、`40402`、`40903`、`50000`。
 
@@ -985,7 +997,7 @@
 | `nextAction.*` | 派生 | `score<100 && kind=FIRST` |
 | `replayed` | 派生 | 幂等命中 |
 
-### 6.3 `GET /api/practice/attempts/{attemptId}`（planned，M2）
+### 6.3 `GET /api/practice/attempts/{attemptId}`（implemented）
 
 用途：批改结果详情/刷新恢复；只能看自己的。
 
@@ -993,7 +1005,7 @@
 
 字段回溯：同上。
 
-### 6.4 `POST /api/practice/attempts/{attemptId}/annotations/{key}/appeal`（planned，M2/M3）
+### 6.4 `POST /api/practice/attempts/{attemptId}/annotations/{key}/appeal`（implemented，M2 记录 PENDING；LLM 裁决 M3）
 
 用途：提交“我觉得也对”；M2 记录 `PENDING`，M3 接 LLM 裁决。
 
@@ -1002,6 +1014,8 @@
 ```json
 { "proposedAnswer": "attach importance to", "reason": "更书面" }
 ```
+
+实现口径（M2 已落地）：`key` 必须存在于该提交最新判分结果的批注列表（`slot:N` / `free:0`），未命中按 40000；归属校验（只能对自己提交）40300；同 `(attemptId, key, kind)` 重复提交 40900（预检 + `uk_appeal_annotation` 唯一约束兜底）；申诉不改判分、不影响统计。
 
 响应：
 
@@ -1018,7 +1032,7 @@
 
 字段回溯：`appeals.*`；`sentence_id/chunk_index` 从 result 批注解析。
 
-### 6.5 `POST /api/practice/attempts/{attemptId}/annotations/{key}/dispute`（planned，M2）
+### 6.5 `POST /api/practice/attempts/{attemptId}/annotations/{key}/dispute`（implemented）
 
 用途：“不认同”该批注；立即排除该条错题/统计，不改题目。
 
@@ -1036,11 +1050,13 @@
 
 规则：`status=ACCEPTED`、`decided_by=USER`；不改 `sentence_versions`；错题列表/统计按 overlay 排除。
 
+实现口径（M2 已落地）：与 §6.4 共用落库链路——`key` 未命中 40000、非本人提交 40300、同键重复 40900；`DISPUTE` 即时生效（`ACCEPTED`），错题列表（`includeDisputed=false` 默认隐藏该批注）与 error-tags 计数同步排除；`APPEAL` 与 `DISPUTE` 各自可存一条（kind 隔离）。
+
 错误：`40000`、`40100`、`40300`、`40403`、`40900`、`50000`。
 
 字段回溯：`appeals.*`。
 
-### 6.6 `GET /api/practice/wrong-questions`（planned，M2）
+### 6.6 `GET /api/practice/wrong-questions`（implemented）
 
 用途：错题列表；按到期/最近错误排序。
 
@@ -1080,7 +1096,7 @@
 
 字段回溯：`reviews.*`、`attempts.*`、`attempt_gradings.result`、`appeals.*`；`zh` 来自当前 `sentence_versions`；`annotations` 派生。
 
-### 6.7 `GET /api/practice/reviews`（planned，M2）
+### 6.7 `GET /api/practice/reviews`（implemented）
 
 用途：复习队列；按 `dueAt` 升序。
 
@@ -1119,7 +1135,7 @@
 
 字段回溯：`reviews.*`；`state` 是 FSRS 投影（DATA-MODEL §8.4）。
 
-### 6.8 `POST /api/practice/reviews/{reviewId}/reset`（planned，M2）
+### 6.8 `POST /api/practice/reviews/{reviewId}/reset`（implemented）
 
 用途：用户把某张卡重置为 `NEW`（“重新学”），保留历史日志。
 
@@ -1134,7 +1150,7 @@
 
 字段回溯：`reviews.state/fsrs_state/due_at/stability/difficulty/reps/lapses`。
 
-### 6.9 `GET /api/practice/today`（planned，M2）
+### 6.9 `GET /api/practice/today`（implemented）
 
 用途：今日启动台数字；一屏一句，不做仪表盘。
 
@@ -1152,21 +1168,56 @@
 }
 ```
 
-规则：`date` 是用户本地日期；`dueCount`/`doneCount` 按本地日界；`streakDays` 由 `attempts` 或 `user_daily_stats` 派生（M2 查 attempts，M3 查聚合）。
+规则：`date` 是用户本地日期；`dueCount`/`doneCount` 按本地日界；`streakDays` 由 `attempts` 或 `user_daily_stats` 派生（M2 查 attempts，M3 查聚合）；`correctRate` 是今日有分数提交中全对占比，今日无判分提交时为 `null`。
 
 错误：`40100`、`50000`。
 
 字段回溯：`users.timezone/daily_goal`；`reviews.due_at`；`attempts.created_at`；`streakDays` 派生。
 
----
+### 6.10 `GET /api/practice/reviews/overload`（implemented）
 
-## 7. Analytics（M3，planned）
-
-### 7.1 `GET /api/analytics/accuracy`
-
-请求：`from`、`to`（用户本地日期）、`bankId`、`mode`。
+用途：积压降载状态；到期数超过阈值时客户端只推最紧急 `pushLimit` 道，其余可顺延（所有降载可见、可撤销、有理由）。
 
 响应：
+
+```json
+{
+  "dueCount": 9,
+  "threshold": 20,
+  "pushLimit": 5,
+  "overload": true
+}
+```
+
+错误：`40100`、`50000`。
+
+字段回溯：`reviews.due_at` 派生；阈值/推送上限为服务端配置（当前 20/5，与本地引擎 8/5 不同，登录态页面以本端点为准）。
+
+### 6.11 `POST /api/practice/reviews/postpone`（implemented）
+
+用途：顺延到期卡——保留最早到期的 `pushLimit` 道，其余整体推迟一天；用户手动动作，不写 `review_logs`，理由进结构化日志。
+
+请求：`{ "reason": "今天没时间" }`（可选；无请求体时用缺省理由）。
+
+响应：
+
+```json
+{ "postponed": 4, "kept": 5 }
+```
+
+错误：`40100`、`50000`。
+
+字段回溯：`reviews.due_at/scheduled_days` 派生。
+
+---
+
+## 7. Analytics（implemented）
+
+### 7.1 `GET /api/analytics/accuracy`（implemented）
+
+请求：`from`、`to`（用户本地日期，缺省最近 14 天）、`bankId`（可选）、`mode`（可选）。
+
+响应（含 D8 扩展 `daily14`/`recent`）：
 
 ```json
 {
@@ -1178,13 +1229,34 @@
   "byMode": [
     { "mode": "CLOZE", "attempts": 80, "correctRate": 75.0 },
     { "mode": "FREE", "attempts": 20, "correctRate": 62.5 }
+  ],
+  "daily14": [
+    { "date": "2026-10-11", "attempts": 6, "correctRate": 66.7 }
+  ],
+  "recent": [
+    {
+      "attemptId": "3f0e...",
+      "sentenceId": "01J...",
+      "mode": "CLOZE",
+      "kind": "FIRST",
+      "score": 80,
+      "createdAt": "2026-10-24T05:30:00Z"
+    }
   ]
 }
 ```
 
+规则：
+
+- 口径为「最新判分的有分数记录」；区间内无判分时 `correctRate`/`averageScore` 为 `null`（页面按 0 展示）。
+- `daily14` 补零输出完整 14 天（`end-13..end`，用户本地日界）；每档无判分时 `correctRate=null`。
+- `recent` 按提交时间倒序最多 10 条；`score` 为该提交最新判分（REVEAL 为 `null`）；**不含中文句**，展示层用题库缓存 join（前端 `ensureCachedSentences`）。
+
 字段回溯：派生 `attempts` + `attempt_gradings`；`user_daily_stats` M3 聚合。
 
-### 7.2 `GET /api/analytics/error-tags`
+### 7.2 `GET /api/analytics/error-tags`（implemented）
+
+请求：`from`、`to`（用户本地日期，缺省最近 14 天）。
 
 响应：
 
@@ -1534,7 +1606,7 @@
 
 ---
 
-## 10. 实现状态总览（2026-10-25）
+## 10. 实现状态总览（2026-10-31）
 
 > 状态分级：**已实现** = 后端真实可用；**前端 mock** = 前端演示层已按本契约实现、服务端待开发（前端代码带 `TODO(mock)` 注释，接口落地后删除）；**未开发** = 契约在案、两侧均未实现。
 
@@ -1543,13 +1615,17 @@
 | 组 | 端点 | 说明 |
 |---|---|---|
 | Account | `GET /api/auth/csrf`、`POST /api/auth/login`、`POST /api/auth/refresh`、`POST /api/auth/logout`、`POST /api/auth/register`、`GET /api/auth/me`、`POST /api/auth/password` | 双 token、CSRF 轮换、邀请码注册；`passwordChanged` 已返回 |
+| Account | `POST /api/auth/guest-upgrade` | 游客本机记录批量迁移：≤100 条/批、同 id 同载荷 skip、异载荷 40903 整体回滚；只落 attempts/attempt_gradings，不触发排程 |
 | Account | `GET /api/me/settings`、`PUT /api/me/settings` | 主题/目标/评分标准/时区/保留率等 |
 | Content | `GET /api/banks`、`GET /api/banks/{bankId}`、`GET /api/banks/{bankId}/sentences` | PUBLIC_OR_USER：匿名仅公开题库；句子为 §5.3 增量游标契约 |
+| Practice | `GET /api/practice/next`（D7 参数见 §6.1 差异表）、`POST /api/practice/attempts`（幂等 + norm-1/rubric-1 判分 + SRS 排程）、`GET /api/practice/attempts/{attemptId}`、批注 `appeal`/`dispute`（§6.4/§6.5）、`GET /api/practice/wrong-questions`、`GET /api/practice/reviews`、`POST /api/practice/reviews/{reviewId}/reset`、`GET /api/practice/reviews/overload`、`POST /api/practice/reviews/postpone`、`GET /api/practice/today` | 练习主链路（#8 波次三）；幂等口径 §6.2；复习卡一句一卡（DATA-MODEL §5.11 Q1） |
+| Analytics | `GET /api/analytics/accuracy`（含 `daily14`/`recent` 扩展）、`GET /api/analytics/error-tags` | 用户时区日界；disputed 批注排除 |
+| Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 |
 | 运维 | `/actuator/health` | 非业务 |
 
 ### 10.2 过渡实现（不纳入冻结契约）
 
-`POST /api/admin/uploads`、`GET /api/admin/uploads/{id}`、`GET /api/admin/uploads/{id}/errors`、`POST /api/admin/uploads/{id}/resume` —— `upload → PROCESSING → 轮询 → resume`，与目标 `preview → commit` 不同；只保留文件上传/存储/进度基础设施，**不得**写进 OpenAPI 作为已实现。
+（无——§10.2 原列的 `upload → PROCESSING → 轮询 → resume` 过渡端点已随导入切片下线，`preview → commit` 为主链路。）
 
 命名决策（RESEARCH 2026-10-24）：模块/页面/路径**保留 `upload` 命名**（不改 imports）；数据表现名 `import_batches`，表名是否回改由导入切片定夺。
 
@@ -1557,23 +1633,20 @@
 
 | 组 | 覆盖端点 |
 |---|---|
-| Practice（§6） | `GET /practice/next`、`POST /practice/attempts`、`GET /practice/attempts/{id}`、批注 appeal/dispute、`GET /practice/reviews`（含 reset）、`GET /practice/today`、`GET /practice/wrong-questions` |
-| Analytics（§7） | `GET /analytics/accuracy`、`GET /analytics/error-tags` |
-| Admin（§8） | 用户列表/停用/恢复/角色/重置密码、审计与异常检索、题库 CRUD、句子状态、导入 preview→commit→rollback、`attempts/{id}/raw`、模型/出题/运维演示 |
+| Admin（§8） | 用户列表/停用/恢复/角色/重置密码、审计与异常检索、题库 CRUD、句子状态、导入管理演示、`attempts/{id}/raw`、模型/出题/运维演示 |
 
-说明：游客与登录用户的练习数据当前由**前端本地引擎**承担（IndexedDB，RESEARCH 2026-10-24 增补），`lib/api.ts` 的 `LOCAL_ROUTE_GROUPS` 是切回服务端的唯一开关。
+说明：练习数据链路在真实模式下按登录态分流——**游客**由前端本地引擎承担（IndexedDB，RESEARCH 2026-10-24 增补），`lib/api.ts` 的 `LOCAL_ROUTE_GROUPS`（`mode:"guest"`）只对未登录访客本地应答、游客全链路零网络写请求；**登录用户**的 practice/analytics 请求直达服务端（波次四切换，冷启动竞态由 auth-state 探针 + Query 失效兜底）。mock 模式（`VITE_USE_MOCK=true`）仍优先于一切。
 
 ### 10.4 未开发（契约在案）
 
-- §6 Practice / §7 Analytics 的服务端实现（#8 练习主链路；V8 迁移已建表）。
-- `POST /api/auth/guest-upgrade`（§4.8，M2）：游客本机记录迁移。
-- Admin 检索与写接口（用户管理、审计/异常检索、题目与题库管理、模型配置）。
-- 深度批改（M3）、FSRS 排程（V2，字段已预留）。
+- §6.1 `sentenceId`/`errors`/`excludeIds`/`tag` 四个查询参数的服务端实现（M2.1，D7）。
+- Admin 检索与写接口（§8 用户管理、审计/异常检索、题目与题库管理、模型配置）。
+- 深度批改（M3）、FSRS 排程真值（V2 字段已预留，M2.1 换函数体）、申诉 LLM 裁决（M3）。
 
 ### 10.5 待收口
 
 - 登录「用户名或邮箱」语义：服务端需先查 `username` 再查 `email`。
-- 部分错误码待补齐：40302/40303、40402–40405、40901–40905、41300、42200（40004/40005 已随 banks 落地）。
+- 部分错误码待补齐：40302/40303、40404–40405、40901–40905、41300、42200（40004/40005 已随 banks 落地；40402/40403/40903 已随 practice 落地）。
 - `docs/openapi.yaml` 导出（§12）。
 
 ---
@@ -1585,6 +1658,7 @@
 | 2026-10-24 | v0.1 | 初稿：全局约定、鉴权矩阵、P0 端点、字段回溯、过渡说明 | 技术负责人 |
 | 2026-10-24 | v0.1.1 | 补异常详情端点、审计 `module` 筛选、设置端点与题库详情 | 技术负责人 |
 | 2026-10-25 | v0.2 | §10 重写为实现状态总览（已实现/前端 mock/未开发/待收口）；登记 upload 命名决策 | 技术负责人 |
+| 2026-10-31 | v0.3 | T18 文档收口：§6/§7/§4.6–4.9/§5.1–5.3 状态改 implemented；§6.1 补 D7 参数差异表；§6.2 补 payloadHash 幂等口径；§6.4/§6.5 补 appeal/dispute 实现口径；新增 §6.10/§6.11（overload/postpone）；§7.1 补 daily14/recent 扩展；§10 矩阵逐行更新 | 技术负责人 |
 
 ---
 

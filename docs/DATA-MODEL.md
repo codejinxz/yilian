@@ -542,7 +542,7 @@ erDiagram
 | `id` | BIGINT | 否 | AUTO | 主键 |
 | `user_id` | BIGINT | 否 | — | 用户 |
 | `sentence_id` | CHAR(26) | 否 | — | 题目身份（跨版本） |
-| `mode` | VARCHAR(16) | 否 | — | `CLOZE`/`FREE`；同一句两种模式各一张卡 |
+| `mode` | VARCHAR(16) | 否 | — | `CLOZE`/`FREE`；**最近一次练习的模式**（Q1 决策：一句一卡，换模式练习会改写本列，不是独立排程维度） |
 | `state` | VARCHAR(16) | 否 | `NEW` | UI 三档：`NEW`/`LEARNING`/`MASTERED` |
 | `fsrs_state` | VARCHAR(16) | 否 | `NEW` | `NEW`/`LEARNING`/`REVIEW`/`RELEARNING` |
 | `due_at` | DATETIME(6) | 否 | — | UTC 下次到期 |
@@ -562,7 +562,7 @@ erDiagram
 索引/约束：
 
 - 主键 `(id)`
-- 唯一 `uk_review_card (user_id, sentence_id, mode)`
+- 唯一 `uk_review_card (user_id, sentence_id)`（Q1 决策：**一句一卡**——原三键 `(user_id, sentence_id, mode)` 会让同句出现两行复习卡/错题行，与本地引擎「每句单卡」语义冲突；V9 迁移已改键，`mode` 保留为「最近练习模式」列）
 - 普通 `idx_review_due (user_id, due_at)`
 - 普通 `idx_review_state_due (user_id, state, due_at)`
 

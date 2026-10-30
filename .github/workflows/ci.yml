@@ -59,10 +59,8 @@ jobs:
 
       # Checkstyle 绑定在 validate 阶段，mvn test 会先执行；规则只覆盖 tab/行尾空白/
       # 文件末尾换行，存量代码零违规，不会无意义阻塞构建。
-      # AuthFlowIntegrationTest 依赖旧 import_batch 表（upload→preview/commit 半成品，
-      # 见 docs/GAP-ANALYSIS.md 当前状态），CI 暂排除；切片设计 T3 落地后移除排除。
       - name: Maven test (Checkstyle + unit/integration tests)
-        run: mvn -B test "-Dtest=!AuthFlowIntegrationTest" "-Dsurefire.failIfNoSpecifiedTests=false"
+        run: mvn -B test
 
       # google-java-format 已对全量 Java 文件归一，此后格式化是阻断门禁。
       - name: google-java-format check
