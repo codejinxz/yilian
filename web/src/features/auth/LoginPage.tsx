@@ -5,6 +5,7 @@ import { z } from "zod";
 import { FieldError } from "@/components/feedback";
 import { useSessionStore } from "@/features/auth/session";
 import { api, type CaptchaChallenge } from "@/lib/api";
+import { syncGuestAttemptsInBackground } from "@/lib/api/guest-upgrade";
 import { isMockEnabled } from "@/lib/mock-flag";
 import { queryKeys } from "@/lib/query";
 import { registerRequestSchema } from "@/lib/schemas/account";
@@ -138,6 +139,9 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
     onSuccess: (auth) => {
       setAuthenticated();
       queryClient.setQueryData(queryKeys.me, auth.user);
+      // 游客本机记录迁移（切片 §5.2）：后台执行不阻塞跳转；失败保留本地数据，
+      // 由设置页的「同步本地记录到账号」入口与欠账提示兜底。
+      void syncGuestAttemptsInBackground();
       void navigate({ to: "/today" });
     },
     onError: () => {
@@ -266,6 +270,11 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
         </h1>
         <p className="mb-[30px] mt-[10px] text-[13px] leading-[1.75] text-ink-muted">
           登录后，错题和进度跟着账号走。不登录也能练，数据留在这台设备。
+          {mode === "register" ? (
+            <span className="mt-1.5 block">
+              注册后本机练习记录会并入账号；原始记录仍保留在本机。
+            </span>
+          ) : null}
         </p>
 
         <div className="mb-[26px] flex gap-[22px] border-b border-rule">

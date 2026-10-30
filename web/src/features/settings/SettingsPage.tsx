@@ -8,9 +8,15 @@ import { type GradingMode, type ThemeMode, useSettingsStore } from "@/features/s
 import { api } from "@/lib/api";
 import { updateSettings } from "@/lib/api/account";
 import {
+  type GuestUpgradeState,
+  readGuestUpgradeState,
+  syncGuestAttempts,
+} from "@/lib/api/guest-upgrade";
+import {
   clearLocalData,
   exportLocalData,
   getTodaySnapshot,
+  listAttempts,
   resetPlacementState,
   setDailyGoal,
 } from "@/lib/local-engine";
@@ -154,6 +160,10 @@ export function SettingsPage() {
   const [clearOpen, setClearOpen] = useState(false);
   const [clearPending, setClearPending] = useState(false);
   const [exporting, setExporting] = useState(false);
+  // 游客记录迁移状态：登录后读一次（完成标记 + 欠账数量 + 本机记录数），
+  // 手动同步完成后刷新。游客不需要该入口，保持零值不发引擎查询。
+  const [upgradeState, setUpgradeState] = useState<GuestUpgradeState>({ done: false, unsynced: 0 });
+  const [localAttemptCount, setLocalAttemptCount] = useState(0);
 
   // 游客每日目标读本地引擎；引擎没有单独的 getter，今日快照里的 goal 就是权威值。
   useEffect(() => {
@@ -186,6 +196,31 @@ export function SettingsPage() {
     },
     [],
   );
+
+  // 登录后读取迁移状态与本机记录数；「同步本地记录」入口只在有未完成迁移时出现。
+  useEffect(() => {
+    if (!user) {
+      setUpgradeState({ done: false, unsynced: 0 });
+      setLocalAttemptCount(0);
+      return;
+    }
+    let cancelled = false;
+    setUpgradeState(readGuestUpgradeState());
+    void listAttempts()
+      .then((attempts) => {
+        if (!cancelled) {
+          setLocalAttemptCount(attempts.length);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLocalAttemptCount(0);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   /**
    * 页内轻提示；原型 toast 的替代实现（全局没有 toast 基础设施），role=status 供读屏播报，3 秒自动消失。
@@ -229,6 +264,31 @@ export function SettingsPage() {
       // 服务端吊销失败时 refresh 会话也会自然过期，不阻塞用户。
       clearSession(queryClient);
       showToast("已退出登录");
+    },
+  });
+
+  /**
+   * 手动迁移本机练习记录到账号（与登录/注册后的自动触发共用同一函数）；
+   * 失败批保留在本机，重试时服务端按 attemptId 幂等跳过，不会产生重复记录。
+   */
+  const syncUpgrade = useMutation({
+    mutationFn: syncGuestAttempts,
+    onSuccess: (result) => {
+      setUpgradeState(readGuestUpgradeState());
+      if (result.unsynced === 0) {
+        showToast(
+          result.imported > 0
+            ? `已同步 ${result.imported} 条本地记录到账号；原始记录仍保留在本机。`
+            : "本机没有待同步的练习记录。",
+        );
+      } else {
+        showToast(
+          `部分本地记录未同步（${result.unsynced} 条，题目可能已不在题库），其余已同步；可重试。`,
+        );
+      }
+    },
+    onError: (error) => {
+      showToast(error instanceof Error ? `同步失败：${error.message}` : "同步失败，请稍后重试。");
     },
   });
 
@@ -724,6 +784,27 @@ export function SettingsPage() {
                 清空本地数据
               </button>
             </div>
+            {/* 游客记录迁移入口（切片 §5.2）：登录且迁移未完成时出现；失败欠账给明确提示，
+                重试幂等（服务端按 attemptId 同载荷跳过）。本地 IndexedDB 记录不清理。 */}
+            {user && !upgradeState.done && localAttemptCount > 0 ? (
+              <div className="mt-5 border-t border-rule pt-4">
+                <p className="text-[13px] leading-[1.7] text-ink-muted">
+                  本机有 {localAttemptCount} 条练习记录尚未并入账号。
+                  {upgradeState.unsynced > 0 ? "上次同步有部分记录未完成，可重试。" : ""}
+                </p>
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    className="linkish"
+                    disabled={syncUpgrade.isPending}
+                    aria-busy={syncUpgrade.isPending}
+                    onClick={() => syncUpgrade.mutate()}
+                  >
+                    {syncUpgrade.isPending ? "同步中…" : "同步本地记录到账号"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {isMockEnabled() ? (
               <div className="mt-5 border-t border-rule pt-4">
                 <p className="text-[13px] leading-[1.7] text-ink-muted">

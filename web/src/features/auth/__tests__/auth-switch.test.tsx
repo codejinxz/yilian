@@ -510,4 +510,30 @@ describe("auth-state routing switch", () => {
     expect(screen.getAllByText("1").length).toBeGreaterThan(0);
     expect(localRouteCalls(fetchMock)).not.toHaveLength(0);
   });
+
+  it("explains where local attempts go on the register page without level labels", async () => {
+    markPlaced();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/auth/refresh")) {
+        return jsonResponse({ code: 40100, message: "请先登录", data: null }, 401);
+      }
+      if (url.endsWith("/api/auth/captcha-image")) {
+        // 图形码开关关闭：注册页不渲染图形码字段，只走邮箱+密码+邀请码。
+        return jsonResponse(
+          successEnvelope({ captchaId: "c1", imageBase64: "cG5n", enabled: false }),
+        );
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp("/register");
+
+    // 话术（切片 §5.2）：说明本机记录去向与保留承诺；不含任何「定级/水平/等级」字样。
+    expect(
+      await screen.findByText(/注册后本机练习记录会并入账号；原始记录仍保留在本机/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/定级|等级|水平测试/)).not.toBeInTheDocument();
+  });
 });
