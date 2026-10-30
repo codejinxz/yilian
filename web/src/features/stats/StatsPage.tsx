@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { ErrorState, LoadingBlock } from "@/components/feedback";
+import { isGuestSession } from "@/lib/api";
 import { getAccuracy, getErrorTags } from "@/lib/api/analytics";
 import { localDateString } from "@/lib/format";
-import { getStatsSnapshot } from "@/lib/local-engine";
+import { ensureCachedSentences, getStatsSnapshot } from "@/lib/local-engine";
 import { isMockEnabled } from "@/lib/mock-flag";
-import { queryKeys } from "@/lib/query";
+import { queryKeys, todayQueryOptions } from "@/lib/query";
 import { cn } from "@/lib/utils";
 
 const DAY_MS = 86_400_000;
@@ -115,7 +116,7 @@ function viewFromMock(
   return {
     streakDays,
     totalAttempts: accuracy.totalAttempts,
-    averageScore: accuracy.averageScore,
+    averageScore: accuracy.averageScore ?? 0,
     daily14: demo.dailyTrend.map((day) => ({ key: day.date, count: day.attempts })),
     errorTags: [...tags.items]
       .sort((a, b) => b.count - a.count)
@@ -125,6 +126,41 @@ function viewFromMock(
       attemptId: item.attemptId,
       zh: item.zh,
       mode: item.mode,
+      score: item.score,
+      createdAt: item.createdAt,
+    })),
+  };
+}
+
+/**
+ * 登录态契约数据（正确率含 D8 扩展 + 考点 + 今日连续天数）→ 视图模型。
+ * 服务端 recent 不含中文句，用题库缓存 join（匿名可拉）；join 不到回退「题目已不在题库中」。
+ * @param accuracy 正确率响应（含 daily14/recent 扩展）
+ * @param tags 错误类型响应
+ * @param streakDays 今日接口的连续天数；今日查询失败时为 null（按 0 展示）
+ * @param sentences 题库缓存句子；用于 recent 的中文句 join
+ * @returns 视图模型
+ */
+function viewFromServer(
+  accuracy: Awaited<ReturnType<typeof getAccuracy>>,
+  tags: Awaited<ReturnType<typeof getErrorTags>>,
+  streakDays: number | null,
+  sentences: Array<{ id: string; zh: string }>,
+): StatsView {
+  const sentenceById = new Map(sentences.map((sentence) => [sentence.id, sentence]));
+  return {
+    streakDays: streakDays ?? 0,
+    totalAttempts: accuracy.totalAttempts,
+    averageScore: accuracy.averageScore ?? 0,
+    daily14: (accuracy.daily14 ?? []).map((day) => ({ key: day.date, count: day.attempts })),
+    errorTags: [...tags.items]
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5)
+      .map((item) => ({ tag: item.tag, count: item.count })),
+    recent: (accuracy.recent ?? []).slice(0, 5).map((item) => ({
+      attemptId: item.attemptId,
+      zh: sentenceById.get(item.sentenceId)?.zh ?? null,
+      mode: item.mode === "FREE" ? "FREE" : "CLOZE",
       score: item.score,
       createdAt: item.createdAt,
     })),
@@ -152,31 +188,36 @@ function BigNum({ value, unit, label }: { value: number; unit: string; label: st
 /**
  * 统计页：view-stats——三个大数、14 天柱状、错误集中 Top5 与最近记录，别的不放。
  *
- * 数据源分两种模式：真实模式直接读本地引擎 getStatsSnapshot（本地引擎能力，适配层的
- * /analytics/* 也由它投影）；mock 模式沿用 getAccuracy / getErrorTags 契约接口与
- * getMockStatsDemo 演示数据。最近记录行只有内容与得分两列，不提供回看入口。
+ * 数据源按登录态分流（切片 §5.3）：游客读本地引擎 getStatsSnapshot（本地引擎能力）；
+ * 登录用户走契约接口 getAccuracy（含 daily14/recent 扩展，streak 用 /practice/today）+
+ * getErrorTags，recent 的中文句用题库缓存 join；mock 模式沿用 getAccuracy / getErrorTags
+ * 与 getMockStatsDemo 演示数据。最近记录行只有内容与得分两列，不提供回看入口。
  */
 export function StatsPage() {
   const mock = isMockEnabled();
+  // 游客与 mock 互斥（mock 优先级最高）；登录态 = 真实模式且非游客。
+  const guest = !mock && isGuestSession();
+  const server = !mock && !guest;
   const to = localDateString(new Date());
   const from = localDateString(new Date(Date.now() - 29 * DAY_MS));
 
-  /** 真实模式：引擎统计快照一次取全（连续、累计、平均、趋势、考点、最近记录）。 */
+  /** 游客：引擎统计快照一次取全（连续、累计、平均、趋势、考点、最近记录）。 */
   const engineQuery = useQuery({
     queryKey: ["stats", "engine-snapshot"],
     queryFn: () => getStatsSnapshot(),
-    enabled: !mock,
+    enabled: guest,
   });
 
+  /** mock 与登录态共用契约查询：mock 由 mocks/handlers 应答，登录态走服务端。 */
   const accuracyQuery = useQuery({
     queryKey: queryKeys.accuracy({ from, to }),
     queryFn: ({ signal }) => getAccuracy({ from, to }, signal),
-    enabled: mock,
+    enabled: !guest,
   });
   const errorTagsQuery = useQuery({
     queryKey: queryKeys.errorTags({ from, to }),
     queryFn: ({ signal }) => getErrorTags({ from, to }, signal),
-    enabled: mock,
+    enabled: !guest,
   });
   const demoQuery = useQuery({
     queryKey: ["stats", "mock-demo"],
@@ -187,28 +228,56 @@ export function StatsPage() {
     enabled: mock,
   });
 
+  /** 登录态：连续天数来自今日接口（与今日页共享同一份缓存）；失败按 0 展示不阻塞页面。 */
+  const todayQuery = useQuery({ ...todayQueryOptions, enabled: server });
+
+  /** 登录态：recent 的中文句 join；缓存为空时联网重建，失败静默回退短句占位。 */
+  const joinQuery = useQuery({
+    queryKey: ["stats", "sentence-join"],
+    queryFn: () => ensureCachedSentences(),
+    enabled: server,
+  });
+
   const pending = mock
     ? accuracyQuery.isPending || errorTagsQuery.isPending || demoQuery.isPending
-    : engineQuery.isPending;
+    : guest
+      ? engineQuery.isPending
+      : accuracyQuery.isPending || errorTagsQuery.isPending;
   const error = mock
     ? (accuracyQuery.error ?? errorTagsQuery.error ?? demoQuery.error)
-    : engineQuery.error;
+    : guest
+      ? engineQuery.error
+      : (accuracyQuery.error ?? errorTagsQuery.error);
 
   const view = mock
     ? accuracyQuery.data && errorTagsQuery.data && demoQuery.data
       ? viewFromMock(accuracyQuery.data, errorTagsQuery.data, demoQuery.data)
       : null
-    : engineQuery.data
-      ? viewFromEngine(engineQuery.data)
-      : null;
+    : guest
+      ? engineQuery.data
+        ? viewFromEngine(engineQuery.data)
+        : null
+      : accuracyQuery.data && errorTagsQuery.data
+        ? viewFromServer(
+            accuracyQuery.data,
+            errorTagsQuery.data,
+            todayQuery.data?.streakDays ?? null,
+            joinQuery.data ?? [],
+          )
+        : null;
 
   const retry = () => {
     if (mock) {
       void accuracyQuery.refetch();
       void errorTagsQuery.refetch();
       void demoQuery.refetch();
-    } else {
+    } else if (guest) {
       void engineQuery.refetch();
+    } else {
+      void accuracyQuery.refetch();
+      void errorTagsQuery.refetch();
+      void todayQuery.refetch();
+      void joinQuery.refetch();
     }
   };
 

@@ -366,6 +366,26 @@ export async function getCachedSentences(bankId?: string): Promise<PracticeSente
 }
 
 /**
+ * 展示层 join 用的句子索引（复习行/最近记录的中文句、考点）；缓存为空时联网重建一次。
+ * banks 是匿名可拉公开端点（GET），游客与登录用户语义一致；离线且无缓存时返回空数组，
+ * 调用方按「题目短 id」降级展示，不阻塞页面。
+ * @returns 可练句子并集
+ */
+export async function ensureCachedSentences(): Promise<PracticeSentence[]> {
+  const cached = await getCachedSentences();
+  if (cached.length > 0) {
+    return cached;
+  }
+  try {
+    await refreshBankCache();
+  } catch {
+    // 离线或服务端不可用：join 降级为空缓存，与「拉取失败保留旧缓存」的引擎语义一致。
+    return [];
+  }
+  return getCachedSentences();
+}
+
+/**
  * 取定级用的 3 道题：优先本地缓存；无缓存时尝试匿名拉取一次公开题库；仍无数据则 reject。
  * 选取覆盖题库首、中、尾的 3 句，近似原型的固定 3 题难度跨度。
  * @returns 3 道定级题（题库不足 3 句时返回全部）
@@ -728,6 +748,14 @@ export async function submitLocalAttempt(req: AttemptRequest): Promise<AttemptRe
 export async function getAttemptLocal(attemptId: string): Promise<AttemptResponse | null> {
   const record = await (await attemptsStore()).get(attemptId);
   return record?.response ?? null;
+}
+
+/**
+ * 读取全部本地答题记录（guest-upgrade 迁移与导出使用）；append-only 存储，无排序保证。
+ * @returns 答题记录列表
+ */
+export async function listAttempts(): Promise<StoredAttempt[]> {
+  return allAttempts();
 }
 
 /**

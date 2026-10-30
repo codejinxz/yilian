@@ -8,6 +8,7 @@
 
 export {
   clearLocalData,
+  ensureCachedSentences,
   exportLocalData,
   getAttemptLocal,
   getCachedSentences,
@@ -18,6 +19,7 @@ export {
   getStatsSnapshot,
   getTodaySnapshot,
   getWrongQuestions,
+  listAttempts,
   loadPlacementState,
   pickNext,
   postponeOverdue,

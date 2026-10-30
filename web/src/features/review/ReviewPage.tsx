@@ -3,9 +3,11 @@ import { Link, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { ErrorState, LoadingBlock } from "@/components/feedback";
 import { Pagination } from "@/components/pagination";
-import { getReviews } from "@/lib/api/practice";
+import { isGuestSession } from "@/lib/api";
+import { getReviewOverload, getReviews, postponeReviews } from "@/lib/api/practice";
 import { shortId } from "@/lib/format";
 import {
+  ensureCachedSentences,
   getCachedSentences,
   getOverloadState,
   getReviewQueue,
@@ -53,6 +55,19 @@ interface ReviewSummary {
   due: number;
   learning: number;
   mastered: number;
+}
+
+/** 降载状态视图：mock/游客读引擎（active/dueCount），登录态读契约（overload/dueCount/pushLimit）。 */
+interface OverloadVM {
+  active: boolean;
+  dueCount: number;
+  pushLimit: number;
+}
+
+/** 顺延结果视图：postponed 为顺延张数，days 为顺延天数（引擎 3 天 / 服务端 1 天）。 */
+interface PostponeVM {
+  postponed: number;
+  days: number;
 }
 
 /**
@@ -121,13 +136,18 @@ function ReviewToast({ message, visible }: { message: string | null; visible: bo
 /**
  * 复习页：view-review——降载条、三档汇总、四页签与中文句行列表。
  *
- * 数据源分两种模式：真实模式直接读本地引擎 getReviewQueue（行自带中文句与考点，本地引擎能力），
- * 客户端按页签过滤并分页；mock 模式沿用 getReviews 契约分页，中文句用引擎题库缓存兜底 join。
- * 降载条与顺延是引擎能力（getOverloadState / postponeOverdue），mock 引擎无复习数据，天然不会误触发。
+ * 数据源按登录态分流（切片 §5.3）：游客直连本地引擎 getReviewQueue（行自带中文句与考点，
+ * 客户端按页签过滤并分页）；登录用户走契约接口——getReviews 契约分页 + 三档汇总（三个
+ * size=1 的 total）+ 降载/顺延走 §3.6 的 overload/postpone 端点，中文句用题库缓存 join
+ * （ensureCachedSentences，匿名可拉）；mock 模式沿用 getReviews 契约分页与引擎降载能力
+ * （mock 引擎无复习数据，降载条与顺延天然不会误触发）。
  */
 export function ReviewPage() {
   const queryClient = useQueryClient();
   const mock = isMockEnabled();
+  // 游客与 mock 互斥（mock 优先级最高）；登录态分支 = 真实模式且非游客（overload/postpone
+  // 与 join 的 queryFn 内按 mock || guest 走引擎、否则走契约端点）。
+  const guest = !mock && isGuestSession();
   /**
    * filter 只取路由 search 的初值：练习页「{n} 句到期」chip 以 ?filter=due 直达对应档（原型 dueChip）。
    * 仅在 useState 初始化器里读一次——此后用户切换页签以页签状态为准，不回写也不跟随 URL；
@@ -140,7 +160,7 @@ export function ReviewPage() {
       : "all",
   );
   const [page, setPage] = useState(1);
-  // 真实模式客户端分页的每页条数，配合共享分页器的尺寸档；mock 固定按 PAGE_SIZE 走服务端参数。
+  // 游客客户端分页的每页条数，配合共享分页器的尺寸档；mock/登录态固定按 PAGE_SIZE 走服务端参数。
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   /** 「关闭降载」只在当前会话内收起，刷新或离开页面后重新按真实状态判断。 */
   const [overloadDismissed, setOverloadDismissed] = useState(false);
@@ -166,24 +186,24 @@ export function ReviewPage() {
     toastTimer.current = window.setTimeout(() => setToastVisible(false), 1800);
   };
 
-  /** 真实模式：引擎复习队列全量（按 dueAt 升序，行带中文句）。 */
+  /** 游客：引擎复习队列全量（按 dueAt 升序，行带中文句），客户端过滤与分页。 */
   const engineQueueQuery = useQuery({
     queryKey: ["review", "engine-queue"],
     queryFn: () => getReviewQueue(),
-    enabled: !mock,
+    enabled: guest,
   });
 
-  /** mock 模式：契约分页列表。 */
+  /** mock 与登录态：契约分页列表（mock 由 handlers 应答，登录态走服务端）。 */
   const params = paramsFor(filter, page);
-  const mockPageQuery = useQuery({
+  const contractPageQuery = useQuery({
     queryKey: queryKeys.reviews(params),
     queryFn: ({ signal }) => getReviews(params, signal),
-    enabled: mock,
+    enabled: !guest,
   });
 
-  /** mock 模式：三档汇总用三个 size=1 的 total 拼，不拉明细。 */
-  const mockSummaryQuery = useQuery({
-    queryKey: ["review", "mock-summary"],
+  /** mock 与登录态：三档汇总用三个 size=1 的 total 拼，不拉明细。 */
+  const summaryQuery = useQuery({
+    queryKey: ["review", "summary", mock],
     queryFn: async (): Promise<ReviewSummary> => {
       const [due, learning, mastered] = await Promise.all([
         getReviews({ page: 1, size: 1, state: "LEARNING", due: true }),
@@ -192,27 +212,42 @@ export function ReviewPage() {
       ]);
       return { due: due.total, learning: learning.total, mastered: mastered.total };
     },
-    enabled: mock,
+    enabled: !guest,
   });
 
-  /** mock 模式：复习卡契约不含中文句，用引擎题库缓存 join；缓存为空时行退回短 id 展示。 */
+  /** mock 与登录态：复习卡契约不含中文句，用题库缓存 join；缓存为空时行退回短 id 展示。
+      mock 保持只读本地缓存（不触发真实网络刷新），登录态缓存为空时联网重建一次。 */
   const joinQuery = useQuery({
-    queryKey: ["review", "sentence-join"],
-    queryFn: () => getCachedSentences(),
-    enabled: mock,
+    queryKey: ["review", "sentence-join", mock],
+    queryFn: () => (mock ? getCachedSentences() : ensureCachedSentences()),
+    enabled: !guest,
   });
   const sentenceById = new Map((joinQuery.data ?? []).map((sentence) => [sentence.id, sentence]));
 
-  /** 降载状态；引擎无数据（mock 模式）时 active=false，降载条不显示，不造假数据。 */
+  /** 降载状态：mock/游客读引擎（getOverloadState），登录态走契约端点（getReviewOverload）。 */
   const overloadQuery = useQuery({
-    queryKey: ["review", "overload"],
-    queryFn: () => getOverloadState(),
+    queryKey: ["review", "overload", mock, guest],
+    queryFn: async (): Promise<OverloadVM> => {
+      if (mock || guest) {
+        const engineState = await getOverloadState();
+        return { active: engineState.active, dueCount: engineState.dueCount, pushLimit: 5 };
+      }
+      const view = await getReviewOverload();
+      return { active: view.overload, dueCount: view.dueCount, pushLimit: view.pushLimit };
+    },
   });
 
+  /** 顺延：mock/游客沿用引擎（3 天）；登录态走契约端点（服务端固定推迟 1 天）。 */
   const postponeMutation = useMutation({
-    mutationFn: () => postponeOverdue(3),
-    onSuccess: (count) => {
-      showToast(`已帮你减负 ${count} 句，顺延 3 天`);
+    mutationFn: async (): Promise<PostponeVM> => {
+      if (mock || guest) {
+        return { postponed: await postponeOverdue(3), days: 3 };
+      }
+      const view = await postponeReviews();
+      return { postponed: view.postponed, days: 1 };
+    },
+    onSuccess: ({ postponed, days }) => {
+      showToast(`已帮你减负 ${postponed} 句，顺延 ${days} 天`);
       void queryClient.invalidateQueries({ queryKey: ["review"] });
       void queryClient.invalidateQueries({ queryKey: queryKeys.today });
     },
@@ -221,7 +256,7 @@ export function ReviewPage() {
     },
   });
 
-  // —— 两种模式归一到同一组行与分页信息 ——
+  // —— 三种模式归一到同一组行与分页信息 ——
 
   const engineRows: ReviewRowVM[] = (engineQueueQuery.data?.rows ?? []).map(
     ({ sentence, review }) => ({
@@ -235,9 +270,9 @@ export function ReviewPage() {
     }),
   );
 
-  const mockRows: ReviewRowVM[] = (mockPageQuery.data?.items ?? []).map((item) => ({
+  const contractRows: ReviewRowVM[] = (contractPageQuery.data?.items ?? []).map((item) => ({
     sentenceId: item.sentenceId,
-    // 契约已在复习卡上投影中文句（mock），兜底再 join 一次引擎句缓存，修复裸 ID 展示。
+    // mock 在复习卡上投影中文句；服务端不投影，兜底 join 题库缓存，修复裸 ID 展示。
     zh: item.zh ?? sentenceById.get(item.sentenceId)?.zh ?? null,
     mode: item.mode,
     state: item.state,
@@ -245,14 +280,14 @@ export function ReviewPage() {
     tags: sentenceById.get(item.sentenceId)?.tags ?? [],
   }));
 
-  const summary: ReviewSummary = mock
-    ? (mockSummaryQuery.data ?? { due: 0, learning: 0, mastered: 0 })
-    : (engineQueueQuery.data?.summary ?? { due: 0, learning: 0, mastered: 0 });
+  const summary: ReviewSummary = guest
+    ? (engineQueueQuery.data?.summary ?? { due: 0, learning: 0, mastered: 0 })
+    : (summaryQuery.data ?? { due: 0, learning: 0, mastered: 0 });
 
-  const listPending = mock ? mockPageQuery.isPending : engineQueueQuery.isPending;
-  const listError = mock ? mockPageQuery.error : engineQueueQuery.error;
+  const listPending = guest ? engineQueueQuery.isPending : contractPageQuery.isPending;
+  const listError = guest ? engineQueueQuery.error : contractPageQuery.error;
 
-  const allRows = mock ? mockRows : engineRows;
+  const allRows = guest ? engineRows : contractRows;
   const nowMs = Date.now();
   const filteredRows = allRows.filter((row) => {
     switch (filter) {
@@ -267,29 +302,31 @@ export function ReviewPage() {
     }
   });
 
-  // mock 走服务端分页；真实模式客户端分页，二者对渲染层同构。
+  // mock/登录态走服务端分页；游客客户端分页，二者对渲染层同构。
   // 页码越界（筛选变少后 page 停在旧值）时回落最后一页，与 PageResponse 语义一致。
   const overload = overloadQuery.data;
   const overloadActive = (overload?.active ?? false) && !overloadDismissed;
-  // 降载激活时只推 5 句最紧急的（原型语义），顺延或关闭降载后恢复完整列表。
-  const visibleRows = overloadActive ? filteredRows.slice(0, 5) : filteredRows;
+  // 降载激活时只推最紧急的 pushLimit 句（原型语义），顺延或关闭降载后恢复完整列表。
+  const visibleRows = overloadActive
+    ? filteredRows.slice(0, overload?.pushLimit ?? 5)
+    : filteredRows;
   const realTotalPages = Math.max(1, Math.ceil(visibleRows.length / pageSize));
   const safePage = Math.min(page, realTotalPages);
-  const listRows = mock
-    ? visibleRows
-    : visibleRows.slice((safePage - 1) * pageSize, safePage * pageSize);
-  const pageInfo = mock
+  const listRows = guest
+    ? visibleRows.slice((safePage - 1) * pageSize, safePage * pageSize)
+    : visibleRows;
+  const pageInfo = guest
     ? {
-        page: mockPageQuery.data?.page ?? 1,
-        total: mockPageQuery.data?.total ?? 0,
-        totalPages: mockPageQuery.data?.totalPages ?? 1,
-        hasNext: mockPageQuery.data?.hasNext ?? false,
-      }
-    : {
         page: safePage,
         total: filteredRows.length,
         totalPages: realTotalPages,
         hasNext: safePage < realTotalPages,
+      }
+    : {
+        page: contractPageQuery.data?.page ?? 1,
+        total: contractPageQuery.data?.total ?? 0,
+        totalPages: contractPageQuery.data?.totalPages ?? 1,
+        hasNext: contractPageQuery.data?.hasNext ?? false,
       };
 
   return (
@@ -304,7 +341,7 @@ export function ReviewPage() {
           <div className="min-w-0">
             <p className="font-medium text-ink">到期 {overload.dueCount} 句，已进入降载模式</p>
             <p className="mt-[5px] font-mono text-[10px] tracking-[0.1em] text-ink-faint">
-              只推 5 句最紧急的，其余可以顺延 3 天。
+              只推 {overload.pushLimit} 句最紧急的，其余可以顺延 {guest ? 3 : 1} 天。
             </p>
           </div>
           <div className="flex shrink-0 gap-3.5">
@@ -386,10 +423,10 @@ export function ReviewPage() {
           className="mt-6"
           error={listError}
           onRetry={() => {
-            if (mock) {
-              void mockPageQuery.refetch();
-            } else {
+            if (guest) {
               void engineQueueQuery.refetch();
+            } else {
+              void contractPageQuery.refetch();
             }
           }}
         />
@@ -444,22 +481,22 @@ export function ReviewPage() {
             })}
           </ul>
 
-          {/* 原型 .pager 形态的共享分页器：mock 走服务端分页（不给尺寸档，size 恒为 20），
-              真实模式客户端分页，每页条数可由尺寸档调整。 */}
+          {/* 原型 .pager 形态的共享分页器：mock/登录态走服务端分页（不给尺寸档，size 恒为 20），
+              游客客户端分页，每页条数可由尺寸档调整。 */}
           <Pagination
             page={pageInfo.page}
-            size={mock ? PAGE_SIZE : pageSize}
+            size={guest ? pageSize : PAGE_SIZE}
             total={pageInfo.total}
             totalPages={pageInfo.totalPages}
             hasNext={pageInfo.hasNext}
             onPageChange={setPage}
             onSizeChange={
-              mock
-                ? undefined
-                : (nextSize) => {
+              guest
+                ? (nextSize) => {
                     setPageSize(nextSize);
                     setPage(1);
                   }
+                : undefined
             }
           />
         </>

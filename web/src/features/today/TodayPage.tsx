@@ -3,10 +3,11 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { ErrorState, LoadingBlock, Notice } from "@/components/feedback";
 import { useOnlineStatus } from "@/hooks/use-online-status";
+import { getAccuracy } from "@/lib/api/analytics";
 import { getBanks } from "@/lib/api/content";
 import { getWrongQuestions } from "@/lib/api/practice";
 import { localDateString } from "@/lib/format";
-import { getStatsSnapshot } from "@/lib/local-engine";
+import { ensureCachedSentences } from "@/lib/local-engine";
 import { isMockEnabled } from "@/lib/mock-flag";
 import { todayQueryOptions } from "@/lib/query";
 import { cn } from "@/lib/utils";
@@ -81,9 +82,10 @@ function useToast() {
  * 今日启动台：view-today——一个日期、一个特大到期数、一个占满宽的主按钮，
  * 下面是题库 chips、续练行与周点阵；不做仪表盘。
  *
- * 数据分两层：今日数字走 todayQueryOptions（真实模式由本地适配层应答、mock 模式走
+ * 数据分三层：今日数字走 todayQueryOptions（游客由本地适配层应答、登录走服务端、mock 走
  * mocks/handlers，页面不感知差别）；chips 用 getBanks/getWrongQuestions 契约接口；
- * 续练行与周点阵直接读本地引擎快照（本地引擎能力），mock 模式降级用演示数据的同位字段。
+ * 续练行与周点阵走 /analytics/accuracy 的 daily14/recent 扩展（登录服务端、游客本地投影），
+ * mock 模式降级用演示数据的同位字段。
  */
 export function TodayPage() {
   const navigate = useNavigate();
@@ -107,9 +109,11 @@ export function TodayPage() {
   });
 
   /**
-   * 本地引擎能力：续练行与周点阵。
-   * mock 模式引擎无数据，续练行改用演示数据的最近一条、点阵用演示趋势——
-   * 都是同一语义字段的合法来源，不另外造假数字。
+   * 续练行与周点阵（extras chip）：走契约路径 /analytics/accuracy 的 daily14/recent 扩展
+   * （切片 §5.3）——登录态由服务端应答，游客由本地适配层投影（零网络写）；中文句用题库
+   * 缓存 join（匿名可拉，GET），join 不到时续练行整体隐藏。
+   * mock 模式引擎不参与，续练行用演示数据的最近一条、点阵用演示趋势——同一语义字段的
+   * 合法来源，不另外造假数字。
    */
   const extrasQuery = useQuery({
     queryKey: ["today", "extras", mock],
@@ -122,13 +126,18 @@ export function TodayPage() {
           week: demo.dailyTrend.slice(-7).map((day) => ({ key: day.date, count: day.attempts })),
         };
       }
-      const snapshot = await getStatsSnapshot();
+      const to = localDateString(new Date());
+      const from = localDateString(new Date(Date.now() - 13 * 86_400_000));
+      const accuracy = await getAccuracy({ from, to });
+      const sentences = await ensureCachedSentences();
+      const sentenceById = new Map(sentences.map((sentence) => [sentence.id, sentence]));
       return {
-        lastZh: snapshot.recent[0]?.sentence.zh ?? null,
-        week: snapshot.daily14.slice(-7).map((count, index) => ({
-          key: localDateString(new Date(Date.now() - (6 - index) * 86_400_000)),
-          count,
-        })),
+        lastZh: accuracy.recent?.[0]
+          ? (sentenceById.get(accuracy.recent[0].sentenceId)?.zh ?? null)
+          : null,
+        week: (accuracy.daily14 ?? [])
+          .slice(-7)
+          .map((day) => ({ key: day.date, count: day.attempts })),
       };
     },
   });

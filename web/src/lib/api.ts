@@ -19,6 +19,8 @@ export type CaptchaChallenge = { captchaId: string; imageBase64: string; enabled
 const API_BASE = "/api";
 const REQUEST_TIMEOUT_MS = 10_000;
 const FALLBACK_ERROR_CODE = -1;
+/** 一天的毫秒数；本地投影的逐日日期键计算用。 */
+const DAY_MS = 86_400_000;
 
 const apiResponseSchema = z.object({
   code: z.number(),
@@ -864,6 +866,8 @@ async function handleLocalRequest<T>(path: string, init: RequestInit): Promise<T
   if (pathname === "/analytics/accuracy" && method === "GET") {
     const snapshot = await engine.getStatsSnapshot();
     // 本地引擎按全量历史聚合（不按 from/to 切分）；区间参数仅回显，报表口径在页面上保持一致。
+    // daily14/recent 与服务端 §7.1 扩展同构（D8）：今日页 extras 走契约路径时本地投影补齐，
+    // recent 不含中文句，展示层用题库缓存 join（与服务端响应同一处理）。
     return {
       from: params.get("from") ?? localDateString(new Date(Date.now() - 29 * 86_400_000)),
       to: params.get("to") ?? localDateString(new Date()),
@@ -871,6 +875,19 @@ async function handleLocalRequest<T>(path: string, init: RequestInit): Promise<T
       correctRate: snapshot.correctRate,
       averageScore: snapshot.averageScore,
       byMode: snapshot.byMode,
+      daily14: snapshot.daily14.map((count, index) => ({
+        date: localDateString(new Date(Date.now() - (13 - index) * DAY_MS)),
+        attempts: count,
+        correctRate: null,
+      })),
+      recent: snapshot.recent.map((item) => ({
+        attemptId: null,
+        sentenceId: item.sentence.id,
+        mode: item.mode === "FREE" ? "FREE" : "CLOZE",
+        kind: "FIRST",
+        score: item.score,
+        createdAt: item.createdAt,
+      })),
     } as T;
   }
 

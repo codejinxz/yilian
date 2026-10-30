@@ -8,6 +8,10 @@ import {
   attemptResponseSchema,
   type NextPractice,
   nextPracticeSchema,
+  type OverloadView,
+  overloadViewSchema,
+  type PostponeView,
+  postponeViewSchema,
   type Review,
   reviewPageSchema,
   reviewSchema,
@@ -208,4 +212,30 @@ export async function resetReview(reviewId: string): Promise<Review> {
 export async function getToday(signal?: AbortSignal): Promise<Today> {
   const data = await apiRequest<unknown>("/practice/today", { signal });
   return parseData(todaySchema, data);
+}
+
+/**
+ * 读取积压降载状态；到期数超过阈值时客户端只推最紧急 pushLimit 道。
+ * 游客模式由页面直连本地引擎（引擎阈值与推送上限与契约实现可能不同），本函数只在登录态调用。
+ * @param signal 取消信号
+ * @returns 降载视图（当前到期数、阈值、推送上限与是否降载）
+ */
+export async function getReviewOverload(signal?: AbortSignal): Promise<OverloadView> {
+  const data = await apiRequest<unknown>("/practice/reviews/overload", { signal });
+  return parseData(overloadViewSchema, data);
+}
+
+/**
+ * 顺延到期卡；服务端保留最早到期的 5 道，其余推迟一天（所有顺延可见、重练即恢复）。
+ * 游客模式由页面直连本地引擎，本函数只在登录态调用。
+ * @param reason 顺延理由，可空；结构化日志记录
+ * @returns 顺延张数与保留张数
+ */
+export async function postponeReviews(reason?: string): Promise<PostponeView> {
+  const data = await jsonRequest<unknown>(
+    "/practice/reviews/postpone",
+    "POST",
+    reason === undefined ? undefined : { reason },
+  );
+  return parseData(postponeViewSchema, data);
 }

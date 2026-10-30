@@ -365,4 +365,149 @@ describe("auth-state routing switch", () => {
     expect(getAccessToken()).toBe("access-token");
     expect(localRouteCalls(fetchMock)).not.toHaveLength(0);
   });
+
+  it("serves the stats page from analytics endpoints when signed in", async () => {
+    markPlaced();
+    setAccessToken("access-token");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/analytics/accuracy")) {
+        return jsonResponse(
+          successEnvelope({
+            from: "2026-01-01",
+            to: "2026-01-05",
+            totalAttempts: 42,
+            correctRate: 72.5,
+            averageScore: 81.3,
+            byMode: [{ mode: "CLOZE", attempts: 42, correctRate: 72.5 }],
+            daily14: Array.from({ length: 14 }, (_, index) => ({
+              date: `2026-01-${String(index + 1).padStart(2, "0")}`,
+              attempts: index,
+              correctRate: null,
+            })),
+            recent: [
+              {
+                attemptId: "attempt-1",
+                sentenceId: SENTENCE.id,
+                mode: "CLOZE",
+                kind: "FIRST",
+                score: 80,
+                createdAt: "2026-01-05T00:00:00Z",
+              },
+            ],
+          }),
+        );
+      }
+      if (url.includes("/api/analytics/error-tags")) {
+        return jsonResponse(
+          successEnvelope({
+            from: "2026-01-01",
+            to: "2026-01-05",
+            items: [{ tag: "搭配", count: 3, ratio: 60 }],
+          }),
+        );
+      }
+      if (url.endsWith("/api/practice/today")) {
+        return jsonResponse(successEnvelope(TODAY));
+      }
+      if (url.endsWith("/api/me/settings")) {
+        return jsonResponse(successEnvelope(SETTINGS));
+      }
+      if (url.endsWith("/api/auth/me")) {
+        return jsonResponse(successEnvelope(ADMIN));
+      }
+      // recent 的中文句 join 会拉一次公开题库；空列表让引擎缓存保持为空即可。
+      if (url.includes("/api/banks")) {
+        return jsonResponse(
+          successEnvelope({
+            items: [],
+            page: 1,
+            size: 100,
+            total: 0,
+            totalPages: 1,
+            hasNext: false,
+          }),
+        );
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp("/stats");
+
+    // 累计 42 句只可能来自服务端 accuracy 契约；游客分支的引擎快照在空引擎下恒为 0。
+    expect(await screen.findByText("42")).toBeInTheDocument();
+    expect(screen.getByText("搭配")).toBeInTheDocument();
+    expect(localRouteCalls(fetchMock)).not.toHaveLength(0);
+  });
+
+  it("serves the review page from the reviews endpoint when signed in", async () => {
+    markPlaced();
+    setAccessToken("access-token");
+    const reviewCard = {
+      id: "10",
+      sentenceId: SENTENCE.id,
+      mode: "CLOZE",
+      state: "LEARNING",
+      fsrsState: "LEARNING",
+      dueAt: "2026-01-05T00:00:00Z",
+      stability: 2.4,
+      difficulty: 5.3,
+      reps: 1,
+      lapses: 1,
+      scheduledDays: 1,
+      lastRating: 2,
+      lastReviewedAt: "2026-01-04T00:00:00Z",
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/practice/reviews")) {
+        // 汇总用 size=1 的 total 拼三档数字；列表用同一响应返回一页。
+        const size = Number(new URL(url).searchParams.get("size") ?? 20);
+        return jsonResponse(
+          successEnvelope({
+            items: size === 1 ? [] : [reviewCard],
+            page: 1,
+            size,
+            total: 1,
+            totalPages: 1,
+            hasNext: false,
+          }),
+        );
+      }
+      if (url.endsWith("/api/practice/reviews/overload")) {
+        return jsonResponse(
+          successEnvelope({ dueCount: 3, threshold: 20, pushLimit: 5, overload: false }),
+        );
+      }
+      if (url.endsWith("/api/me/settings")) {
+        return jsonResponse(successEnvelope(SETTINGS));
+      }
+      if (url.endsWith("/api/auth/me")) {
+        return jsonResponse(successEnvelope(ADMIN));
+      }
+      if (url.includes("/api/banks?")) {
+        return jsonResponse(
+          successEnvelope({
+            items: [],
+            page: 1,
+            size: 100,
+            total: 0,
+            totalPages: 1,
+            hasNext: false,
+          }),
+        );
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp("/review");
+
+    // 复习行渲染（join 不到中文句时按「题目 {短id}」占位），三档汇总来自契约 total
+    //（due/learning/mastered 三个 size=1 查询的 total 都是 1，页面多处出现该数字）。
+    expect(await screen.findByText(/题目/)).toBeInTheDocument();
+    expect(screen.getAllByText("1").length).toBeGreaterThan(0);
+    expect(localRouteCalls(fetchMock)).not.toHaveLength(0);
+  });
 });

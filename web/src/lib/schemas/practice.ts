@@ -188,11 +188,30 @@ export const todaySchema = z.object({
   dueCount: z.number().int().nonnegative(),
   doneCount: z.number().int().nonnegative(),
   goal: z.number().int().positive(),
-  correctRate: z.number().min(0).max(100),
+  // 服务端在今日无判分提交时返回 null（TodayView.correctRate）；页面不消费该字段。
+  correctRate: z.number().min(0).max(100).nullable(),
   streakDays: z.number().int().nonnegative(),
 });
 
 export type Today = z.infer<typeof todaySchema>;
+
+/** 积压降载状态（API §3.6）：overload=true 时客户端只推最紧急 pushLimit 道。 */
+export const overloadViewSchema = z.object({
+  dueCount: z.number().int().nonnegative(),
+  threshold: z.number().int().nonnegative(),
+  pushLimit: z.number().int().nonnegative(),
+  overload: z.boolean(),
+});
+
+export type OverloadView = z.infer<typeof overloadViewSchema>;
+
+/** 顺延结果（API §3.6）：服务端把推送上限之外的到期卡推迟一天。 */
+export const postponeViewSchema = z.object({
+  postponed: z.number().int().nonnegative(),
+  kept: z.number().int().nonnegative(),
+});
+
+export type PostponeView = z.infer<typeof postponeViewSchema>;
 
 /** mock 用户设置对象：仅存在于 mock 数据层，字段与真实用户设置保持同一契约。 */
 export interface UserSettings {
