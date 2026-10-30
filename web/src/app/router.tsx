@@ -23,7 +23,7 @@ import { SettingsPage } from "@/features/settings/SettingsPage";
 import { AppShell } from "@/features/shell/AppShell";
 import { StatsPage } from "@/features/stats/StatsPage";
 import { TodayPage } from "@/features/today/TodayPage";
-import { ApiError, getAccessToken, setUnauthorizedHandler } from "@/lib/api";
+import { ApiError, getAccessToken, setAuthStateProbe, setUnauthorizedHandler } from "@/lib/api";
 import { loadPlacementState } from "@/lib/local-engine";
 import { createQueryClient, meQueryOptions, queryKeys } from "@/lib/query";
 
@@ -338,6 +338,9 @@ export const routeTree = rootRoute.addChildren([
 /**
  * 创建应用路由并注册全局 401 处理：清空内存 token、会话状态与用户缓存；
  * 只有停留在 /admin/** 这类必须登录的区域时才跳登录页，游客可浏览路径不打断。
+ * 同时向 api 层注入登录态探针（me 缓存是否有确认用户）：practice/analytics 的本地路由
+ * 只对游客生效，登录用户放行到服务端；探针从未就绪到确认的瞬间，失效 practice/analytics
+ * 的全部 Query 重取服务端数据——冷启动竞态下最坏情况是首屏先本地应答再切服务端，无破坏性。
  * @param options QueryClient 与可选 history（测试用 memory history）
  * @returns 已注册鉴权副作用的路由实例
  */
@@ -361,6 +364,32 @@ export function createAppRouter(options: { queryClient: QueryClient; history?: R
     clearSession(options.queryClient, false);
     if (isLoginRequiredPath(router.state.location.pathname)) {
       void router.navigate({ to: "/login", replace: true });
+    }
+  });
+
+  // 登录态探针：me 查询缓存里有确认用户即视为登录态（登录成功、冷启动恢复均会写入；
+  // clearSession 清缓存后自动回到游客语义）。
+  setAuthStateProbe(() => options.queryClient.getQueryData(queryKeys.me) != null);
+
+  // 订阅 me 缓存变化：从未确认到确认的瞬间失效本地路由组的 Query，让首屏本地应答
+  // 切换为服务端数据。确认过再重取 me 不重复失效；会话清空后重置，等待下次确认。
+  // invalidate 必须推迟一拍（setTimeout 0）：cache.subscribe 的回调在 QueryCache 的
+  // notifyManager batch 内执行，同步 invalidate 的 refetch 调度会被外层 batch 抑制，
+  // 延迟到 batch 外发起才能让 practice/analytics 查询真正重取。
+  let hadConfirmedUser = options.queryClient.getQueryData(queryKeys.me) != null;
+  options.queryClient.getQueryCache().subscribe((event) => {
+    if (JSON.stringify(event.query.queryKey) !== JSON.stringify(queryKeys.me)) {
+      return;
+    }
+    const confirmed = options.queryClient.getQueryData(queryKeys.me) != null;
+    if (confirmed && !hadConfirmedUser) {
+      hadConfirmedUser = true;
+      window.setTimeout(() => {
+        void options.queryClient.invalidateQueries({ queryKey: ["practice"] });
+        void options.queryClient.invalidateQueries({ queryKey: ["analytics"] });
+      }, 0);
+    } else if (!confirmed) {
+      hadConfirmedUser = false;
     }
   });
 

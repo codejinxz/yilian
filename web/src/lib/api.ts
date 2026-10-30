@@ -45,6 +45,11 @@ let cachedCsrfToken: string | null = null;
 let csrfPromise: Promise<string> | null = null;
 let refreshPromise: Promise<RefreshOutcome> | null = null;
 let unauthorizedHandler: () => void = () => {};
+/**
+ * 登录态探针；由 router 启动时注入（返回「me() 冷启动已确认处于登录态」）。
+ * 探针未注入或未就绪（返回 false）时按游客处理——本地路由照常本地应答。
+ */
+let authStateProbe: (() => boolean) | null = null;
 
 /**
  * 设置或清空内存中的 access token；不写入 localStorage/sessionStorage，刷新页面后由 refresh cookie 恢复会话。
@@ -78,6 +83,28 @@ export function resetApiState(): void {
  */
 export function setUnauthorizedHandler(handler: () => void): void {
   unauthorizedHandler = handler;
+}
+
+/**
+ * 注入登录态探针；只应由 router 启动时注入一次（与 setUnauthorizedHandler 同一约定）。
+ * 探针返回 true 表示「me() 已确认会话处于登录态」，此时 mode:"guest" 的本地路由放行到服务端；
+ * 冷启动竞态（探针确认晚于首屏查询）由 router 在确认瞬间失效 practice/analytics 的 Query 兜底。
+ * @param probe 登录态探针；传 null 清除（测试隔离用）
+ */
+export function setAuthStateProbe(probe: (() => boolean) | null): void {
+  authStateProbe = probe;
+}
+
+/**
+ * 判断当前会话是否按游客语义处理：未持 access token 且探针未确认登录。
+ * 本地路由拦截（isLocalRouteEnabled）与页面的数据源分流共用同一判定，保证两层口径一致。
+ * @returns 是否按游客处理
+ */
+export function isGuestSession(): boolean {
+  if (accessToken != null) {
+    return false;
+  }
+  return !authStateProbe?.();
 }
 
 /**
@@ -492,17 +519,24 @@ async function request<T>(
  *
  * 游客不登录真实可用的架构决策要求练习/复习/统计/今日全部本地应答；
  * auth、me、settings、banks 永远走网络（banks 匿名可访问，失败时引擎用旧缓存降级）。
- * 服务端练习切片（#8）落地后，把对应组的 enabled 改为 false 即可整体切回网络应答——
- * 这是唯一的切换开关，不需要改动任何页面代码。
+ * `mode:"guest"` 表示该组**仅对游客**本地应答：登录用户（getAccessToken() 命中或
+ * auth-state 探针确认）的请求放行到服务端——practice/analytics 服务端切片（#8）已落地，
+ * 登录用户的练习/统计由服务端承担。把对应组的 enabled 改为 false 即可整体切回网络应答，
+ * 仍不需要改动任何页面代码。
  */
-const LOCAL_ROUTE_GROUPS: ReadonlyArray<{ prefix: string; enabled: boolean }> = [
-  { prefix: "/practice", enabled: true },
-  { prefix: "/analytics", enabled: true },
+const LOCAL_ROUTE_GROUPS: ReadonlyArray<{
+  prefix: string;
+  mode: "guest";
+  enabled: boolean;
+}> = [
+  { prefix: "/practice", mode: "guest", enabled: true },
+  { prefix: "/analytics", mode: "guest", enabled: true },
 ];
 
 /**
  * 判断路径是否应由本地引擎应答；IndexedDB 不可用的环境（旧浏览器/隐私模式）不启用本地模式，
- * 让请求正常走网络并由服务端决定降级行为。
+ * 让请求正常走网络并由服务端决定降级行为。mode:"guest" 的组在登录态放行到网络——
+ * 探针未就绪（冷启动 me 尚未确认）时按游客处理，本地应答保证游客红线与首屏可用。
  * @param path `/api` 之后的路径（含查询串）
  * @returns 是否启用本地应答
  */
@@ -510,13 +544,16 @@ function isLocalRouteEnabled(path: string): boolean {
   if (typeof indexedDB === "undefined") {
     return false;
   }
-  return LOCAL_ROUTE_GROUPS.some(
-    (group) =>
-      group.enabled &&
-      (path === group.prefix ||
-        path.startsWith(`${group.prefix}/`) ||
-        path.startsWith(`${group.prefix}?`)),
+  const group = LOCAL_ROUTE_GROUPS.find(
+    (candidate) =>
+      path === candidate.prefix ||
+      path.startsWith(`${candidate.prefix}/`) ||
+      path.startsWith(`${candidate.prefix}?`),
   );
+  if (!group?.enabled) {
+    return false;
+  }
+  return group.mode === "guest" ? isGuestSession() : true;
 }
 
 /**
