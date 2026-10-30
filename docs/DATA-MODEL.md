@@ -181,42 +181,44 @@ erDiagram
 - `reviews.due_at` 用 `DATETIME(6)` UTC，不用 `DATE`。原因：跨时区/夏令时下 DATE 无法表达“下一次到期瞬间”，且 PRD 的“今日”是用户本地概念。
 - `user_daily_stats.stat_date` 是唯一使用 `DATE` 的业务列，表示用户本地日期；同时快照 `timezone`。
 
-### 4.5 外键约定
+### 4.5 逻辑外键约定
 
-| 子表.列 | 父表.列 | ON DELETE | 说明 |
+> **V10 起物理外键全部移除**（`V10__drop_fks_index_tuning.sql`）：下表是**逻辑外键清单**——关系由应用层在写路径校验存在性与归属，普通索引支撑查询；唯一约束（uk_*）、CHECK 约束、触发器、分区全部保留，幂等与去重语义由唯一索引兜底。删 FK 的动机与 EXPLAIN 证据见 `docs/analysis/db-review-20261031.md`（本地评审文档，不入库）；逐条 FK 的「应用层校验位置」审计表见同文档 §6.1。InnoDB 删 FK 后原支撑索引保留为普通索引，查询计划不受影响。
+
+| 子表.列 | 父表.列 | 原约束 | 说明 |
 |---|---|---|---|
-| `sentence_banks.owner_id` | `users.id` | RESTRICT | NULL = 官方 |
-| `sentences.bank_id` | `sentence_banks.id` | RESTRICT | 题目不脱离题库 |
-| `sentences.current_version_id` | `sentence_versions.id` | RESTRICT | 两表建完后补 FK；插入时先 NULL，同事务回填 |
-| `sentence_versions.sentence_id` | `sentences.id` | RESTRICT | 快照永不删 |
-| `sentence_versions.bank_id` | `sentence_banks.id` | RESTRICT | 冗余校验 |
-| `sentence_versions.import_batch_id` | `import_batches.id` | RESTRICT | 批次不硬删 |
-| `import_batches.bank_id` | `sentence_banks.id` | RESTRICT | 导入目标 |
-| `import_batches.created_by` | `users.id` | RESTRICT | 另存 `created_by_name` 快照 |
-| `import_batch_rows.batch_id` | `import_batches.id` | RESTRICT | 批次不硬删 |
-| `import_batch_rows.sentence_id` | `sentences.id` | RESTRICT | 成功后关联 |
-| `import_batch_rows.sentence_version_id` | `sentence_versions.id` | RESTRICT | 成功后关联 |
-| `attempts.user_id` | `users.id` | RESTRICT | 游客不落库 |
-| `attempts.sentence_id` | `sentences.id` | RESTRICT | 题目标识 |
-| `attempts.sentence_version_id` | `sentence_versions.id` | RESTRICT | 内容快照 |
-| `attempts.retry_of_id` | `attempts.id` | RESTRICT | 自关联 |
-| `attempt_gradings.attempt_id` | `attempts.id` | RESTRICT | 判分不脱离提交 |
-| `appeals.attempt_id` | `attempts.id` | RESTRICT | 申诉不脱离提交 |
-| `appeals.user_id` | `users.id` | RESTRICT | 申诉人 |
-| `appeals.sentence_id` | `sentences.id` | RESTRICT | overlay 查询 |
-| `reviews.user_id` | `users.id` | RESTRICT | 用户卡 |
-| `reviews.sentence_id` | `sentences.id` | RESTRICT | 题目卡 |
-| `review_logs.review_id` | `reviews.id` | RESTRICT | 复习日志 |
-| `review_logs.user_id` | `users.id` | RESTRICT | 用户 |
-| `review_logs.sentence_id` | `sentences.id` | RESTRICT | 题目 |
-| `review_logs.attempt_id` | `attempts.id` | RESTRICT | 触发提交 |
-| `review_logs.weights_version_id` | `fsrs_parameter_versions.id` | RESTRICT | 参数版本 |
-| `fsrs_parameter_versions.user_id` | `users.id` | RESTRICT | 仅 USER owner |
-| `admin_audit_log.actor_id` | `users.id` | SET NULL | 保留 `actor_name` 快照 |
-| `error_log.user_id` | `users.id` | SET NULL | 保留 `operator` 快照 |
-| `user_daily_stats.user_id` | `users.id` | RESTRICT | 聚合表 |
+| `sentence_banks.owner_id` | `users.id` | RESTRICT | NULL = 官方；当前无运行时建库入口，加写入口时必须校验 owner 存在 |
+| `sentences.bank_id` | `sentence_banks.id` | RESTRICT | 题目不脱离题库；`importSentences` 校验 bank 存在且未删、可导入 |
+| `sentences.current_version_id` | `sentence_versions.id` | RESTRICT | 插入时先 NULL，同事务回填到刚落库的版本（构造性保证） |
+| `sentence_versions.sentence_id` | `sentences.id` | RESTRICT | 快照永不删；引用同事务刚建的题目（构造性保证） |
+| `sentence_versions.bank_id` | `sentence_banks.id` | RESTRICT | 冗余校验，复用 bank 校验 |
+| `sentence_versions.import_batch_id` | `import_batches.id` | RESTRICT | 批次不硬删；传入已加载的批次实体 id |
+| `import_batches.bank_id` | `sentence_banks.id` | RESTRICT | 导入目标；`isImportableBank` 校验 |
+| `import_batches.created_by` | `users.id` | RESTRICT | 另存 `created_by_name` 快照；来自 JWT 认证主体 |
+| `import_batch_rows.batch_id` | `import_batches.id` | RESTRICT | 批次不硬删；与批次同事务同 id（构造性保证） |
+| `import_batch_rows.sentence_id` | `sentences.id` | RESTRICT | 成功后关联；写 importSentences 返回值（构造性保证） |
+| `import_batch_rows.sentence_version_id` | `sentence_versions.id` | RESTRICT | 成功后关联；同上 |
+| `attempts.user_id` | `users.id` | RESTRICT | 游客不落库；来自认证主体 |
+| `attempts.sentence_id` | `sentences.id` | RESTRICT | 题目标识；`requirePracticeableSentence` 校验 |
+| `attempts.sentence_version_id` | `sentence_versions.id` | RESTRICT | 内容快照；与当前版本一致性比对 |
+| `attempts.retry_of_id` | `attempts.id` | RESTRICT | 自关联；`validateRetryChain` 校验同用户同题同模式 |
+| `attempt_gradings.attempt_id` | `attempts.id` | RESTRICT | 判分不脱离提交；引用同事务刚落的提交（构造性保证） |
+| `appeals.attempt_id` | `attempts.id` | RESTRICT | 申诉不脱离提交；findById + 归属校验 |
+| `appeals.user_id` | `users.id` | RESTRICT | 申诉人；来自认证主体 |
+| `appeals.sentence_id` | `sentences.id` | RESTRICT | overlay 查询；取自已落库提交的合法引用 |
+| `reviews.user_id` | `users.id` | RESTRICT | 用户卡；来自认证主体 |
+| `reviews.sentence_id` | `sentences.id` | RESTRICT | 题目卡；同 attempt.sentence_id 校验 |
+| `review_logs.review_id` | `reviews.id` | RESTRICT | 复习日志；引用已加载/刚建的卡（构造性保证） |
+| `review_logs.user_id` | `users.id` | RESTRICT | 用户；来自认证主体 |
+| `review_logs.sentence_id` | `sentences.id` | RESTRICT | 题目；同 attempt.sentence_id |
+| `review_logs.attempt_id` | `attempts.id` | RESTRICT | 触发提交；构造性保证 |
+| `review_logs.weights_version_id` | `fsrs_parameter_versions.id` | RESTRICT | 参数版本；`findActiveGlobalId` 存在性校验 |
+| `fsrs_parameter_versions.user_id` | `users.id` | RESTRICT | 仅 USER owner；当前仅 V9 种子 GLOBAL 行，无运行时写入口 |
+| `admin_audit_log.actor_id` | `users.id` | （无物理外键，分区表） | 保留 `actor_name` 快照 |
+| `error_log.user_id` | `users.id` | （无物理外键，分区表） | 保留 `operator` 快照 |
+| `user_daily_stats.user_id` | `users.id` | RESTRICT | 聚合表（M3 预留，未建） |
 
-**禁止**：答题链路（`attempts`/`attempt_gradings`/`review_logs`/`reviews`）使用 `ON DELETE CASCADE`；任何硬删题目的外键级联都不允许。
+**禁止**：硬删任何父表行制造孤儿引用；答题链路（`attempts`/`attempt_gradings`/`review_logs`/`reviews`）永远不允许 `ON DELETE CASCADE` 语义（含应用层联删）。
 
 ---
 
@@ -376,7 +378,7 @@ erDiagram
 - 唯一 `uk_sentence_version (sentence_id, version_no)`
 - 普通 `idx_sentence_version_bank (bank_id, created_at)`
 - 普通 `idx_sentence_version_hash (content_hash)`
-- 外键 `fk_sentence_version_sentence (sentence_id) -> sentences(id)`；`fk_sentence_version_batch (import_batch_id) -> import_batches(id)`（批次表先建或后加）
+- 逻辑外键 `fk_sentence_version_sentence (sentence_id) -> sentences(id)`；`fk_sentence_version_batch (import_batch_id) -> import_batches(id)`（V10 起由应用层校验 + 普通索引支撑，见 §4.5）
 
 不可变：无 `updated_at`/`deleted_at`；触发器禁止 UPDATE/DELETE。修改题目 = 新增 `version_no` + 更新 `sentences.current_version_id`。
 
@@ -464,9 +466,9 @@ erDiagram
 
 - 主键 `(id)`
 - 普通 `idx_attempt_user_created (user_id, created_at)`
-- 普通 `idx_attempt_user_sentence (user_id, sentence_id, mode, created_at)`
+- 普通 `idx_attempt_user_sentence (user_id, sentence_id, created_at, mode)`（V10 重排：mode 移到末位，恢复「最新一次提交」的索引序）
 - 普通 `idx_attempt_version (sentence_version_id)`
-- 外键 `retry_of_id -> attempts(id)`（`ON DELETE RESTRICT`）
+- 逻辑外键 `retry_of_id -> attempts(id)`（V10 起由 `validateRetryChain` 应用层校验 + 本索引支撑，见 §4.5）
 
 幂等：`id` 是唯一约束。重复提交时：
 
@@ -563,8 +565,7 @@ erDiagram
 
 - 主键 `(id)`
 - 唯一 `uk_review_card (user_id, sentence_id)`（Q1 决策：**一句一卡**——原三键 `(user_id, sentence_id, mode)` 会让同句出现两行复习卡/错题行，与本地引擎「每句单卡」语义冲突；V9 迁移已改键，`mode` 保留为「最近练习模式」列）
-- 普通 `idx_review_due (user_id, due_at)`
-- 普通 `idx_review_state_due (user_id, state, due_at)`
+- 普通 `idx_review_state_due (user_id, state, due_at)`（V10 起 due 队列唯一支撑索引；原 `idx_review_due (user_id, due_at)` 零查询使用且劫持计划，已删除）
 
 UI 三档映射（确定性投影）：
 
@@ -695,9 +696,9 @@ UI 三档映射（确定性投影）：
 索引/约束：
 
 - 主键 `(id, created_at)`
-- 普通 `idx_error_created (created_at)`
-- 普通 `idx_error_module (module, created_at)`
-- 普通 `idx_error_trace (trace_id)`
+- 普通 `idx_error_log_created_at (created_at)`
+- 普通 `idx_error_module_created (module, created_at)`（V10 起模块+时间检索唯一支撑索引；原单列 `idx_error_log_module` 为其最左前缀冗余且致 filesort，已删除）
+- 普通 `idx_error_log_trace_id (trace_id)`
 - 普通 `idx_error_user (user_id, created_at)`
 
 分区：按 `created_at` 月分区；保留 30 天；`DROP PARTITION` 清理，任务可重入。只写未知异常；业务异常/参数校验/404/405/415/越权/CSRF 不写。脱敏只作用于消息/堆栈；`user_id`/`operator` 是受控后台字段，不写入 JSON 日志。
@@ -1201,8 +1202,9 @@ RELEARNING --rating>=GOOD--> REVIEW
 | `V6__import_batches.sql` | `import_batches` + `import_batch_rows`（按 PRD 重建） | 预览/提交/回滚；旧 `import_batch` 删除并重建 |
 | `V7__content_core.sql` | `sentence_banks`、`sentences`、`sentence_versions` | 版本与增量 |
 | `V8__practice_core.sql` | `attempts`、`attempt_gradings`、`appeals`、`reviews`、`review_logs`、`fsrs_parameter_versions` | M2 |
-| `V9__analytics.sql`（M3） | `user_daily_stats` | 暂不建 |
-| `V10__ai.sql`（M3） | `llm_providers`、`llm_models`、`prompt_templates`、`prompt_versions`、`llm_usage` | 暂不建 |
+| `V9__review_card_single.sql` | 复习卡唯一键收敛 `(user_id, sentence_id)`；GLOBAL FSRS 权重种子 | Q1「一句一卡」 |
+| `V10__drop_fks_index_tuning.sql` | 三处索引调整 + 全部物理外键改逻辑外键（§4.5） | schema 合理化 |
+| 未来版本（M3） | `user_daily_stats`、`llm_*` 五表 | 暂不建，版本号顺延 |
 
 规则：
 
