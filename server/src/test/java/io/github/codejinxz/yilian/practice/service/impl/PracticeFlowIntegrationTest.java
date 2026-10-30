@@ -1,91 +1,57 @@
 package io.github.codejinxz.yilian.practice.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
-
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.codejinxz.yilian.common.api.ApiCode;
-
 import io.github.codejinxz.yilian.common.api.BusinessException;
-
 import io.github.codejinxz.yilian.common.api.PageResponse;
-
 import io.github.codejinxz.yilian.content.service.ContentImportService;
-
 import io.github.codejinxz.yilian.content.service.ContentQueryService;
-
 import io.github.codejinxz.yilian.content.service.dto.ImportedSentence;
-
 import io.github.codejinxz.yilian.content.service.dto.SentenceContent;
-
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
-
 import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
-
-import io.github.codejinxz.yilian.practice.entity.Review;
-
 import io.github.codejinxz.yilian.practice.service.PracticeService;
-
 import io.github.codejinxz.yilian.practice.service.dto.AnswerPayload;
-
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
-
+import io.github.codejinxz.yilian.practice.service.vo.AppealView;
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
-
 import io.github.codejinxz.yilian.practice.service.vo.NextPracticeView;
-
 import io.github.codejinxz.yilian.practice.service.vo.OverloadView;
-
 import io.github.codejinxz.yilian.practice.service.vo.PostponeView;
-
 import io.github.codejinxz.yilian.practice.service.vo.ReviewCardView;
-
 import io.github.codejinxz.yilian.practice.service.vo.TodayView;
-
 import io.github.codejinxz.yilian.practice.service.vo.WrongQuestionView;
 
 import org.junit.jupiter.api.AfterEach;
-
 import org.junit.jupiter.api.BeforeEach;
-
 import org.junit.jupiter.api.DisplayName;
-
 import org.junit.jupiter.api.Test;
-
 import org.springframework.beans.factory.annotation.Autowired;
-
 import org.springframework.boot.test.context.SpringBootTest;
-
 import org.springframework.jdbc.core.JdbcTemplate;
-
 import org.springframework.test.context.ActiveProfiles;
-
 import org.springframework.test.context.DynamicPropertyRegistry;
-
 import org.springframework.test.context.DynamicPropertySource;
 
 import tools.jackson.databind.ObjectMapper;
 
 import java.sql.Timestamp;
-
 import java.time.Instant;
-
 import java.time.LocalDateTime;
-
 import java.time.temporal.ChronoUnit;
-
 import java.util.ArrayList;
-
 import java.util.List;
-
+import java.util.Map;
 import java.util.UUID;
 
 /**
- * 练习主链路集成测试（真实 MySQL yilian_test）：AC-1 一句一卡迁移与 FSRS 种子、
- * AC-3 提交错题入队 + review_logs + 幂等重放/冲突、AC-4 重打不排程与学习/归档推进。
+ * 练习主链路集成测试（真实 MySQL yilian_test）：AC-1 一句一卡迁移与 FSRS 种子、 AC-3 提交错题入队 + review_logs + 幂等重放/冲突、AC-4
+ * 重打不排程与学习/归档推进。
  *
- * <p>自清模式与 {@code ContentImportServiceIntegrationTest} 同口径：append-only 触发器
- * 先摘后重建，内容三表与 practice 五表逐用例清空，users 幂等播种。
+ * <p>自清模式与 {@code ContentImportServiceIntegrationTest} 同口径：append-only 触发器 先摘后重建，内容三表与 practice
+ * 五表逐用例清空，users 幂等播种。
  */
 @SpringBootTest(
         properties = {
@@ -101,8 +67,7 @@ class PracticeFlowIntegrationTest {
 
     private static final long USER_ID = 8L;
 
-    private static final String REF =
-            "He is paying more and more attention to this matter.";
+    private static final String REF = "He is paying more and more attention to this matter.";
 
     private static final String SECOND_REF = "The meeting was held as scheduled.";
 
@@ -157,9 +122,7 @@ class PracticeFlowIntegrationTest {
         seedSentence();
     }
 
-    /**
-     * [AC-1] V9 后 uk_review_card 收敛为 (user_id, sentence_id)，且存在 GLOBAL ACTIVE 权重种子行。
-     */
+    /** [AC-1] V9 后 uk_review_card 收敛为 (user_id, sentence_id)，且存在 GLOBAL ACTIVE 权重种子行。 */
     @Test
     @DisplayName("[AC-1] uk_review_card=(user_id,sentence_id) + GLOBAL ACTIVE 种子行")
     void ac1_singleCardUniqueKeyAndGlobalWeightsSeed() {
@@ -228,7 +191,9 @@ class PracticeFlowIntegrationTest {
         // answer 列必须是可解析的 JSON 对象（Hibernate JSON 列不二次编码）。
         String storedAnswer =
                 jdbcTemplate.queryForObject(
-                        "SELECT answer FROM attempts WHERE id = ?", String.class, wrong.attemptId());
+                        "SELECT answer FROM attempts WHERE id = ?",
+                        String.class,
+                        wrong.attemptId());
         assertThat(objectMapper.readTree(storedAnswer).get("schemaVersion").asInt()).isEqualTo(1);
 
         // 幂等重放：同 id 同载荷 → replayed=true，无新行。
@@ -256,7 +221,8 @@ class PracticeFlowIntegrationTest {
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception ->
-                                assertThat(exception.apiCode()).isEqualTo(ApiCode.ATTEMPT_ID_REUSED));
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.ATTEMPT_ID_REUSED));
 
         // 版本不匹配 → 40402；题目不存在 → 40402。
         assertThatThrownBy(
@@ -374,8 +340,7 @@ class PracticeFlowIntegrationTest {
         // 3) 第二次 FIRST 全对（到期复习按新提交走 FIRST）：interval=min(7,1+2)=3，LEARNING。
         Instant beforeSecond = Instant.now();
         AttemptView second =
-                practiceService.submitAttempt(
-                        USER_ID, firstAttempt(correctAnswer(), 1000));
+                practiceService.submitAttempt(USER_ID, firstAttempt(correctAnswer(), 1000));
         assertThat(second.review().scheduledDays()).isEqualTo(3);
         assertThat(second.review().state()).isEqualTo("LEARNING");
         assertThat(second.review().fsrsState()).isEqualTo("LEARNING");
@@ -390,8 +355,7 @@ class PracticeFlowIntegrationTest {
 
         // 4) 第三次 FIRST 全对：interval=min(7,3+2)=5 ≥5 → MASTERED/REVIEW/stability 40。
         AttemptView third =
-                practiceService.submitAttempt(
-                        USER_ID, firstAttempt(correctAnswer(), 1000));
+                practiceService.submitAttempt(USER_ID, firstAttempt(correctAnswer(), 1000));
         assertThat(third.review().scheduledDays()).isEqualTo(5);
         assertThat(third.review().state()).isEqualTo("MASTERED");
         assertThat(third.review().fsrsState()).isEqualTo("REVIEW");
@@ -400,8 +364,7 @@ class PracticeFlowIntegrationTest {
 
         // 5) 归档全对：只刷新 reps，间隔与稳定度不动。
         AttemptView fourth =
-                practiceService.submitAttempt(
-                        USER_ID, firstAttempt(correctAnswer(), 1000));
+                practiceService.submitAttempt(USER_ID, firstAttempt(correctAnswer(), 1000));
         assertThat(fourth.review().state()).isEqualTo("MASTERED");
         assertThat(fourth.review().reps()).isEqualTo(4);
         assertThat(fourth.review().scheduledDays()).isEqualTo(5);
@@ -415,23 +378,19 @@ class PracticeFlowIntegrationTest {
     void ac4_newCorrectNeverEnqueuesAndRevealBranches() {
         // 新题全对：无卡、无日志。
         AttemptView correct =
-                practiceService.submitAttempt(
-                        USER_ID, firstAttempt(correctAnswer(), 1000));
+                practiceService.submitAttempt(USER_ID, firstAttempt(correctAnswer(), 1000));
         assertThat(correct.review()).isNull();
         assertThat(count("review_logs")).isZero();
 
         // 已有 FIRST 之后 REVEAL：不再排程（卡仍为 NEW→不存在），也不写日志。
         AttemptView revealAfterFirst =
-                practiceService.submitAttempt(
-                        USER_ID, revealAttempt(seeded));
+                practiceService.submitAttempt(USER_ID, revealAttempt(seeded));
         assertThat(revealAfterFirst.score()).isNull();
         assertThat(revealAfterFirst.review()).isNull();
         assertThat(count("review_logs")).isZero();
 
         // 无 FIRST 的 REVEAL：按失败分支建卡，rating=1。
-        AttemptView reveal =
-                practiceService.submitAttempt(
-                        USER_ID, revealAttempt(secondSeeded));
+        AttemptView reveal = practiceService.submitAttempt(USER_ID, revealAttempt(secondSeeded));
         assertThat(reveal.score()).isNull();
         assertThat(reveal.result().summary()).isEqualTo("已看答案，记为学习中");
         assertThat(reveal.nextAction().retryRequired()).isFalse();
@@ -509,11 +468,7 @@ class PracticeFlowIntegrationTest {
                 .isEqualTo(1L);
         assertThat(practiceService.wrongQuestions(USER_ID, 1, 20, false, null, "时态").total())
                 .isZero();
-        assertThat(
-                        practiceService
-                                .wrongQuestions(
-                                        USER_ID, 1, 20, false, 9001L, null)
-                                .total())
+        assertThat(practiceService.wrongQuestions(USER_ID, 1, 20, false, 9001L, null).total())
                 .isEqualTo(1L);
 
         // 直插 DISPUTE 行（appeal 端点在后续波次）：overlay 排除后错题不再出现。
@@ -598,7 +553,9 @@ class PracticeFlowIntegrationTest {
                             zh,
                             ref,
                             "这是顺延测试第 " + index + " 句的解析说明，长度满足要求。",
-                            List.of(new SentenceChunk(0, zh.substring(0, 1), List.of(ref), "句式", null)),
+                            List.of(
+                                    new SentenceChunk(
+                                            0, zh.substring(0, 1), List.of(ref), "句式", null)),
                             List.of(0),
                             List.of("句式"),
                             null,
@@ -606,11 +563,7 @@ class PracticeFlowIntegrationTest {
                             null));
         }
         contentImportService.importSentences(
-                9002L,
-                "batch-it-0088-0000-0000-000000000088",
-                rows,
-                USER_ID,
-                T0.toInstant());
+                9002L, "batch-it-0088-0000-0000-000000000088", rows, USER_ID, T0.toInstant());
         List<SentenceDetail> candidates =
                 contentQueryService.findPracticeCandidates(9002L, null, 20);
         assertThat(candidates).hasSize(7);
@@ -625,7 +578,10 @@ class PracticeFlowIntegrationTest {
                             AttemptCommand.Kind.FIRST,
                             null,
                             new AnswerPayload(
-                                    1, "CLOZE", List.of(new AnswerPayload.Slot(0, "完全不对的内容")), null),
+                                    1,
+                                    "CLOZE",
+                                    List.of(new AnswerPayload.Slot(0, "完全不对的内容")),
+                                    null),
                             0,
                             1000,
                             null));
@@ -645,16 +601,143 @@ class PracticeFlowIntegrationTest {
         assertThat(practiceService.overload(USER_ID).dueCount()).isEqualTo(5L);
 
         // excludeSentenceId 生效：排除后新题选题跳过该句。
-        NextPracticeView excluded =
-                practiceService.next(USER_ID, 9002L, candidates.get(0).id());
+        NextPracticeView excluded = practiceService.next(USER_ID, 9002L, candidates.get(0).id());
         if (excluded != null && excluded.selection().equals("NEW")) {
             assertThat(excluded.sentence().id()).isNotEqualTo(candidates.get(0).id());
         }
     }
 
-    /**
-     * 清空 practice 五表与内容表；append-only 触发器先摘后重建。
-     */
+    /** [AC-8] dispute 立即 ACCEPTED 并 overlay 排除；appeal 记 PENDING；唯一/批注/归属校验。 */
+    @Test
+    @DisplayName("[AC-8] appeal/dispute：回执与 overlay 排除 + 40900/40000/40403/40300")
+    void ac8_appealAndDisputeEndpoints() {
+        AttemptCommand wrong = firstAttempt(wrongAnswer(), 1000);
+        practiceService.submitAttempt(USER_ID, wrong);
+
+        // dispute：立即 ACCEPTED，回执带 annotationKey；sentence_id/chunk_index 从批注解析。
+        AppealView dispute =
+                practiceService.submitDispute(USER_ID, wrong.attemptId(), "slot:0", "我认为这个搭配也可接受");
+        assertThat(dispute.appealId()).isNotNull();
+        assertThat(dispute.status()).isEqualTo("ACCEPTED");
+        assertThat(dispute.kind()).isEqualTo("DISPUTE");
+        assertThat(dispute.annotationKey()).isEqualTo("slot:0");
+        Map<String, Object> disputeRow =
+                jdbcTemplate.queryForMap(
+                        "SELECT kind, status, chunk_index, sentence_id, reason FROM appeals"
+                                + " WHERE id = ?",
+                        dispute.appealId());
+        assertThat(disputeRow.get("kind")).isEqualTo("DISPUTE");
+        assertThat(disputeRow.get("status")).isEqualTo("ACCEPTED");
+        assertThat(((Number) disputeRow.get("chunk_index")).intValue()).isZero();
+        assertThat(disputeRow.get("sentence_id")).isEqualTo(seeded.sentenceId());
+        assertThat(disputeRow.get("reason")).isEqualTo("我认为这个搭配也可接受");
+
+        // overlay 排除生效：默认错题列表不再出现该批注。
+        assertThat(practiceService.wrongQuestions(USER_ID, 1, 20, false, null, null).total())
+                .isZero();
+
+        // 同一 (attempt, key, kind) 重复 → 40900。
+        assertThatThrownBy(
+                        () ->
+                                practiceService.submitDispute(
+                                        USER_ID, wrong.attemptId(), "slot:0", "重复提交"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.IDEMPOTENT_CONFLICT));
+
+        // key 不在最新判分批注中 → 40000「批注不存在」。
+        assertThatThrownBy(
+                        () ->
+                                practiceService.submitDispute(
+                                        USER_ID, wrong.attemptId(), "slot:9", "不存在的批注"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.VALIDATION_FAILED));
+
+        // attempt 不存在 → 40403。
+        assertThatThrownBy(
+                        () ->
+                                practiceService.submitDispute(
+                                        USER_ID, UUID.randomUUID().toString(), "slot:0", "无此提交"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.ATTEMPT_NOT_FOUND));
+
+        // 非本人 attempt → 40300（不落任何行）。
+        assertThatThrownBy(
+                        () ->
+                                practiceService.submitDispute(
+                                        999L, wrong.attemptId(), "slot:0", "他人提交"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode()).isEqualTo(ApiCode.ACCESS_DENIED));
+        assertThat(count("appeals")).isEqualTo(1L);
+
+        // appeal：同一批注可与 DISPUTE 各存一条；M2 记 PENDING，proposedAnswer 落库。
+        AppealView appeal =
+                practiceService.submitAppeal(
+                        USER_ID, wrong.attemptId(), "slot:0", "attach importance to", "更书面");
+        assertThat(appeal.status()).isEqualTo("PENDING");
+        assertThat(appeal.kind()).isEqualTo("APPEAL");
+        Map<String, Object> appealRow =
+                jdbcTemplate.queryForMap(
+                        "SELECT proposed_answer, reason FROM appeals WHERE id = ?",
+                        appeal.appealId());
+        assertThat(appealRow.get("proposed_answer")).isEqualTo("attach importance to");
+        assertThat(appealRow.get("reason")).isEqualTo("更书面");
+
+        // appeal 同键重复 → 40900。
+        assertThatThrownBy(
+                        () ->
+                                practiceService.submitAppeal(
+                                        USER_ID, wrong.attemptId(), "slot:0", "再次", "重复提交"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.IDEMPOTENT_CONFLICT));
+
+        // PENDING appeal 不参与 overlay：排除仍只由 DISPUTE 决定（默认仍被排除，包含时 disputed=true）。
+        assertThat(practiceService.wrongQuestions(USER_ID, 1, 20, false, null, null).total())
+                .isZero();
+        PageResponse<WrongQuestionView> including =
+                practiceService.wrongQuestions(USER_ID, 1, 20, true, null, null);
+        assertThat(including.total()).isEqualTo(1L);
+        assertThat(including.items().get(0).annotations().get(0).disputed()).isTrue();
+
+        // FREE 整句批注 free:0 同样可申诉；reason 可空（契约未强制必填，库里落 NULL）。
+        AttemptCommand free =
+                new AttemptCommand(
+                        UUID.randomUUID().toString(),
+                        seeded.sentenceId(),
+                        String.valueOf(seeded.sentenceVersionId()),
+                        AttemptCommand.Mode.FREE,
+                        AttemptCommand.Kind.FIRST,
+                        null,
+                        new AnswerPayload(1, "FREE", null, "He is paying more and more attention."),
+                        0,
+                        1000,
+                        null);
+        AttemptView freeView = practiceService.submitAttempt(USER_ID, free);
+        AppealView freeDispute =
+                practiceService.submitDispute(USER_ID, freeView.attemptId(), "free:0", null);
+        assertThat(freeDispute.status()).isEqualTo("ACCEPTED");
+        String freeReason =
+                jdbcTemplate.queryForObject(
+                        "SELECT reason FROM appeals WHERE id = ?",
+                        String.class,
+                        freeDispute.appealId());
+        assertThat(freeReason).isNull();
+    }
+
+    /** 清空 practice 五表与内容表；append-only 触发器先摘后重建。 */
     private void cleanDatabase() {
         dropTriggers();
         jdbcTemplate.update("DELETE FROM review_logs");
@@ -835,7 +918,9 @@ class PracticeFlowIntegrationTest {
         return new AnswerPayload(
                 1,
                 "CLOZE",
-                List.of(new AnswerPayload.Slot(0, "He is paying less and less attention to this matter.")),
+                List.of(
+                        new AnswerPayload.Slot(
+                                0, "He is paying less and less attention to this matter.")),
                 null);
     }
 
@@ -846,8 +931,7 @@ class PracticeFlowIntegrationTest {
      * @return 行数
      */
     private long count(String table) {
-        Long value =
-                jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table, Long.class);
+        Long value = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table, Long.class);
         return value == null ? 0L : value;
     }
 }

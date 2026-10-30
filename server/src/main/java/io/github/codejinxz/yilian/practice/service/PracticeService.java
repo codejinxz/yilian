@@ -4,6 +4,7 @@ import io.github.codejinxz.yilian.common.api.PageResponse;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
 import io.github.codejinxz.yilian.practice.service.dto.GuestUpgradeCommand;
 import io.github.codejinxz.yilian.practice.service.vo.AccuracyView;
+import io.github.codejinxz.yilian.practice.service.vo.AppealView;
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
 import io.github.codejinxz.yilian.practice.service.vo.ErrorTagsView;
 import io.github.codejinxz.yilian.practice.service.vo.GuestUpgradeView;
@@ -42,6 +43,39 @@ public interface PracticeService {
      * @return 与提交响应同构的视图
      */
     AttemptView getAttempt(Long userId, String attemptId);
+
+    /**
+     * 提交批注申诉（「我觉得也对」）：M2 只记录 PENDING 待裁决，M3 接 LLM。
+     *
+     * <p>提交必须属于当前用户（40403 不存在 / 40300 非本人）；批注 key 必须存在于该提交 最新判分结果的批注列表（40000）；同一 (attempt, key,
+     * kind) 只能提交一次（40900）。
+     *
+     * @param userId 当前用户 id
+     * @param attemptId 提交 id
+     * @param annotationKey 批注键（slot:N / free:0）
+     * @param proposedAnswer 用户认为可接受的答案，可空
+     * @param reason 理由，可空
+     * @return 申诉回执（status=PENDING）
+     */
+    AppealView submitAppeal(
+            Long userId,
+            String attemptId,
+            String annotationKey,
+            String proposedAnswer,
+            String reason);
+
+    /**
+     * 提交不认同（「不认同」该批注）：立即 ACCEPTED，该批注从错题与统计按 overlay 排除， 不改题目内容。
+     *
+     * <p>归属与批注校验同 {@link #submitAppeal}；同一 (attempt, key, kind) 只能提交一次（40900）。
+     *
+     * @param userId 当前用户 id
+     * @param attemptId 提交 id
+     * @param annotationKey 批注键（slot:N / free:0）
+     * @param reason 理由，可空
+     * @return 回执（status=ACCEPTED）
+     */
+    AppealView submitDispute(Long userId, String attemptId, String annotationKey, String reason);
 
     /**
      * 取下一题：优先到期复习，其次新题；无可练题返回 null（客户端显示空状态）。

@@ -8,9 +8,12 @@ import io.github.codejinxz.yilian.common.ratelimit.RateLimit;
 import io.github.codejinxz.yilian.common.ratelimit.RateLimitDimension;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
+import io.github.codejinxz.yilian.practice.service.dto.AppealRequest;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
+import io.github.codejinxz.yilian.practice.service.dto.DisputeRequest;
 import io.github.codejinxz.yilian.practice.service.dto.PostponeRequest;
 import io.github.codejinxz.yilian.practice.service.dto.ReviewResetRequest;
+import io.github.codejinxz.yilian.practice.service.vo.AppealView;
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
 import io.github.codejinxz.yilian.practice.service.vo.NextPracticeView;
 import io.github.codejinxz.yilian.practice.service.vo.OverloadView;
@@ -128,6 +131,105 @@ public class PracticeController {
             @PathVariable String attemptId,
             @AuthenticationPrincipal YilianUserPrincipal principal) {
         return ApiResponse.success(practiceService.getAttempt(principal.id(), attemptId));
+    }
+
+    /**
+     * 提交批注申诉（「我觉得也对」）；M2 记录 PENDING，M3 接 LLM 裁决。
+     *
+     * @param attemptId 提交 id
+     * @param annotationKey 批注键（slot:N / free:0）
+     * @param request 建议答案与理由，均可空
+     * @param principal 当前用户
+     * @return 申诉回执
+     */
+    @Operation(
+            summary = "提交批注申诉",
+            description =
+                    "key 必须存在于该提交最新判分的批注列表（否则 40000）；同一 (attempt, key, kind)"
+                            + " 只能提交一次（40900）；M2 只记录 PENDING，不改判分与题目。")
+    @ApiResponses({
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "200",
+                description = "返回 AppealView（status=PENDING）"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "400",
+                description = "批注不存在或字段超长（40000）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "403",
+                description = "提交不属于当前用户（40300）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "404",
+                description = "答题记录不存在（40403）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "409",
+                description = "该批注已提交过同类记录（40900）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class)))
+    })
+    @PostMapping("/attempts/{attemptId}/annotations/{annotationKey}/appeal")
+    public ApiResponse<AppealView> submitAppeal(
+            @PathVariable String attemptId,
+            @PathVariable String annotationKey,
+            @Valid @RequestBody(required = false) AppealRequest request,
+            @AuthenticationPrincipal YilianUserPrincipal principal) {
+        return ApiResponse.success(
+                practiceService.submitAppeal(
+                        principal.id(),
+                        attemptId,
+                        annotationKey,
+                        request == null ? null : request.proposedAnswer(),
+                        request == null ? null : request.reason()));
+    }
+
+    /**
+     * 提交不认同（「不认同」该批注）：立即 ACCEPTED，错题与统计按 overlay 排除，不改题目。
+     *
+     * @param attemptId 提交 id
+     * @param annotationKey 批注键（slot:N / free:0）
+     * @param request 理由，可空
+     * @param principal 当前用户
+     * @return 回执
+     */
+    @Operation(
+            summary = "提交批注不认同",
+            description =
+                    "status=ACCEPTED、decided_by=USER：该批注立即从错题列表与考点统计排除；"
+                            + "规则可见、可撤销（重练改对即自然失效），不修改 sentence_versions。")
+    @ApiResponses({
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "200",
+                description = "返回 AppealView（status=ACCEPTED）"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "400",
+                description = "批注不存在或字段超长（40000）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "403",
+                description = "提交不属于当前用户（40300）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "404",
+                description = "答题记录不存在（40403）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "409",
+                description = "该批注已提交过同类记录（40900）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class)))
+    })
+    @PostMapping("/attempts/{attemptId}/annotations/{annotationKey}/dispute")
+    public ApiResponse<AppealView> submitDispute(
+            @PathVariable String attemptId,
+            @PathVariable String annotationKey,
+            @Valid @RequestBody(required = false) DisputeRequest request,
+            @AuthenticationPrincipal YilianUserPrincipal principal) {
+        return ApiResponse.success(
+                practiceService.submitDispute(
+                        principal.id(),
+                        attemptId,
+                        annotationKey,
+                        request == null ? null : request.reason()));
     }
 
     /**

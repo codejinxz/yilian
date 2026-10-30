@@ -57,7 +57,8 @@ public class Appeal {
     @Column(name = "proposed_answer", length = 255)
     private String proposedAnswer;
 
-    @Column(nullable = false, length = 500)
+    /** 理由；契约（API §6.4/§6.5）未强制必填，库里可空，故不标 nullable=false。 */
+    @Column(length = 500)
     private String reason;
 
     @Column(name = "created_at", nullable = false, updatable = false)

@@ -24,6 +24,7 @@ import io.github.codejinxz.yilian.practice.service.dto.AnswerPayload;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
 import io.github.codejinxz.yilian.practice.service.dto.GuestUpgradeCommand;
 import io.github.codejinxz.yilian.practice.service.vo.AccuracyView;
+import io.github.codejinxz.yilian.practice.service.vo.AppealView;
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
 import io.github.codejinxz.yilian.practice.service.vo.ErrorTagsView;
 import io.github.codejinxz.yilian.practice.service.vo.GuestUpgradeView;
@@ -42,6 +43,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 import java.security.MessageDigest;
@@ -255,6 +257,120 @@ public class PracticeServiceImpl implements PracticeService {
                         .orElse(null);
         int displayRating = rating == null ? 0 : rating;
         return buildView(attempt, detail, grading, result, review, displayRating, true);
+    }
+
+    @Override
+    @Transactional
+    public AppealView submitAppeal(
+            Long userId,
+            String attemptId,
+            String annotationKey,
+            String proposedAnswer,
+            String reason) {
+        return saveAppeal(
+                userId, attemptId, annotationKey, Appeal.AppealKind.APPEAL, proposedAnswer, reason);
+    }
+
+    @Override
+    @Transactional
+    public AppealView submitDispute(
+            Long userId, String attemptId, String annotationKey, String reason) {
+        return saveAppeal(
+                userId, attemptId, annotationKey, Appeal.AppealKind.DISPUTE, null, reason);
+    }
+
+    /**
+     * 申诉/不认同共用落库链路：归属校验 → 批注定位 → uk 预检 → 写 appeals。
+     *
+     * <p>uk_appeal_annotation 为 (attempt_id, annotation_key, kind)：APPEAL 与 DISPUTE 各自 可存一条；先查后插给友好
+     * 40900，并发兜底靠数据库唯一约束。
+     *
+     * @param userId 当前用户 id
+     * @param attemptId 提交 id
+     * @param annotationKey 批注键（slot:N / free:0）
+     * @param kind 记录类型
+     * @param proposedAnswer 建议答案，DISPUTE 恒为 null
+     * @param reason 理由，可空
+     * @return 回执视图
+     */
+    private AppealView saveAppeal(
+            Long userId,
+            String attemptId,
+            String annotationKey,
+            Appeal.AppealKind kind,
+            String proposedAnswer,
+            String reason) {
+        Attempt attempt =
+                attemptDao
+                        .findById(attemptId)
+                        .orElseThrow(() -> new BusinessException(ApiCode.ATTEMPT_NOT_FOUND));
+        if (!attempt.getUserId().equals(userId)) {
+            throw new BusinessException(ApiCode.ACCESS_DENIED);
+        }
+        GradingAnnotation annotation = requireAnnotation(attempt, annotationKey);
+        if (appealDao.findByAttemptAndKey(attemptId, annotationKey, kind).isPresent()) {
+            throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT);
+        }
+        Appeal appeal =
+                Appeal.create(
+                        attemptId,
+                        annotationKey,
+                        attempt.getSentenceId(),
+                        annotation.chunkIndex(),
+                        userId,
+                        kind,
+                        proposedAnswer,
+                        reason,
+                        Instant.now());
+        try {
+            appealDao.save(appeal);
+        } catch (DataIntegrityViolationException exception) {
+            // 并发同键插入撞 uk：与预检同义，按重复提交拒绝（幂等以数据库唯一约束为准）。
+            throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT);
+        }
+        // 所有自动化可见：status 由 kind 决定（DISPUTE 即时 ACCEPTED，APPEAL 留 PENDING）。
+        log.info(
+                "appeal_submitted userId={} attemptId={} key={} kind={} status={}",
+                userId,
+                attemptId,
+                annotationKey,
+                kind.name(),
+                kind == Appeal.AppealKind.DISPUTE ? "ACCEPTED" : "PENDING");
+        return new AppealView(
+                appeal.getId(),
+                kind == Appeal.AppealKind.DISPUTE ? "ACCEPTED" : "PENDING",
+                kind.name(),
+                annotationKey);
+    }
+
+    /**
+     * 批注定位：key 必须存在于该提交最新判分结果的批注列表，chunkIndex 从批注取。
+     *
+     * <p>判分缺失、result JSON 损坏或 key 未命中统一按「批注不存在」（40000）拒绝， 不把解析异常当 500 暴露。
+     *
+     * @param attempt 提交
+     * @param annotationKey 批注键
+     * @return 命中的批注
+     */
+    private GradingAnnotation requireAnnotation(Attempt attempt, String annotationKey) {
+        AttemptGrading grading = gradingDao.findLatestByAttemptId(attempt.getId()).orElse(null);
+        if (grading == null || grading.getResult() == null) {
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, "批注不存在");
+        }
+        GradingResult result;
+        try {
+            result = objectMapper.readValue(grading.getResult(), GradingResult.class);
+        } catch (JacksonException exception) {
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, "批注不存在");
+        }
+        if (result.annotations() != null) {
+            for (GradingAnnotation annotation : result.annotations()) {
+                if (annotationKey.equals(annotation.key())) {
+                    return annotation;
+                }
+            }
+        }
+        throw new BusinessException(ApiCode.VALIDATION_FAILED, "批注不存在");
     }
 
     /**

@@ -3,6 +3,7 @@ package io.github.codejinxz.yilian.upload.validation;
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import tools.jackson.databind.JsonNode;
@@ -18,14 +19,12 @@ import java.util.Map;
  *
  * <ul>
  *   <li>JSON：顶层是数组，或对象带 {@code items} 数组（对齐 mock 契约）；不是 JSON Lines；
- *   <li>CSV：首行表头 + 简单逗号分割；{@code chunks/blank/tags} 三列按 JSON 解析，
- *       解析失败保留原文本交由业务校验器报错（对齐 mock parseCsvRows）。
+ *   <li>CSV：首行表头 + 简单逗号分割；{@code chunks/blank/tags} 三列按 JSON 解析， 解析失败保留原文本交由业务校验器报错（对齐 mock
+ *       parseCsvRows）。
  * </ul>
  *
  * <p>解析只做形状；字段级业务校验由 {@link ImportBusinessValidator} 负责。
  */
-import org.springframework.beans.factory.annotation.Autowired;
-
 @Component
 public final class ImportRowParser {
 
@@ -105,7 +104,8 @@ public final class ImportRowParser {
         if (lines.size() < 2) {
             throw new BusinessException(ApiCode.MALFORMED_REQUEST, "CSV 至少需要表头与一行数据");
         }
-        List<String> headers = List.of(lines.getFirst().split(",", -1)).stream().map(String::trim).toList();
+        List<String> headers =
+                List.of(lines.getFirst().split(",", -1)).stream().map(String::trim).toList();
         List<ParsedRow> rows = new ArrayList<>(lines.size() - 1);
         int rowNo = 0;
         for (String line : lines.subList(1, lines.size())) {
