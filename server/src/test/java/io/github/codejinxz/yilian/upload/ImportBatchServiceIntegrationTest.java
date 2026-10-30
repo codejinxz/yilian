@@ -5,11 +5,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
+import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
 import io.github.codejinxz.yilian.content.service.ContentImportService;
 import io.github.codejinxz.yilian.content.service.dto.SentenceContent;
-import io.github.codejinxz.yilian.content.service.vo.SentencePage;
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
-import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
+import io.github.codejinxz.yilian.content.service.vo.SentencePage;
 import io.github.codejinxz.yilian.upload.dto.ImportBatchViewResponse;
 import io.github.codejinxz.yilian.upload.dto.ImportPreviewResponse;
 import io.github.codejinxz.yilian.upload.service.ImportBatchService;
@@ -34,9 +34,8 @@ import java.util.List;
 /**
  * 导入批次五端点服务层集成测试 [AC-1/2/3/5]：真实 MySQL + 真实本地对象存储。
  *
- * <p>覆盖 ACCEPTANCE #10（50 行 3 错 → 3 行标红 47 入库）、重复 commit 幂等、
- * 回滚后增量流 tombstone + 银行修订号递增、指纹重复 DUPLICATE_SENTENCE 与
- * commit 阶段唯一索引冲突（批次 FAILED + 40904）。测试库 yilian_test。
+ * <p>覆盖 ACCEPTANCE #10（50 行 3 错 → 3 行标红 47 入库）、重复 commit 幂等、 回滚后增量流 tombstone + 银行修订号递增、指纹重复
+ * DUPLICATE_SENTENCE 与 commit 阶段唯一索引冲突（批次 FAILED + 40904）。测试库 yilian_test。
  */
 @SpringBootTest(
         properties = {
@@ -50,7 +49,8 @@ class ImportBatchServiceIntegrationTest {
 
     private static final Timestamp T0 = Timestamp.valueOf(LocalDateTime.of(2026, 10, 30, 12, 0, 0));
 
-    private static final YilianUserPrincipal ADMIN = YilianUserPrincipal.of(9L, "it-importer", "ADMIN", false);
+    private static final YilianUserPrincipal ADMIN =
+            YilianUserPrincipal.of(9L, "it-importer", "ADMIN", false);
 
     @Autowired private ImportBatchService importBatchService;
 
@@ -77,7 +77,7 @@ class ImportBatchServiceIntegrationTest {
         registry.add("spring.datasource.password", () -> "123456");
     }
 
-    /** 用例后清掉批次与内容表，避免 RESTRICT 外键污染其他集成套件（AuthFlow 清 users）。 */
+    /** 用例后清掉批次与内容表，避免残留行污染其他集成套件（AuthFlow 清 users）。 */
     @AfterEach
     void cleanAfter() {
         jdbcTemplate.update("UPDATE sentences SET current_version_id = NULL");
@@ -96,7 +96,7 @@ class ImportBatchServiceIntegrationTest {
                         + " SET MESSAGE_TEXT = 'sentence_versions is immutable'");
     }
 
-    /** 清空内容与批次表（RESTRICT 外键按序删除），并幂等播种操作者。 */
+    /** 清空内容与批次表（V10 后为逻辑外键，按序删除仅为可读性约定），并幂等播种操作者。 */
     @BeforeEach
     void clean() {
         jdbcTemplate.update("DROP TRIGGER IF EXISTS trg_sentence_versions_no_update");
@@ -120,8 +120,7 @@ class ImportBatchServiceIntegrationTest {
         long bankId = seedBank();
         String json = fileJson(47, 3);
         ImportPreviewResponse preview =
-                importBatchService.preview(
-                        multipart("batch.json", json), bankId, "JSON", ADMIN);
+                importBatchService.preview(multipart("batch.json", json), bankId, "JSON", ADMIN);
 
         assertThat(preview.totalRows()).isEqualTo(50);
         assertThat(preview.validRows()).isEqualTo(47);
@@ -196,9 +195,7 @@ class ImportBatchServiceIntegrationTest {
                         "SELECT version FROM sentence_banks WHERE id = ?", Long.class, bankId);
         assertThat(bankVersion).isEqualTo(10L);
         SentencePage page = queryService.listSentences(bankId, 0, 50, null, false);
-        assertThat(page.items())
-                .filteredOn(item -> item.deleted())
-                .hasSize(5);
+        assertThat(page.items()).filteredOn(item -> item.deleted()).hasSize(5);
         // 重复回滚幂等返回（不再重复回收）。
         ImportBatchViewResponse again = importBatchService.rollback(batchId, "再滚一次", ADMIN);
         assertThat(again.status()).isEqualTo("ROLLED_BACK");
@@ -231,7 +228,8 @@ class ImportBatchServiceIntegrationTest {
                                                         .anyMatch(
                                                                 error ->
                                                                         error.code()
-                                                                                .equals("DUPLICATE_SENTENCE")))
+                                                                                .equals(
+                                                                                        "DUPLICATE_SENTENCE")))
                                         .isTrue());
 
         // commit 阶段冲突：先预览一批干净行，再直接落一条相同指纹的题目，commit 撞唯一索引。
@@ -239,8 +237,7 @@ class ImportBatchServiceIntegrationTest {
         seedConflictingSentence(bankId, 0);
         assertThatThrownBy(() -> importBatchService.commit(batchId, ADMIN))
                 .isInstanceOf(BusinessException.class);
-        ImportBatchViewResponse failed =
-                importBatchService.detail(batchId, 1, 20, null).batch();
+        ImportBatchViewResponse failed = importBatchService.detail(batchId, 1, 20, null).batch();
         assertThat(failed.status()).isEqualTo("FAILED");
     }
 
@@ -280,7 +277,10 @@ class ImportBatchServiceIntegrationTest {
      */
     private static MockMultipartFile multipart(String filename, String json) {
         return new MockMultipartFile(
-                "file", filename, "application/json", json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                "file",
+                filename,
+                "application/json",
+                json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     /**
@@ -293,7 +293,11 @@ class ImportBatchServiceIntegrationTest {
     private static String fileJson(int validRows, int invalidRows) {
         List<String> rows = new ArrayList<>();
         for (int index = 1; index <= validRows; index++) {
-            rows.add(rowJson("s_" + index, "第 " + index + " 句越来越常见。", "Sentence " + index + " is common."));
+            rows.add(
+                    rowJson(
+                            "s_" + index,
+                            "第 " + index + " 句越来越常见。",
+                            "Sentence " + index + " is common."));
         }
         for (int index = 1; index <= invalidRows; index++) {
             rows.add(rowJson("bad_" + index, "短", "Sentence " + index + " is common."));

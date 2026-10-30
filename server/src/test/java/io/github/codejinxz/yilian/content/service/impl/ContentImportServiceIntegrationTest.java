@@ -8,8 +8,8 @@ import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.content.service.ContentImportService;
 import io.github.codejinxz.yilian.content.service.ContentQueryService;
 import io.github.codejinxz.yilian.content.service.dto.SentenceContent;
-import io.github.codejinxz.yilian.content.service.vo.SentencePage;
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
+import io.github.codejinxz.yilian.content.service.vo.SentencePage;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,9 +32,8 @@ import java.util.Set;
 /**
  * {@link ContentImportService} 落库链路集成测试 [AC-4]：真实 MySQL + 悲观锁事务。
  *
- * <p>覆盖：逐行落库（PUBLISHED + 快照回填）、银行修订号「每题递增」（P1-1）、
- * 200 行 limit=50 拉满 4 页无丢行（分页回归）、指纹批内重复整批回滚、
- * DRAFT tombstone（P1-2，经增量流断言）。测试库 yilian_test，每用例清空内容三表。
+ * <p>覆盖：逐行落库（PUBLISHED + 快照回填）、银行修订号「每题递增」（P1-1）、 200 行 limit=50 拉满 4 页无丢行（分页回归）、指纹批内重复整批回滚、 DRAFT
+ * tombstone（P1-2，经增量流断言）。测试库 yilian_test，每用例清空内容三表。
  */
 @SpringBootTest(
         properties = {
@@ -202,7 +201,8 @@ class ContentImportServiceIntegrationTest {
                             "Sentence number " + index + " is increasingly common."));
         }
         seedImportBatch("batch-it-0003-0000-0000-000000000003");
-        contentImportService.importSentences(bankId, "batch-it-0003-0000-0000-000000000003", rows, 9L, T0.toInstant());
+        contentImportService.importSentences(
+                bankId, "batch-it-0003-0000-0000-000000000003", rows, 9L, T0.toInstant());
         // 最后一行降级为 DRAFT：增量流应回 tombstone 而不是内容或跳过（P1-2）。
         String draftSentenceId =
                 jdbcTemplate.queryForObject(
@@ -238,7 +238,7 @@ class ContentImportServiceIntegrationTest {
     }
 
     /**
-     * 播种真实导入批次（sentence_versions.import_batch_id 有 RESTRICT 外键，落库前批次必须存在）。
+     * 播种真实导入批次（V10 后为逻辑外键，但业务序仍是先有批次再落题目）。
      *
      * @param batchId 批次 id
      */
