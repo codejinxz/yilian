@@ -8,6 +8,8 @@ import io.github.codejinxz.yilian.common.api.ApiCode;
 
 import io.github.codejinxz.yilian.common.api.BusinessException;
 
+import io.github.codejinxz.yilian.common.api.PageResponse;
+
 import io.github.codejinxz.yilian.content.service.ContentImportService;
 
 import io.github.codejinxz.yilian.content.service.ContentQueryService;
@@ -29,6 +31,18 @@ import io.github.codejinxz.yilian.practice.service.dto.AnswerPayload;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
 
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
+
+import io.github.codejinxz.yilian.practice.service.vo.NextPracticeView;
+
+import io.github.codejinxz.yilian.practice.service.vo.OverloadView;
+
+import io.github.codejinxz.yilian.practice.service.vo.PostponeView;
+
+import io.github.codejinxz.yilian.practice.service.vo.ReviewCardView;
+
+import io.github.codejinxz.yilian.practice.service.vo.TodayView;
+
+import io.github.codejinxz.yilian.practice.service.vo.WrongQuestionView;
 
 import org.junit.jupiter.api.AfterEach;
 
@@ -59,6 +73,8 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 
 import java.time.temporal.ChronoUnit;
+
+import java.util.ArrayList;
 
 import java.util.List;
 
@@ -451,6 +467,189 @@ class PracticeFlowIntegrationTest {
         assertThat(view.result().annotations()).hasSize(1);
         assertThat(view.result().annotations().get(0).key()).isEqualTo("free:0");
         assertThat(view.review().rating()).isEqualTo(2);
+    }
+
+    /** [AC-5] today 本地日界数字 + wrong-questions 错题与 disputed overlay 过滤。 */
+    @Test
+    @DisplayName("[AC-5] today 数字与错题列表（含 disputed 过滤）")
+    void ac5_todayAndWrongQuestionsWithDisputedOverlay() {
+        AttemptCommand wrong = firstAttempt(wrongAnswer(), 1000);
+        AttemptView submitted = practiceService.submitAttempt(USER_ID, wrong);
+
+        // today：默认时区 Asia/Shanghai、目标 3；错题卡明天到期 → 今日 dueCount=0，correctRate=0。
+        TodayView today = practiceService.today(USER_ID);
+        assertThat(today.timezone()).isEqualTo("Asia/Shanghai");
+        assertThat(today.goal()).isEqualTo(3);
+        assertThat(today.dueCount()).isZero();
+        assertThat(today.doneCount()).isGreaterThanOrEqualTo(1L);
+        assertThat(today.correctRate()).isZero();
+        assertThat(today.streakDays()).isGreaterThanOrEqualTo(1);
+
+        // 卡到期时间拨到过去 → dueCount=1。
+        jdbcTemplate.update("UPDATE reviews SET due_at = DATE_SUB(NOW(6), INTERVAL 1 MINUTE)");
+        assertThat(practiceService.today(USER_ID).dueCount()).isEqualTo(1L);
+
+        // wrong-questions：1 条，批注带考点文案。
+        PageResponse<WrongQuestionView> wrongs =
+                practiceService.wrongQuestions(USER_ID, 1, 20, false, null, null);
+        assertThat(wrongs.total()).isEqualTo(1L);
+        WrongQuestionView item = wrongs.items().get(0);
+        assertThat(item.sentenceId()).isEqualTo(seeded.sentenceId());
+        assertThat(item.state()).isEqualTo("LEARNING");
+        assertThat(item.lastScore()).isEqualTo(submitted.score());
+        assertThat(item.lastAttemptId()).isEqualTo(wrong.attemptId());
+        assertThat(item.wrongCount()).isEqualTo(1L);
+        assertThat(item.zh()).isEqualTo("他越来越重视这件事情。");
+        assertThat(item.annotations()).hasSize(1);
+        assertThat(item.annotations().get(0).disputed()).isFalse();
+        assertThat(item.annotations().get(0).message()).isEqualTo("代词错误");
+
+        // 考点过滤与题库过滤命中。
+        assertThat(practiceService.wrongQuestions(USER_ID, 1, 20, false, null, "代词").total())
+                .isEqualTo(1L);
+        assertThat(practiceService.wrongQuestions(USER_ID, 1, 20, false, null, "时态").total())
+                .isZero();
+        assertThat(
+                        practiceService
+                                .wrongQuestions(
+                                        USER_ID, 1, 20, false, 9001L, null)
+                                .total())
+                .isEqualTo(1L);
+
+        // 直插 DISPUTE 行（appeal 端点在后续波次）：overlay 排除后错题不再出现。
+        jdbcTemplate.update(
+                "INSERT INTO appeals (attempt_id, annotation_key, sentence_id, chunk_index,"
+                        + " user_id, kind, status, reason, created_at, updated_at)"
+                        + " VALUES (?, 'slot:0', ?, 0, ?, 'DISPUTE', 'ACCEPTED', '我认为也对', NOW(6), NOW(6))",
+                wrong.attemptId(),
+                seeded.sentenceId(),
+                USER_ID);
+        assertThat(practiceService.wrongQuestions(USER_ID, 1, 20, false, null, null).total())
+                .isZero();
+        PageResponse<WrongQuestionView> including =
+                practiceService.wrongQuestions(USER_ID, 1, 20, true, null, null);
+        assertThat(including.total()).isEqualTo(1L);
+        assertThat(including.items().get(0).annotations().get(0).disputed()).isTrue();
+
+        // reviews 列表：LEARNING 1 张；reset 后 NEW 1 张且 dueCount 归零、不写 review_logs。
+        PageResponse<ReviewCardView> learning =
+                practiceService.reviews(USER_ID, 1, 20, "LEARNING", null, false);
+        assertThat(learning.total()).isEqualTo(1L);
+        Long reviewId = learning.items().get(0).id();
+        long logsBefore = count("review_logs");
+        ReviewCardView reset = practiceService.resetReview(USER_ID, reviewId, "想从头练");
+        assertThat(reset.state()).isEqualTo("NEW");
+        assertThat(reset.stability()).isZero();
+        assertThat(practiceService.reviews(USER_ID, 1, 20, "NEW", null, false).total())
+                .isEqualTo(1L);
+        assertThat(practiceService.today(USER_ID).dueCount()).isZero();
+        assertThat(count("review_logs")).isEqualTo(logsBefore);
+    }
+
+    /** [AC-5] next 选题：到期优先、新题次之、无题空态；overload/postpone 顺延口径。 */
+    @Test
+    @DisplayName("[AC-5] next 到期优先/新题次之 + overload/postpone")
+    void ac5_nextSelectionAndOverloadPostpone() {
+        // 无卡无提交：next 走新题，review=null。
+        NextPracticeView first = practiceService.next(USER_ID, null, null);
+        assertThat(first.selection()).isEqualTo("NEW");
+        assertThat(first.review()).isNull();
+        assertThat(first.sentence().id()).isEqualTo(seeded.sentenceId());
+
+        // FIRST 错 → s_0001 卡明天到期（未到期不入队列），next 转投第二题 NEW。
+        practiceService.submitAttempt(USER_ID, firstAttempt(wrongAnswer(), 1000));
+        NextPracticeView second = practiceService.next(USER_ID, null, null);
+        assertThat(second.selection()).isEqualTo("NEW");
+        assertThat(second.sentence().id()).isEqualTo(secondSeeded.sentenceId());
+
+        // 到期时间拨到过去 → next 走 DUE，返回该复习卡。
+        jdbcTemplate.update("UPDATE reviews SET due_at = DATE_SUB(NOW(6), INTERVAL 1 MINUTE)");
+        NextPracticeView due = practiceService.next(USER_ID, null, null);
+        assertThat(due.selection()).isEqualTo("DUE");
+        assertThat(due.sentence().id()).isEqualTo(seeded.sentenceId());
+        assertThat(due.review().state()).isEqualTo("LEARNING");
+
+        // 到期时间拨到过去：7 张到期卡 → postpone 保 5 顺延 2；overload 状态可见。
+        jdbcTemplate.update(
+                "INSERT INTO sentence_banks (id, owner_id, name, description, visibility, status,"
+                        + " version, published_at, created_by, updated_by, created_at, updated_at,"
+                        + " deleted_at, deleted_by)"
+                        + " VALUES (9002, NULL, '顺延测试题库', NULL, 'PUBLIC', 'PUBLISHED', 0, ?, NULL,"
+                        + " NULL, ?, ?, NULL, NULL)",
+                T0,
+                T0,
+                T0);
+        jdbcTemplate.update(
+                "INSERT INTO import_batches (id, bank_id, format, original_filename, storage_key,"
+                        + " content_hash, size_bytes, status, created_by, created_by_name, created_at)"
+                        + " VALUES (?, 9002, 'JSON', 'it.json', 'imports/it.json', ?, 1024,"
+                        + " 'COMMITTING', ?, 'admin', ?)",
+                "batch-it-0088-0000-0000-000000000088",
+                "a".repeat(64),
+                USER_ID,
+                T0);
+        List<SentenceContent> rows = new ArrayList<>();
+        for (int index = 1; index <= 7; index++) {
+            String zh = "顺延第" + index + "句越来越自然。";
+            String ref = "Postponed sentence number " + index + " reads increasingly naturally.";
+            rows.add(
+                    new SentenceContent(
+                            "s_p" + String.format("%03d", index),
+                            zh,
+                            ref,
+                            "这是顺延测试第 " + index + " 句的解析说明，长度满足要求。",
+                            List.of(new SentenceChunk(0, zh.substring(0, 1), List.of(ref), "句式", null)),
+                            List.of(0),
+                            List.of("句式"),
+                            null,
+                            null,
+                            null));
+        }
+        contentImportService.importSentences(
+                9002L,
+                "batch-it-0088-0000-0000-000000000088",
+                rows,
+                USER_ID,
+                T0.toInstant());
+        List<SentenceDetail> candidates =
+                contentQueryService.findPracticeCandidates(9002L, null, 20);
+        assertThat(candidates).hasSize(7);
+        for (SentenceDetail candidate : candidates) {
+            practiceService.submitAttempt(
+                    USER_ID,
+                    new AttemptCommand(
+                            UUID.randomUUID().toString(),
+                            candidate.id(),
+                            candidate.sentenceVersionId(),
+                            AttemptCommand.Mode.CLOZE,
+                            AttemptCommand.Kind.FIRST,
+                            null,
+                            new AnswerPayload(
+                                    1, "CLOZE", List.of(new AnswerPayload.Slot(0, "完全不对的内容")), null),
+                            0,
+                            1000,
+                            null));
+        }
+        // 到期时间拨到过去 → 8 张卡全部 due。
+        jdbcTemplate.update("UPDATE reviews SET due_at = DATE_SUB(NOW(6), INTERVAL 1 MINUTE)");
+
+        OverloadView overload = practiceService.overload(USER_ID);
+        assertThat(overload.dueCount()).isEqualTo(8L);
+        assertThat(overload.threshold()).isEqualTo(20);
+        assertThat(overload.pushLimit()).isEqualTo(5);
+        assertThat(overload.overload()).isFalse();
+
+        PostponeView postponed = practiceService.postpone(USER_ID, "今天做不完");
+        assertThat(postponed.kept()).isEqualTo(5L);
+        assertThat(postponed.postponed()).isEqualTo(3L);
+        assertThat(practiceService.overload(USER_ID).dueCount()).isEqualTo(5L);
+
+        // excludeSentenceId 生效：排除后新题选题跳过该句。
+        NextPracticeView excluded =
+                practiceService.next(USER_ID, 9002L, candidates.get(0).id());
+        if (excluded != null && excluded.selection().equals("NEW")) {
+            assertThat(excluded.sentence().id()).isNotEqualTo(candidates.get(0).id());
+        }
     }
 
     /**

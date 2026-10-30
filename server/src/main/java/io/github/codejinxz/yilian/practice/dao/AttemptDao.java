@@ -59,4 +59,23 @@ public interface AttemptDao {
      * @return 提交数
      */
     long countByUserBetween(Long userId, Instant start, Instant end);
+
+    /**
+     * 用户在时间区间内的全部提交（today/analytics 装配，V1 数据量小走内存聚合）。
+     *
+     * @param userId 用户 id
+     * @param start 起点（含，UTC）
+     * @param end 终点（不含，UTC）
+     * @return 提交列表，created_at 升序
+     */
+    List<Attempt> findByUserBetween(Long userId, Instant start, Instant end);
+
+    /**
+     * 用户最近 N 条提交（analytics.recent）。
+     *
+     * @param userId 用户 id
+     * @param limit 最多条数
+     * @return 提交列表，created_at 倒序
+     */
+    List<Attempt> findRecentByUser(Long userId, int limit);
 }

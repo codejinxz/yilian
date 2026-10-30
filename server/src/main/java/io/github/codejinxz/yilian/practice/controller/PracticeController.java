@@ -1,6 +1,12 @@
 package io.github.codejinxz.yilian.practice.controller;
 
+import io.github.codejinxz.yilian.common.api.ApiCode;
+
 import io.github.codejinxz.yilian.common.api.ApiResponse;
+
+import io.github.codejinxz.yilian.common.api.BusinessException;
+
+import io.github.codejinxz.yilian.common.api.PageResponse;
 
 import io.github.codejinxz.yilian.common.ratelimit.RateLimit;
 
@@ -12,7 +18,23 @@ import io.github.codejinxz.yilian.practice.service.PracticeService;
 
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
 
+import io.github.codejinxz.yilian.practice.service.dto.PostponeRequest;
+
+import io.github.codejinxz.yilian.practice.service.dto.ReviewResetRequest;
+
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
+
+import io.github.codejinxz.yilian.practice.service.vo.NextPracticeView;
+
+import io.github.codejinxz.yilian.practice.service.vo.OverloadView;
+
+import io.github.codejinxz.yilian.practice.service.vo.PostponeView;
+
+import io.github.codejinxz.yilian.practice.service.vo.ReviewCardView;
+
+import io.github.codejinxz.yilian.practice.service.vo.TodayView;
+
+import io.github.codejinxz.yilian.practice.service.vo.WrongQuestionView;
 
 import io.swagger.v3.oas.annotations.Operation;
 
@@ -38,6 +60,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 
 import org.springframework.web.bind.annotation.RequestMapping;
 
+import org.springframework.web.bind.annotation.RequestParam;
+
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -46,7 +70,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>提交接口按用户限流 60 次/分钟（离线攒批重放也在该额度内）；判分与排程全部在服务端完成，
  * 客户端本地判分只做即时反馈。
  */
-@Tag(name = "练习", description = "作答提交（判分 + FSRS 排程）与作答详情。")
+@Tag(name = "练习", description = "作答提交（判分 + FSRS 排程）、作答详情与复习队列外围。")
 @RestController
 @RequestMapping("/api/practice")
 public class PracticeController {
@@ -134,5 +158,165 @@ public class PracticeController {
             @PathVariable String attemptId,
             @AuthenticationPrincipal YilianUserPrincipal principal) {
         return ApiResponse.success(practiceService.getAttempt(principal.id(), attemptId));
+    }
+
+    /**
+     * 取下一题：优先到期复习，其次新题；没有可练题时 data=null（HTTP 200，不是 404）。
+     *
+     * @param bankId 题库过滤，可空
+     * @param mode 模式过滤（CLOZE/FREE）；Q1 一句一卡下选题不按模式区分，仅做取值校验
+     * @param excludeSentenceId 排除题目，可空
+     * @param principal 当前用户
+     * @return 下一题视图；无题时 data 为 null
+     */
+    @Operation(
+            summary = "取下一题",
+            description =
+                    "优先到期复习（selection=DUE），其次新题（selection=NEW）；"
+                            + "没有可练题时 data=null，客户端显示空状态。")
+    @GetMapping("/next")
+    public ApiResponse<NextPracticeView> next(
+            @RequestParam(required = false) Long bankId,
+            @RequestParam(required = false) String mode,
+            @RequestParam(name = "excludeSentenceId", required = false) String excludeSentenceId,
+            @AuthenticationPrincipal YilianUserPrincipal principal) {
+        requireValidMode(mode);
+        return ApiResponse.success(practiceService.next(principal.id(), bankId, excludeSentenceId));
+    }
+
+    /**
+     * 错题列表：LEARNING 卡 + 最近判分未全对；disputed 批注按参数过滤。
+     *
+     * @param page 页码
+     * @param size 每页大小
+     * @param includeDisputed 是否包含已被 DISPUTE 的批注，默认 false
+     * @param bankId 题库过滤，可空
+     * @param tag 考点过滤，可空
+     * @param principal 当前用户
+     * @return 分页错题
+     */
+    @Operation(summary = "错题列表", description = "按到期时间排序；includeDisputed=false 时排除已被用户「不认同」的批注。")
+    @GetMapping("/wrong-questions")
+    public ApiResponse<PageResponse<WrongQuestionView>> wrongQuestions(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(name = "includeDisputed", defaultValue = "false") boolean includeDisputed,
+            @RequestParam(required = false) Long bankId,
+            @RequestParam(required = false) String tag,
+            @AuthenticationPrincipal YilianUserPrincipal principal) {
+        requireValidPagination(page, size);
+        return ApiResponse.success(
+                practiceService.wrongQuestions(
+                        principal.id(), page, size, includeDisputed, bankId, tag));
+    }
+
+    /**
+     * 复习队列：按 dueAt 升序；可按三档状态/模式/是否到期过滤。
+     *
+     * @param page 页码
+     * @param size 每页大小
+     * @param state 三档状态过滤（NEW/LEARNING/MASTERED），可空
+     * @param mode 模式过滤，可空
+     * @param due true 时只看到期卡
+     * @param principal 当前用户
+     * @return 分页复习卡
+     */
+    @Operation(summary = "复习队列", description = "dueAt 升序；state 是三档投影（DATA-MODEL §8.4）。")
+    @GetMapping("/reviews")
+    public ApiResponse<PageResponse<ReviewCardView>> reviews(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String state,
+            @RequestParam(required = false) String mode,
+            @RequestParam(defaultValue = "false") boolean due,
+            @AuthenticationPrincipal YilianUserPrincipal principal) {
+        requireValidPagination(page, size);
+        requireValidMode(mode);
+        return ApiResponse.success(
+                practiceService.reviews(principal.id(), page, size, state, mode, due));
+    }
+
+    /**
+     * 重置复习卡为 NEW（「重新学」）；保留历史日志，不写 review_logs。
+     *
+     * @param reviewId 卡 id
+     * @param request 重置理由，可空
+     * @param principal 当前用户
+     * @return 重置后的卡视图
+     */
+    @Operation(summary = "重置复习卡", description = "state=NEW、清零排程痕迹；不写 review_logs，理由进结构化日志。")
+    @PostMapping("/reviews/{reviewId}/reset")
+    public ApiResponse<ReviewCardView> resetReview(
+            @PathVariable Long reviewId,
+            @Valid @RequestBody(required = false) ReviewResetRequest request,
+            @AuthenticationPrincipal YilianUserPrincipal principal) {
+        return ApiResponse.success(
+                practiceService.resetReview(
+                        principal.id(), reviewId, request == null ? null : request.reason()));
+    }
+
+    /**
+     * 积压降载状态：到期数超阈值时客户端只推最早到期的 pushLimit 道。
+     *
+     * @param principal 当前用户
+     * @return 降载视图
+     */
+    @Operation(summary = "积压降载状态", description = "overload=true 表示到期数超过阈值，取题只推 pushLimit 道。")
+    @GetMapping("/reviews/overload")
+    public ApiResponse<OverloadView> overload(
+            @AuthenticationPrincipal YilianUserPrincipal principal) {
+        return ApiResponse.success(practiceService.overload(principal.id()));
+    }
+
+    /**
+     * 顺延：把推送上限之外的到期卡整体推迟一天；用户动作，不写 review_logs。
+     *
+     * @param request 顺延理由，可空
+     * @param principal 当前用户
+     * @return 顺延结果
+     */
+    @Operation(summary = "顺延到期卡", description = "保留最早到期的 5 道，其余推迟一天；所有顺延可见、可撤销（重练即恢复）、有理由。")
+    @PostMapping("/reviews/postpone")
+    public ApiResponse<PostponeView> postpone(
+            @Valid @RequestBody(required = false) PostponeRequest request,
+            @AuthenticationPrincipal YilianUserPrincipal principal) {
+        return ApiResponse.success(
+                practiceService.postpone(
+                        principal.id(), request == null ? null : request.reason()));
+    }
+
+    /**
+     * 今日启动台数字：用户时区本地日界。
+     *
+     * @param principal 当前用户
+     * @return 今日概览
+     */
+    @Operation(summary = "今日概览", description = "dueCount/doneCount 按用户本地日界；streakDays 由 attempts 派生。")
+    @GetMapping("/today")
+    public ApiResponse<TodayView> today(@AuthenticationPrincipal YilianUserPrincipal principal) {
+        return ApiResponse.success(practiceService.today(principal.id()));
+    }
+
+    /**
+     * 分页参数白名单校验。
+     *
+     * @param page 页码
+     * @param size 每页大小
+     */
+    private void requireValidPagination(int page, int size) {
+        if (page < 1 || size < 1 || size > 100) {
+            throw new BusinessException(ApiCode.INVALID_PAGINATION);
+        }
+    }
+
+    /**
+     * mode 取值校验（CLOZE/FREE）；Q1 一句一卡下不参与选题，仅挡非法值。
+     *
+     * @param mode 模式字面量，可空
+     */
+    private void requireValidMode(String mode) {
+        if (mode != null && !mode.isBlank() && !"CLOZE".equals(mode) && !"FREE".equals(mode)) {
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, "mode 取值不合法");
+        }
     }
 }

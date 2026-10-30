@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.Instant;
 
+import java.util.List;
+
 import java.util.Optional;
 
 /** 提交 Spring Data 仓库，只允许同包 JpaAttemptDao 使用。 */
@@ -42,4 +44,23 @@ public interface AttemptJpaRepository extends JpaRepository<Attempt, String> {
      */
     long countByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
             Long userId, Instant start, Instant end);
+
+    /**
+     * 区间内全部提交（created_at 升序）。
+     *
+     * @param userId 用户 id
+     * @param start 起点
+     * @param end 终点
+     * @return 提交列表
+     */
+    List<Attempt> findByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtAsc(
+            Long userId, Instant start, Instant end);
+
+    /**
+     * 用户最近提交（时间倒序，取前 10 供 recent 投影裁剪）。
+     *
+     * @param userId 用户 id
+     * @return 提交列表
+     */
+    List<Attempt> findTop10ByUserIdOrderByCreatedAtDesc(Long userId);
 }

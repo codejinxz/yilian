@@ -8,6 +8,8 @@ import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 
+import java.util.List;
+
 import java.util.Optional;
 
 /** attempt Dao 的 JPA 实现。 */
@@ -48,5 +50,19 @@ public class JpaAttemptDao implements AttemptDao {
     public long countByUserBetween(Long userId, Instant start, Instant end) {
         return attempts.countByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
                 userId, start, end);
+    }
+
+    @Override
+    public List<Attempt> findByUserBetween(Long userId, Instant start, Instant end) {
+        return attempts.findByUserIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtAsc(
+                userId, start, end);
+    }
+
+    @Override
+    public List<Attempt> findRecentByUser(Long userId, int limit) {
+        return attempts.findTop10ByUserIdOrderByCreatedAtDesc(userId)
+                .stream()
+                .limit(limit)
+                .toList();
     }
 }

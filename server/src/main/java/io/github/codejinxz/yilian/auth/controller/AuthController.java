@@ -14,6 +14,9 @@ import io.github.codejinxz.yilian.common.logging.OperationLog;
 import io.github.codejinxz.yilian.common.ratelimit.RateLimit;
 import io.github.codejinxz.yilian.common.ratelimit.RateLimitDimension;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
+import io.github.codejinxz.yilian.practice.service.PracticeService;
+import io.github.codejinxz.yilian.practice.service.dto.GuestUpgradeCommand;
+import io.github.codejinxz.yilian.practice.service.vo.GuestUpgradeView;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
@@ -54,14 +57,22 @@ public class AuthController {
 
     private final CaptchaService captchaService;
 
+    private final PracticeService practiceService;
+
     /**
      * 只依赖 Service 接口，具体实现由 Spring 注入。
      *
      * @param authService 认证用例服务
+     * @param captchaService 图形验证码服务
+     * @param practiceService 练习用例服务（游客升级迁移用，跨模块只依赖接口）
      */
-    public AuthController(AuthService authService, CaptchaService captchaService) {
+    public AuthController(
+            AuthService authService,
+            CaptchaService captchaService,
+            PracticeService practiceService) {
         this.authService = authService;
         this.captchaService = captchaService;
+        this.practiceService = practiceService;
     }
 
     /**
@@ -358,5 +369,28 @@ public class AuthController {
     public ApiResponse<CurrentUserResponse> me(
             @AuthenticationPrincipal YilianUserPrincipal principal) {
         return ApiResponse.success(authService.currentUser(principal));
+    }
+
+    /**
+     * 游客升级：把本地未同步的提交批量迁入当前账号。
+     *
+     * <p>迁移属于练习域用例，经 practice 模块的 service 接口完成（跨模块只依赖接口）。
+     *
+     * @param command 迁移命令（≤100 条）
+     * @param principal 当前用户
+     * @return 迁移结果
+     */
+    @Operation(
+            summary = "游客升级：迁入本地提交",
+            description =
+                    "把游客期间攒在本机的 attempts 批量提交到账号；最多 100 条/次，"
+                            + "同 attemptId 同载荷跳过，异载荷返回 40903 且整体回滚。"
+                            + "迁移只落提交与判分记录，不触发 FSRS 排程。")
+    @RateLimit(scene = "guest-upgrade", dimensions = RateLimitDimension.ACCOUNT, limit = 5, windowSeconds = 3600)
+    @PostMapping("/guest-upgrade")
+    public ApiResponse<GuestUpgradeView> guestUpgrade(
+            @Valid @RequestBody GuestUpgradeCommand command,
+            @AuthenticationPrincipal YilianUserPrincipal principal) {
+        return ApiResponse.success(practiceService.guestUpgrade(principal.id(), command));
     }
 }

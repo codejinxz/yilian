@@ -260,6 +260,13 @@ public class Review {
     }
 
     /**
+     * 顺延一天（降载推送范围外的到期卡整体后移；非 FSRS 排程事件，不写 review_logs）。
+     */
+    public void postponeOneDay() {
+        this.dueAt = this.dueAt.plusSeconds(86_400);
+    }
+
+    /**
      * 主键。
      *
      * @return 自增 id
