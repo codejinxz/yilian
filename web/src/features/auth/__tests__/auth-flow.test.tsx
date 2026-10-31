@@ -255,6 +255,9 @@ describe("auth flow", () => {
   });
 
   it("renders the 403 screen for a signed-in non-admin opening admin routes", async () => {
+    // 管理区已并入壳层：壳层定级门在管理门之前生效，未定级访问会先被引去 /placement；
+    // 预置已定级状态让本用例继续聚焦管理门自身的 403 分流（游客重定向由上一用例覆盖）。
+    markPlaced();
     setAccessToken("access-token");
     vi.stubGlobal(
       "fetch",

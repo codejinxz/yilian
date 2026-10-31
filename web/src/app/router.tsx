@@ -116,7 +116,8 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
  * 登录/注册/定级与全部用户页面一样在壳层内渲染（三页都有完整顶栏 + view + 页脚）；
  * 进入前检查本地定级状态——未定级（placed !== true）一律先去 /placement，
  * 定级门显式放行 /placement 自身，因此首次进入不会在定级页上死循环。
- * 用 pathless（只声明 id、不声明 path）挂载，不产生独立 URL；管理页不并入壳层（AdminLayout 自带框架）。
+ * 用 pathless（只声明 id、不声明 path）挂载，不产生独立 URL；管理端（/admin）也并入本壳层
+ * （adminGateRoute 挂在其下），管理页与用户页面共用同一 .page/.view 内容区。
  */
 const shellRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -280,11 +281,14 @@ const settingsRoute = createRoute({
 });
 
 /**
- * 管理端门路由：进入前必须能确认当前用户——me 查询失败（未登录、token 失效或后端不可用）
- * 一律按未登录处理重定向登录页，管理门不崩溃也不放行；角色分流由 AdminGate 组件完成。
+ * 管理端门路由（pathless，挂在壳层之下）：进入前必须能确认当前用户——me 查询失败
+ * （未登录、token 失效或后端不可用）一律按未登录处理重定向登录页，管理门不崩溃也不放行；
+ * 角色分流由 AdminGate 组件完成。壳层定级门在本门之前生效：未定级的管理员同样先去定级
+ * （管理员也是学习者，不做特例放行）。注意 createRoute 会立刻执行 getParentRoute，
+ * 因此本定义必须位于 shellRoute 之后。
  */
 const adminGateRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => shellRoute,
   id: "admin",
   component: AdminGate,
   pendingComponent: RoutePending,
@@ -300,7 +304,8 @@ const adminGateRoute = createRoute({
 });
 
 /**
- * 管理端唯一路由（#/admin 单页 + ?tab= 页签参数，不产生独立子路由）。
+ * 管理端唯一路由（#/admin 单页 + ?tab= 页签参数，不产生独立子路由），渲染于壳层内容区
+ * （AdminLayout 不再自带框架，.page/.view 由壳层提供）。
  * 页头九页签由 AdminLayout 切换本路由的 search 并按 tab 条件渲染对应组件；
  * validateSearch 只放行八个非缺省页签，概览是缺省页（/admin 不带参数），非法值丢弃落回概览。
  */
@@ -316,8 +321,9 @@ const adminRoute = createRoute({
 });
 
 /**
- * 完整路由树。壳层包住全部用户页面（登录/注册/定级 + 今日/练习/复习/统计/设置），
- * 管理区（/admin）单独挂在管理门之下：壳层布局包住用户页面，管理门包住管理页面。
+ * 完整路由树。壳层包住全部页面：登录/注册/定级 + 今日/练习/复习/统计/设置，
+ * 管理区（/admin）也并入壳层——管理门（pathless）挂在壳层之下包住管理单页，
+ * 未确认身份的访问在管理门被重定向登录页，壳层定级门对管理员同样生效。
  * 管理端是单页九页签（页签即 /admin 的 search 参数），导入是题库页签内的一段，不再有独立路由。
  */
 export const routeTree = rootRoute.addChildren([
@@ -331,8 +337,8 @@ export const routeTree = rootRoute.addChildren([
     reviewRoute,
     statsRoute,
     settingsRoute,
+    adminGateRoute.addChildren([adminRoute]),
   ]),
-  adminGateRoute.addChildren([adminRoute]),
 ]);
 
 /**
