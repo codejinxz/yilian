@@ -3,51 +3,30 @@ package io.github.codejinxz.yilian.practice.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.codejinxz.yilian.content.service.ContentImportService;
-
 import io.github.codejinxz.yilian.content.service.ContentQueryService;
-
 import io.github.codejinxz.yilian.content.service.dto.ImportedSentence;
-
 import io.github.codejinxz.yilian.content.service.dto.SentenceContent;
-
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
-
 import io.github.codejinxz.yilian.practice.service.PracticeService;
-
 import io.github.codejinxz.yilian.practice.service.dto.AnswerPayload;
-
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
-
 import io.github.codejinxz.yilian.practice.service.vo.AccuracyView;
-
 import io.github.codejinxz.yilian.practice.service.vo.ErrorTagsView;
 
 import org.junit.jupiter.api.AfterEach;
-
 import org.junit.jupiter.api.BeforeEach;
-
 import org.junit.jupiter.api.DisplayName;
-
 import org.junit.jupiter.api.Test;
-
 import org.springframework.beans.factory.annotation.Autowired;
-
 import org.springframework.boot.test.context.SpringBootTest;
-
 import org.springframework.jdbc.core.JdbcTemplate;
-
 import org.springframework.test.context.ActiveProfiles;
-
 import org.springframework.test.context.DynamicPropertyRegistry;
-
 import org.springframework.test.context.DynamicPropertySource;
 
 import java.sql.Timestamp;
-
 import java.time.LocalDateTime;
-
 import java.util.List;
-
 import java.util.UUID;
 
 /**
@@ -183,9 +162,7 @@ class AnalyticsIntegrationTest {
         assertThat(afterDispute.items()).isEmpty();
     }
 
-    /**
-     * 清空 practice 五表与内容表；append-only 触发器先摘后重建。
-     */
+    /** 清空 practice 五表与内容表；append-only 触发器先摘后重建。 */
     private void cleanDatabase() {
         dropTriggers();
         jdbcTemplate.update("DELETE FROM review_logs");
@@ -208,12 +185,32 @@ class AnalyticsIntegrationTest {
         String[][] triggers = {
             {"trg_attempts_no_update", "attempts", "UPDATE", "attempts is append-only"},
             {"trg_attempts_no_delete", "attempts", "DELETE", "attempts is append-only"},
-            {"trg_attempt_gradings_no_update", "attempt_gradings", "UPDATE", "attempt_gradings is append-only"},
-            {"trg_attempt_gradings_no_delete", "attempt_gradings", "DELETE", "attempt_gradings is append-only"},
+            {
+                "trg_attempt_gradings_no_update",
+                "attempt_gradings",
+                "UPDATE",
+                "attempt_gradings is append-only"
+            },
+            {
+                "trg_attempt_gradings_no_delete",
+                "attempt_gradings",
+                "DELETE",
+                "attempt_gradings is append-only"
+            },
             {"trg_review_logs_no_update", "review_logs", "UPDATE", "review_logs is append-only"},
             {"trg_review_logs_no_delete", "review_logs", "DELETE", "review_logs is append-only"},
-            {"trg_sentence_versions_no_update", "sentence_versions", "UPDATE", "sentence_versions is immutable"},
-            {"trg_sentence_versions_no_delete", "sentence_versions", "DELETE", "sentence_versions is immutable"}
+            {
+                "trg_sentence_versions_no_update",
+                "sentence_versions",
+                "UPDATE",
+                "sentence_versions is immutable"
+            },
+            {
+                "trg_sentence_versions_no_delete",
+                "sentence_versions",
+                "DELETE",
+                "sentence_versions is immutable"
+            }
         };
         for (String[] trigger : triggers) {
             jdbcTemplate.update("DROP TRIGGER IF EXISTS " + trigger[0]);
@@ -225,12 +222,32 @@ class AnalyticsIntegrationTest {
         String[][] triggers = {
             {"trg_attempts_no_update", "attempts", "UPDATE", "attempts is append-only"},
             {"trg_attempts_no_delete", "attempts", "DELETE", "attempts is append-only"},
-            {"trg_attempt_gradings_no_update", "attempt_gradings", "UPDATE", "attempt_gradings is append-only"},
-            {"trg_attempt_gradings_no_delete", "attempt_gradings", "DELETE", "attempt_gradings is append-only"},
+            {
+                "trg_attempt_gradings_no_update",
+                "attempt_gradings",
+                "UPDATE",
+                "attempt_gradings is append-only"
+            },
+            {
+                "trg_attempt_gradings_no_delete",
+                "attempt_gradings",
+                "DELETE",
+                "attempt_gradings is append-only"
+            },
             {"trg_review_logs_no_update", "review_logs", "UPDATE", "review_logs is append-only"},
             {"trg_review_logs_no_delete", "review_logs", "DELETE", "review_logs is append-only"},
-            {"trg_sentence_versions_no_update", "sentence_versions", "UPDATE", "sentence_versions is immutable"},
-            {"trg_sentence_versions_no_delete", "sentence_versions", "DELETE", "sentence_versions is immutable"}
+            {
+                "trg_sentence_versions_no_update",
+                "sentence_versions",
+                "UPDATE",
+                "sentence_versions is immutable"
+            },
+            {
+                "trg_sentence_versions_no_delete",
+                "sentence_versions",
+                "DELETE",
+                "sentence_versions is immutable"
+            }
         };
         for (String[] trigger : triggers) {
             jdbcTemplate.update(

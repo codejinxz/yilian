@@ -370,6 +370,157 @@ class AuthFlowIntegrationTest {
         assertThat(adminPath.body()).contains("\"code\":40300");
     }
 
+    /** 注册即登录：邀请制关闭（local 默认）时无邀请码可注册，返回 USER 角色 access token； /me 能用新 token 读回新账号。 */
+    @Test
+    void registerCreatesUserAndIssuesTokens() throws Exception {
+        HttpClient client = newClient();
+        String csrf = csrfToken(client);
+
+        HttpResponse<String> register =
+                send(
+                        client,
+                        "POST",
+                        "/api/auth/register",
+                        Map.of(
+                                "email",
+                                "register-learner@example.com",
+                                "username",
+                                "registerlearner",
+                                "password",
+                                "register-password"),
+                        Map.of("X-XSRF-TOKEN", csrf));
+        assertThat(register.statusCode()).as("register body=%s", register.body()).isEqualTo(200);
+        assertThat(register.body()).contains("\"code\":0");
+        assertThat(register.body()).contains("\"role\":\"USER\"");
+        assertThat(register.body()).contains("\"username\":\"registerlearner\"");
+
+        String accessToken = accessToken(register.body());
+        HttpResponse<String> me =
+                get(client, "/api/auth/me", Map.of("Authorization", bearer(accessToken)));
+        assertThat(me.statusCode()).isEqualTo(200);
+        assertThat(me.body()).contains("\"username\":\"registerlearner\"");
+        assertThat(me.body()).contains("\"passwordChanged\":true");
+
+        // 重复注册同一邮箱按 409 收敛为统一信封，不重复建号。
+        HttpClient duplicateClient = newClient();
+        String nextCsrf = csrfToken(duplicateClient);
+        HttpResponse<String> duplicate =
+                send(
+                        duplicateClient,
+                        "POST",
+                        "/api/auth/register",
+                        Map.of(
+                                "email",
+                                "register-learner@example.com",
+                                "username",
+                                "anotherlearner",
+                                "password",
+                                "register-password"),
+                        Map.of("X-XSRF-TOKEN", nextCsrf));
+        assertThat(duplicate.statusCode()).isEqualTo(409);
+        assertThat(duplicate.body()).contains("\"code\":40901");
+    }
+
+    /** 注册参数校验：非法邮箱按 40000 收敛为统一信封，不建号。 */
+    @Test
+    void registerRejectsInvalidEmailWith400() throws Exception {
+        HttpClient client = newClient();
+        String csrf = csrfToken(client);
+
+        HttpResponse<String> response =
+                send(
+                        client,
+                        "POST",
+                        "/api/auth/register",
+                        Map.of("email", "not-an-email", "password", "register-password"),
+                        Map.of("X-XSRF-TOKEN", csrf));
+
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("\"code\":40000");
+        assertThat(response.body()).contains("errors");
+    }
+
+    /** 改密链路：当前密码错误 401；改密成功后旧 refresh 会话被吊销、旧密码失效、新密码可登录。 */
+    @Test
+    void changePasswordRevokesSessionsAndInvalidatesOldPassword() throws Exception {
+        HttpClient client = newClient();
+        String csrf = csrfToken(client);
+        HttpResponse<String> login =
+                send(
+                        client,
+                        "POST",
+                        "/api/auth/login",
+                        Map.of("username", "admin", "password", TEST_ADMIN_PASSWORD),
+                        Map.of("X-XSRF-TOKEN", csrf));
+        assertThat(login.statusCode()).isEqualTo(200);
+        String accessToken = accessToken(login.body());
+
+        // 当前密码不正确：401 与统一文案（不区分账号不存在/密码错误）。
+        csrf = csrfToken(client);
+        HttpResponse<String> wrongCurrent =
+                send(
+                        client,
+                        "PUT",
+                        "/api/auth/password",
+                        Map.of(
+                                "currentPassword",
+                                "wrong-current-password",
+                                "newPassword",
+                                "changed-password-9"),
+                        Map.of("X-XSRF-TOKEN", csrf, "Authorization", bearer(accessToken)));
+        assertThat(wrongCurrent.statusCode()).isEqualTo(401);
+        assertThat(wrongCurrent.body()).contains("\"code\":40101");
+
+        // 改密成功：吊销该用户全部 refresh 会话。
+        csrf = csrfToken(client);
+        HttpResponse<String> changed =
+                send(
+                        client,
+                        "PUT",
+                        "/api/auth/password",
+                        Map.of(
+                                "currentPassword",
+                                TEST_ADMIN_PASSWORD,
+                                "newPassword",
+                                "changed-password-9"),
+                        Map.of("X-XSRF-TOKEN", csrf, "Authorization", bearer(accessToken)));
+        assertThat(changed.statusCode()).as("change body=%s", changed.body()).isEqualTo(200);
+        assertThat(changed.body()).contains("\"code\":0");
+        assertThat(changed.body()).contains("密码已更新");
+
+        // 旧 refresh 会话已吊销：携带改密前 Cookie 的刷新请求必须 401。
+        String csrfAfterChange = csrfToken(client);
+        HttpResponse<String> refreshAfterChange =
+                post(client, "/api/auth/refresh", null, Map.of("X-XSRF-TOKEN", csrfAfterChange));
+        assertThat(refreshAfterChange.statusCode()).isEqualTo(401);
+        assertThat(refreshAfterChange.body()).contains("\"code\":40100");
+
+        // 旧密码失效、新密码可登录。
+        HttpClient oldPasswordClient = newClient();
+        String freshCsrf = csrfToken(oldPasswordClient);
+        HttpResponse<String> loginWithOldPassword =
+                send(
+                        oldPasswordClient,
+                        "POST",
+                        "/api/auth/login",
+                        Map.of("username", "admin", "password", TEST_ADMIN_PASSWORD),
+                        Map.of("X-XSRF-TOKEN", freshCsrf));
+        assertThat(loginWithOldPassword.statusCode()).isEqualTo(401);
+        assertThat(loginWithOldPassword.body()).contains("\"code\":40101");
+
+        HttpClient newPasswordClient = newClient();
+        String newCsrf = csrfToken(newPasswordClient);
+        HttpResponse<String> loginWithNewPassword =
+                send(
+                        newPasswordClient,
+                        "POST",
+                        "/api/auth/login",
+                        Map.of("username", "admin", "password", "changed-password-9"),
+                        Map.of("X-XSRF-TOKEN", newCsrf));
+        assertThat(loginWithNewPassword.statusCode()).isEqualTo(200);
+        assertThat(loginWithNewPassword.body()).contains("\"code\":0");
+    }
+
     private HttpClient newClient() {
         CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
         return HttpClient.newBuilder()

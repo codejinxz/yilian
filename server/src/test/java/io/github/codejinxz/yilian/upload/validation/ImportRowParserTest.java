@@ -7,14 +7,11 @@ import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * 导入行解析器单测：JSON 数组/{items} 双形态、CSV 表头解析、行数上限与形状错误。
- */
+/** 导入行解析器单测：JSON 数组/{items} 双形态、CSV 表头解析、行数上限与形状错误。 */
 class ImportRowParserTest {
 
     private ImportRowParser parser;
@@ -29,8 +26,7 @@ class ImportRowParserTest {
     void parsesJsonArray() {
         var rows =
                 parser.parse(
-                        "JSON",
-                        "[{\"externalKey\":\"a1\",\"zh\":\"第一句测试。\"},{\"zh\":\"第二句测试。\"}]");
+                        "JSON", "[{\"externalKey\":\"a1\",\"zh\":\"第一句测试。\"},{\"zh\":\"第二句测试。\"}]");
 
         assertThat(rows).hasSize(2);
         assertThat(rows.getFirst().rowNo()).isEqualTo(1);
@@ -54,7 +50,9 @@ class ImportRowParserTest {
         assertThatThrownBy(() -> parser.parse("JSON", "{\"zh\":\"对象但无数组\"}"))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
-                        exception -> assertThat(exception.apiCode()).isEqualTo(ApiCode.MALFORMED_REQUEST));
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.MALFORMED_REQUEST));
     }
 
     /** JSON 语法错误：40001。 */
@@ -71,7 +69,7 @@ class ImportRowParserTest {
                 parser.parse(
                         "CSV",
                         "externalKey,zh,ref,note,blank,tags\n"
-                            + "s_1,第一句测试。,First test sentence here.,这是解析说明满足二十字的最低长度要求。,[0],[\"代词\"]");
+                                + "s_1,第一句测试。,First test sentence here.,这是解析说明满足二十字的最低长度要求。,[0],[\"代词\"]");
 
         assertThat(rows).hasSize(1);
         assertThat(rows.getFirst().rawJson()).contains("第一句测试。");
@@ -84,7 +82,9 @@ class ImportRowParserTest {
         assertThatThrownBy(() -> parser.parse("CSV", "zh,ref,note"))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
-                        exception -> assertThat(exception.apiCode()).isEqualTo(ApiCode.MALFORMED_REQUEST));
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.MALFORMED_REQUEST));
     }
 
     /** 超过 2000 行上限：40000。 */
@@ -102,6 +102,8 @@ class ImportRowParserTest {
         assertThatThrownBy(() -> parser.parse("JSON", json.toString()))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
-                        exception -> assertThat(exception.apiCode()).isEqualTo(ApiCode.VALIDATION_FAILED));
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.VALIDATION_FAILED));
     }
 }

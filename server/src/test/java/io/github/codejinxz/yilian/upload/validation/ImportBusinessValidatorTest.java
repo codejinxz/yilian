@@ -4,22 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.codejinxz.yilian.upload.dto.ImportRowError;
 
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-import java.util.List;
-
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
-import io.github.codejinxz.yilian.common.api.ApiCode;
-import io.github.codejinxz.yilian.common.api.BusinessException;
-
-/**
- * 导入行业务校验器单测：字段级错误码逐项对齐 mock 契约 + tags 1–5。
- */
+/** 导入行业务校验器单测：字段级错误码逐项对齐 mock 契约 + tags 1–5。 */
 class ImportBusinessValidatorTest {
 
     private final ImportBusinessValidator validator = new ImportBusinessValidator();
@@ -44,10 +34,20 @@ class ImportBusinessValidatorTest {
     /** 长度类错误：ZH/REF/NOTE 三个码命中。 */
     @Test
     void lengthViolationsHitThreeCodes() {
-        var errors = validator.validate(row("{\"zh\":\"短\",\"ref\":\"短句\",\"note\":\"太短\",\"chunks\":[],\"tags\":[]}"));
+        var errors =
+                validator.validate(
+                        row(
+                                "{\"zh\":\"短\",\"ref\":\"短句\",\"note\":\"太短\",\"chunks\":[],\"tags\":[]}"));
 
-        assertThat(errors).extracting(ImportRowError::code)
-                .contains("ZH_LENGTH_INVALID", "REF_LENGTH_INVALID", "NOTE_TOO_SHORT", "CHUNKS_EMPTY", "BLANK_EMPTY", "TAGS_COUNT_INVALID");
+        assertThat(errors)
+                .extracting(ImportRowError::code)
+                .contains(
+                        "ZH_LENGTH_INVALID",
+                        "REF_LENGTH_INVALID",
+                        "NOTE_TOO_SHORT",
+                        "CHUNKS_EMPTY",
+                        "BLANK_EMPTY",
+                        "TAGS_COUNT_INVALID");
     }
 
     /** blank 下标不存在与 CHUNK_REF_MISMATCH。 */
@@ -61,7 +61,8 @@ class ImportBusinessValidatorTest {
                                         + "\"chunks\":[{\"index\":0,\"zh\":\"他\",\"answers\":[\"He cares more and more.\"],\"tag\":\"代词\"}],"
                                         + "\"blank\":[5],\"tags\":[\"代词\"]}"));
 
-        assertThat(errors).extracting(ImportRowError::code)
+        assertThat(errors)
+                .extracting(ImportRowError::code)
                 .contains("BLANK_INDEX_INVALID", "CHUNK_REF_MISMATCH");
     }
 

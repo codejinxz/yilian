@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
+import io.github.codejinxz.yilian.common.api.PageResponse;
 import io.github.codejinxz.yilian.common.logging.ErrorLogRecorder;
 import io.github.codejinxz.yilian.common.ratelimit.RateLimit;
 import io.github.codejinxz.yilian.common.security.PasswordChangeRequiredInterceptor;
@@ -22,12 +23,19 @@ import io.github.codejinxz.yilian.common.security.RestAccessDeniedHandler;
 import io.github.codejinxz.yilian.common.security.RestAuthenticationEntryPoint;
 import io.github.codejinxz.yilian.common.security.SecurityConfig;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
+import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
+import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 import io.github.codejinxz.yilian.practice.grading.GradingResult;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
 import io.github.codejinxz.yilian.practice.service.vo.AppealView;
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
+import io.github.codejinxz.yilian.practice.service.vo.NextPracticeView;
+import io.github.codejinxz.yilian.practice.service.vo.OverloadView;
+import io.github.codejinxz.yilian.practice.service.vo.PostponeView;
+import io.github.codejinxz.yilian.practice.service.vo.ReviewCardView;
 import io.github.codejinxz.yilian.practice.service.vo.TodayView;
+import io.github.codejinxz.yilian.practice.service.vo.WrongQuestionView;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +48,7 @@ import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequ
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -326,5 +335,301 @@ class PracticeControllerTest {
         org.assertj.core.api.Assertions.assertThat(rateLimit.dimensions())
                 .containsExactly(
                         io.github.codejinxz.yilian.common.ratelimit.RateLimitDimension.ACCOUNT);
+    }
+
+    /**
+     * next 成功：bankId/excludeSentenceId 透传，mode 仅做取值校验不参与选题（Q1 一句一卡），信封承载 sentence/review/selection。
+     */
+    @Test
+    void nextForwardsFiltersAndReturnsSelectionEnvelope() throws Exception {
+        when(practiceService.next(7L, 1L, "01JSENTENCE"))
+                .thenReturn(
+                        new NextPracticeView(
+                                publishedSentence(), reviewCard(10L, "LEARNING"), "DUE"));
+        mockMvc.perform(
+                        get("/api/practice/next")
+                                .queryParam("bankId", "1")
+                                .queryParam("mode", "CLOZE")
+                                .queryParam("excludeSentenceId", "01JSENTENCE")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.sentence.id").value("01JPUBLIS000000000000000000C"))
+                .andExpect(jsonPath("$.data.sentence.zh").value("他越来越重视这件事。"))
+                .andExpect(jsonPath("$.data.review.id").value(10))
+                .andExpect(jsonPath("$.data.selection").value("DUE"));
+        // mode 通过取值校验但不透传 Service（一句一卡下不参与选题）。
+        verify(practiceService).next(7L, 1L, "01JSENTENCE");
+    }
+
+    /** next 的 mode 非法取值：40000 拦在 Controller，不触达 Service。 */
+    @Test
+    void nextRejectsInvalidMode() throws Exception {
+        mockMvc.perform(
+                        get("/api/practice/next")
+                                .queryParam("mode", "SPAM")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ApiCode.VALIDATION_FAILED.code()));
+        verifyNoInteractions(practiceService);
+    }
+
+    /** 作答详情成功与 404 映射：200 信封同提交响应同构；40403 答题记录不存在透传为 404。 */
+    @Test
+    void getAttemptReturnsDetailAndMapsNotFound() throws Exception {
+        when(practiceService.getAttempt(7L, "a1"))
+                .thenReturn(
+                        new AttemptView(
+                                "3f0e8e50-6b1d-4e0f-9d3a-5f2c1b9e0001",
+                                "01JSENTENCE",
+                                "1001",
+                                "CLOZE",
+                                "FIRST",
+                                80,
+                                100,
+                                new GradingResult(1, 80, 100, 4, 5, List.of(), "还差 1 处"),
+                                null,
+                                null,
+                                null,
+                                null,
+                                false));
+        mockMvc.perform(
+                        get("/api/practice/attempts/{attemptId}", "a1")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(
+                        jsonPath("$.data.attemptId").value("3f0e8e50-6b1d-4e0f-9d3a-5f2c1b9e0001"))
+                .andExpect(jsonPath("$.data.score").value(80))
+                .andExpect(jsonPath("$.data.maxScore").value(100))
+                .andExpect(jsonPath("$.data.result.summary").value("还差 1 处"));
+
+        when(practiceService.getAttempt(7L, "a2"))
+                .thenThrow(new BusinessException(ApiCode.ATTEMPT_NOT_FOUND));
+        mockMvc.perform(
+                        get("/api/practice/attempts/{attemptId}", "a2")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(ApiCode.ATTEMPT_NOT_FOUND.code()));
+    }
+
+    /** 错题列表成功：PageResponse 信封，批注带 disputed 覆盖层与最近分数。 */
+    @Test
+    void wrongQuestionsReturnsPagedEnvelope() throws Exception {
+        when(practiceService.wrongQuestions(7L, 1, 20, false, null, null))
+                .thenReturn(
+                        PageResponse.of(
+                                List.of(
+                                        new WrongQuestionView(
+                                                "01JSENTENCE",
+                                                "CLOZE",
+                                                "LEARNING",
+                                                Instant.parse("2026-10-25T00:00:00Z"),
+                                                80,
+                                                "3f0e8e50-6b1d-4e0f-9d3a-5f2c1b9e0001",
+                                                2,
+                                                List.of("搭配"),
+                                                "他越来越重视这件事。",
+                                                List.of(
+                                                        new WrongQuestionView.WrongAnnotationView(
+                                                                "slot:2", "搭配", "搭配错误", false)))),
+                                1,
+                                20,
+                                1));
+        mockMvc.perform(
+                        get("/api/practice/wrong-questions")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.items[0].sentenceId").value("01JSENTENCE"))
+                .andExpect(jsonPath("$.data.items[0].state").value("LEARNING"))
+                .andExpect(jsonPath("$.data.items[0].lastScore").value(80))
+                .andExpect(jsonPath("$.data.items[0].wrongCount").value(2))
+                .andExpect(jsonPath("$.data.items[0].annotations[0].key").value("slot:2"))
+                .andExpect(jsonPath("$.data.items[0].annotations[0].disputed").value(false))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+        verify(practiceService).wrongQuestions(7L, 1, 20, false, null, null);
+    }
+
+    /** 复习队列成功：过滤参数透传，PageResponse 信封承载三档状态与 FSRS 投影。 */
+    @Test
+    void reviewsReturnsPagedEnvelope() throws Exception {
+        when(practiceService.reviews(7L, 1, 20, "LEARNING", "CLOZE", true))
+                .thenReturn(PageResponse.of(List.of(reviewCard(10L, "LEARNING")), 1, 20, 1));
+        mockMvc.perform(
+                        get("/api/practice/reviews")
+                                .queryParam("state", "LEARNING")
+                                .queryParam("mode", "CLOZE")
+                                .queryParam("due", "true")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.items[0].id").value(10))
+                .andExpect(jsonPath("$.data.items[0].state").value("LEARNING"))
+                .andExpect(jsonPath("$.data.items[0].fsrsState").value("LEARNING"))
+                .andExpect(jsonPath("$.data.items[0].reps").value(2))
+                .andExpect(jsonPath("$.data.total").value(1));
+        verify(practiceService).reviews(7L, 1, 20, "LEARNING", "CLOZE", true);
+    }
+
+    /** 复习队列 mode 非法取值：40000 拦在 Controller，不触达 Service。 */
+    @Test
+    void reviewsRejectsInvalidMode() throws Exception {
+        mockMvc.perform(
+                        get("/api/practice/reviews")
+                                .queryParam("mode", "SPAM")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ApiCode.VALIDATION_FAILED.code()));
+        verifyNoInteractions(practiceService);
+    }
+
+    /** 重置复习卡成功与 404 映射：reason 透传、信封回 NEW 卡；40404 不存在透传为 404。 */
+    @Test
+    void resetReviewReturnsCardAndMapsNotFound() throws Exception {
+        when(practiceService.resetReview(7L, 10L, "想从头练")).thenReturn(reviewCard(10L, "NEW"));
+        mockMvc.perform(
+                        post("/api/practice/reviews/{reviewId}/reset", 10)
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\":\"想从头练\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.id").value(10))
+                .andExpect(jsonPath("$.data.state").value("NEW"));
+
+        when(practiceService.resetReview(7L, 99L, null))
+                .thenThrow(new BusinessException(ApiCode.REVIEW_NOT_FOUND));
+        mockMvc.perform(
+                        post("/api/practice/reviews/{reviewId}/reset", 99)
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER")))
+                                .with(csrf()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(ApiCode.REVIEW_NOT_FOUND.code()));
+    }
+
+    /** 降载状态：信封承载 dueCount/threshold/pushLimit/overload 四字段。 */
+    @Test
+    void overloadReturnsEnvelope() throws Exception {
+        when(practiceService.overload(7L)).thenReturn(new OverloadView(9, 20, 5, true));
+        mockMvc.perform(
+                        get("/api/practice/reviews/overload")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.dueCount").value(9))
+                .andExpect(jsonPath("$.data.threshold").value(20))
+                .andExpect(jsonPath("$.data.pushLimit").value(5))
+                .andExpect(jsonPath("$.data.overload").value(true));
+    }
+
+    /** 顺延：reason 透传；请求体缺省时 Service 收到 null；信封回 postponed/kept 计数。 */
+    @Test
+    void postponeForwardsOptionalReasonAndReturnsCounts() throws Exception {
+        when(practiceService.postpone(7L, "今天没时间")).thenReturn(new PostponeView(4, 5));
+        mockMvc.perform(
+                        post("/api/practice/reviews/postpone")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\":\"今天没时间\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.postponed").value(4))
+                .andExpect(jsonPath("$.data.kept").value(5));
+
+        when(practiceService.postpone(7L, null)).thenReturn(new PostponeView(0, 0));
+        mockMvc.perform(
+                        post("/api/practice/reviews/postpone")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER")))
+                                .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.postponed").value(0));
+        verify(practiceService).postpone(7L, null);
+    }
+
+    /**
+     * 构造一条已发布题目视图。
+     *
+     * @return 完整内容视图
+     */
+    private static SentenceDetail publishedSentence() {
+        return new SentenceDetail(
+                "01JPUBLIS000000000000000000C",
+                "1",
+                12,
+                "1001",
+                3,
+                "PUBLISHED",
+                false,
+                "他越来越重视这件事。",
+                "He is paying more and more attention to this.",
+                "「越来越」用 more and more 或 increasingly。",
+                List.of(new SentenceChunk(0, "他", List.of("He"), "代词", null)),
+                List.of(1, 2),
+                List.of("副词结构", "搭配"),
+                "TEM8");
+    }
+
+    /**
+     * 构造一张复习卡视图。
+     *
+     * @param id 卡 id
+     * @param state 三档状态
+     * @return 复习卡视图
+     */
+    private static ReviewCardView reviewCard(long id, String state) {
+        return new ReviewCardView(
+                id,
+                "01JSENTENCE",
+                "CLOZE",
+                state,
+                "LEARNING",
+                Instant.parse("2026-10-25T00:00:00Z"),
+                3.2,
+                5.1,
+                2,
+                1,
+                1,
+                2,
+                Instant.parse("2026-10-24T05:30:00Z"));
     }
 }

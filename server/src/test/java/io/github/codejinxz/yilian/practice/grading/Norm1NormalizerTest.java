@@ -3,12 +3,11 @@ package io.github.codejinxz.yilian.practice.grading;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.DisplayName;
-
 import org.junit.jupiter.api.Test;
 
 /**
- * norm-1 归一化 golden 测试：样例与前端 {@code grading.ts} 的 {@code normalizeAnswer}
- * 行为逐值对齐（ECMAScript 语义逐步推导），锁定全角、弯引号、句末标点与空白压缩。
+ * norm-1 归一化 golden 测试：样例与前端 {@code grading.ts} 的 {@code normalizeAnswer} 行为逐值对齐（ECMAScript
+ * 语义逐步推导），锁定全角、弯引号、句末标点与空白压缩。
  */
 class Norm1NormalizerTest {
 
@@ -16,11 +15,9 @@ class Norm1NormalizerTest {
     @Test
     @DisplayName("全角转半角：Ｐａｙ　Ａｔｔｅｎｔｉｏｎ。→ pay attention")
     void fullWidthToAscii() {
-        assertThat(Norm1Normalizer.normalizeAnswer("Ｐａｙ　Ａｔｔｅｎｔｉｏｎ。"))
-                .isEqualTo("pay attention");
+        assertThat(Norm1Normalizer.normalizeAnswer("Ｐａｙ　Ａｔｔｅｎｔｉｏｎ。")).isEqualTo("pay attention");
         assertThat(Norm1Normalizer.normalizeAnswer("ＰＡＹ")).isEqualTo("pay");
-        assertThat(Norm1Normalizer.normalizeAnswer("Ｍore　ａｎｄ　ｍｏｒｅ。"))
-                .isEqualTo("more and more");
+        assertThat(Norm1Normalizer.normalizeAnswer("Ｍore　ａｎｄ　ｍｏｒｅ。")).isEqualTo("more and more");
     }
 
     /** 弯引号族（单双两种）转直引号。 */
@@ -51,7 +48,8 @@ class Norm1NormalizerTest {
     @Test
     @DisplayName("压缩空白：多空格/制表符/换行 → 单空格")
     void whitespaceCollapsed() {
-        assertThat(Norm1Normalizer.normalizeAnswer("  pay   attention\t\n")).isEqualTo("pay attention");
+        assertThat(Norm1Normalizer.normalizeAnswer("  pay   attention\t\n"))
+                .isEqualTo("pay attention");
         assertThat(Norm1Normalizer.normalizeAnswer("　pay　")).isEqualTo("pay");
     }
 

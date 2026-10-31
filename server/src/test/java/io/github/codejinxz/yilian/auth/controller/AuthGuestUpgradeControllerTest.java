@@ -1,72 +1,41 @@
 package io.github.codejinxz.yilian.auth.controller;
 
 import static org.mockito.ArgumentMatchers.any;
-
 import static org.mockito.ArgumentMatchers.eq;
-
 import static org.mockito.Mockito.when;
-
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
-
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import io.github.codejinxz.yilian.common.api.ApiCode;
-
-import io.github.codejinxz.yilian.common.api.BusinessException;
-
-import io.github.codejinxz.yilian.common.logging.ErrorLogRecorder;
-
-import io.github.codejinxz.yilian.common.ratelimit.RateLimit;
-
-import io.github.codejinxz.yilian.common.security.PasswordChangeRequiredInterceptor;
-
-import io.github.codejinxz.yilian.common.security.RestAccessDeniedHandler;
-
-import io.github.codejinxz.yilian.common.security.RestAuthenticationEntryPoint;
-
-import io.github.codejinxz.yilian.common.security.SecurityConfig;
-
 import io.github.codejinxz.yilian.auth.service.AuthService;
-
+import io.github.codejinxz.yilian.common.api.ApiCode;
+import io.github.codejinxz.yilian.common.api.BusinessException;
+import io.github.codejinxz.yilian.common.logging.ErrorLogRecorder;
+import io.github.codejinxz.yilian.common.ratelimit.RateLimit;
+import io.github.codejinxz.yilian.common.security.PasswordChangeRequiredInterceptor;
+import io.github.codejinxz.yilian.common.security.RestAccessDeniedHandler;
+import io.github.codejinxz.yilian.common.security.RestAuthenticationEntryPoint;
+import io.github.codejinxz.yilian.common.security.SecurityConfig;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
-
 import io.github.codejinxz.yilian.practice.service.PracticeService;
-
 import io.github.codejinxz.yilian.practice.service.dto.GuestUpgradeCommand;
-
 import io.github.codejinxz.yilian.practice.service.vo.GuestUpgradeView;
 
 import org.junit.jupiter.api.Test;
-
 import org.springframework.beans.factory.annotation.Autowired;
-
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
-
 import org.springframework.context.annotation.Import;
-
 import org.springframework.http.MediaType;
-
 import org.springframework.security.authentication.TestingAuthenticationToken;
-
 import org.springframework.security.oauth2.jwt.JwtDecoder;
-
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-
 import org.springframework.test.web.servlet.MockMvc;
-
-import java.util.List;
 
 import java.util.UUID;
 
-/**
- * 游客升级端点切片测试：鉴权边界（匿名 401）、信封结构与限流口径（5 次/小时）。
- */
+/** 游客升级端点切片测试：鉴权边界（匿名 401）、信封结构与限流口径（5 次/小时）。 */
 @WebMvcTest(controllers = AuthController.class)
 @Import({
     SecurityConfig.class,
@@ -94,8 +63,11 @@ class AuthGuestUpgradeControllerTest {
     /** 匿名调用 401（端点要求 USER）。 */
     @Test
     void anonymousIsRejected() throws Exception {
-        mockMvc
-                .perform(post("/api/auth/guest-upgrade").with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"attempts\": []}"))
+        mockMvc.perform(
+                        post("/api/auth/guest-upgrade")
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"attempts\": []}"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -104,10 +76,12 @@ class AuthGuestUpgradeControllerTest {
     void guestUpgradeReturnsCounts() throws Exception {
         when(practiceService.guestUpgrade(eq(7L), any(GuestUpgradeCommand.class)))
                 .thenReturn(new GuestUpgradeView(10, 2, 0));
-        mockMvc
-                .perform(
+        mockMvc.perform(
                         post("/api/auth/guest-upgrade")
-                                .with(authentication(new TestingAuthenticationToken(USER, null, "ROLE_USER")))
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER")))
                                 .with(csrf())
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content("{\"attempts\": []}"))
@@ -123,10 +97,12 @@ class AuthGuestUpgradeControllerTest {
     void conflictMapsTo409() throws Exception {
         when(practiceService.guestUpgrade(eq(7L), any(GuestUpgradeCommand.class)))
                 .thenThrow(new BusinessException(ApiCode.ATTEMPT_ID_REUSED));
-        mockMvc
-                .perform(
+        mockMvc.perform(
                         post("/api/auth/guest-upgrade")
-                                .with(authentication(new TestingAuthenticationToken(USER, null, "ROLE_USER")))
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER")))
                                 .with(csrf())
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(
@@ -145,7 +121,9 @@ class AuthGuestUpgradeControllerTest {
         RateLimit rateLimit =
                 AuthController.class
                         .getDeclaredMethod(
-                                "guestUpgrade", GuestUpgradeCommand.class, YilianUserPrincipal.class)
+                                "guestUpgrade",
+                                GuestUpgradeCommand.class,
+                                YilianUserPrincipal.class)
                         .getAnnotation(RateLimit.class);
         org.assertj.core.api.Assertions.assertThat(rateLimit).isNotNull();
         org.assertj.core.api.Assertions.assertThat(rateLimit.scene()).isEqualTo("guest-upgrade");

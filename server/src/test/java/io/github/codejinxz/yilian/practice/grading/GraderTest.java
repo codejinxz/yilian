@@ -5,22 +5,27 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
 
 import org.junit.jupiter.api.DisplayName;
-
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 /**
- * 判分器 golden 测试：样例与前端 {@code grading.ts} 的 {@code gradeCloze}/{@code gradeFree}
- * 及 {@code engine.ts} 的 {@code revealGrading} 输出逐值一致（含分数、批注与摘要文案）。
+ * 判分器 golden 测试：样例与前端 {@code grading.ts} 的 {@code gradeCloze}/{@code gradeFree} 及 {@code engine.ts}
+ * 的 {@code revealGrading} 输出逐值一致（含分数、批注与摘要文案）。
  */
 class GraderTest {
 
     /** 语块样例：与 API §6.2 示例同构（两个挖空，各有两个可接受译法）。 */
     private static final List<SentenceChunk> CHUNKS =
             List.of(
-                    new SentenceChunk(1, "越来越", List.of("more and more", "increasingly"), "副词结构", null),
-                    new SentenceChunk(2, "重视", List.of("pay attention to", "attach importance to"), "搭配", null));
+                    new SentenceChunk(
+                            1, "越来越", List.of("more and more", "increasingly"), "副词结构", null),
+                    new SentenceChunk(
+                            2,
+                            "重视",
+                            List.of("pay attention to", "attach importance to"),
+                            "搭配",
+                            null));
 
     private static final List<Integer> BLANK = List.of(1, 2);
 
@@ -60,17 +65,20 @@ class GraderTest {
     @DisplayName("gradeCloze 全对：归一化后命中，score=100 全部命中")
     void gradeClozeFullHitAfterNormalization() {
         GradingResult result =
-                Grader.gradeCloze(CHUNKS, BLANK, List.of("Ｍore and more！", "attach importance to。"));
+                Grader.gradeCloze(
+                        CHUNKS, BLANK, List.of("Ｍore and more！", "attach importance to。"));
 
         assertThat(result.score()).isEqualTo(100);
         assertThat(result.hitCount()).isEqualTo(6);
         assertThat(result.totalCount()).isEqualTo(6);
         assertThat(result.summary()).isEqualTo("全部命中");
-        assertThat(result.annotations()).allSatisfy(annotation -> {
-            assertThat(annotation.correct()).isTrue();
-            assertThat(annotation.message()).isNull();
-            assertThat(annotation.minimalFix()).isNull();
-        });
+        assertThat(result.annotations())
+                .allSatisfy(
+                        annotation -> {
+                            assertThat(annotation.correct()).isTrue();
+                            assertThat(annotation.message()).isNull();
+                            assertThat(annotation.minimalFix()).isNull();
+                        });
     }
 
     /** 未全对 + 空槽：逐词位置比对计部分分，空槽批注「未填写」。 */
@@ -121,7 +129,8 @@ class GraderTest {
     void gradeFreeExactMatch() {
         GradingResult result =
                 Grader.gradeFree(
-                        "He is paying more and more attention.", "He is paying more and more attention.");
+                        "He is paying more and more attention.",
+                        "He is paying more and more attention.");
 
         assertThat(result.score()).isEqualTo(100);
         assertThat(result.hitCount()).isEqualTo(7);
@@ -136,7 +145,8 @@ class GraderTest {
     void gradeFreePartialCoverage() {
         GradingResult result =
                 Grader.gradeFree(
-                        "He is paying more and more attention.", "He is paying increasingly attention.");
+                        "He is paying more and more attention.",
+                        "He is paying increasingly attention.");
 
         assertThat(result.score()).isEqualTo(57);
         assertThat(result.hitCount()).isEqualTo(4);

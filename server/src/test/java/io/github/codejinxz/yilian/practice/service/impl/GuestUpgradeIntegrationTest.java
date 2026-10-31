@@ -1,64 +1,40 @@
 package io.github.codejinxz.yilian.practice.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
-
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.codejinxz.yilian.common.api.ApiCode;
-
 import io.github.codejinxz.yilian.common.api.BusinessException;
-
 import io.github.codejinxz.yilian.content.service.ContentImportService;
-
 import io.github.codejinxz.yilian.content.service.dto.ImportedSentence;
-
 import io.github.codejinxz.yilian.content.service.dto.SentenceContent;
-
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
-
 import io.github.codejinxz.yilian.practice.service.PracticeService;
-
 import io.github.codejinxz.yilian.practice.service.dto.AnswerPayload;
-
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
-
 import io.github.codejinxz.yilian.practice.service.dto.GuestUpgradeCommand;
-
 import io.github.codejinxz.yilian.practice.service.vo.GuestUpgradeView;
 
 import org.junit.jupiter.api.AfterEach;
-
 import org.junit.jupiter.api.BeforeEach;
-
 import org.junit.jupiter.api.DisplayName;
-
 import org.junit.jupiter.api.Test;
-
 import org.springframework.beans.factory.annotation.Autowired;
-
 import org.springframework.boot.test.context.SpringBootTest;
-
 import org.springframework.jdbc.core.JdbcTemplate;
-
 import org.springframework.test.context.ActiveProfiles;
-
 import org.springframework.test.context.DynamicPropertyRegistry;
-
 import org.springframework.test.context.DynamicPropertySource;
 
 import java.sql.Timestamp;
-
 import java.time.LocalDateTime;
-
 import java.util.ArrayList;
-
 import java.util.List;
-
 import java.util.UUID;
 
 /**
- * 游客升级集成测试（真实 MySQL yilian_test）[AC-7]：≤100 条校验、同载荷 skip、
- * 异载荷 40903 整体回滚、retryOfId 链可迁移、迁移不触发 FSRS 排程。
+ * 游客升级集成测试（真实 MySQL yilian_test）[AC-7]：≤100 条校验、同载荷 skip、 异载荷 40903 整体回滚、retryOfId 链可迁移、迁移不触发 FSRS
+ * 排程。
  *
  * <p>Spring 上下文与 {@code PracticeFlowIntegrationTest} 同配置，复用缓存；自清口径一致。
  */
@@ -209,7 +185,8 @@ class GuestUpgradeIntegrationTest {
         for (int index = 0; index < 101; index++) {
             items.add(clozeFirst(seededA, wrongSlotA(), null));
         }
-        assertThatThrownBy(() -> practiceService.guestUpgrade(USER_ID, new GuestUpgradeCommand(items)))
+        assertThatThrownBy(
+                        () -> practiceService.guestUpgrade(USER_ID, new GuestUpgradeCommand(items)))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception ->
@@ -218,9 +195,7 @@ class GuestUpgradeIntegrationTest {
         assertThat(count("attempts")).isZero();
     }
 
-    /**
-     * 清空 practice 五表与内容表；append-only 触发器先摘后重建。
-     */
+    /** 清空 practice 五表与内容表；append-only 触发器先摘后重建。 */
     private void cleanDatabase() {
         dropTriggers();
         jdbcTemplate.update("DELETE FROM review_logs");
@@ -270,12 +245,32 @@ class GuestUpgradeIntegrationTest {
         return new String[][] {
             {"trg_attempts_no_update", "attempts", "UPDATE", "attempts is append-only"},
             {"trg_attempts_no_delete", "attempts", "DELETE", "attempts is append-only"},
-            {"trg_attempt_gradings_no_update", "attempt_gradings", "UPDATE", "attempt_gradings is append-only"},
-            {"trg_attempt_gradings_no_delete", "attempt_gradings", "DELETE", "attempt_gradings is append-only"},
+            {
+                "trg_attempt_gradings_no_update",
+                "attempt_gradings",
+                "UPDATE",
+                "attempt_gradings is append-only"
+            },
+            {
+                "trg_attempt_gradings_no_delete",
+                "attempt_gradings",
+                "DELETE",
+                "attempt_gradings is append-only"
+            },
             {"trg_review_logs_no_update", "review_logs", "UPDATE", "review_logs is append-only"},
             {"trg_review_logs_no_delete", "review_logs", "DELETE", "review_logs is append-only"},
-            {"trg_sentence_versions_no_update", "sentence_versions", "UPDATE", "sentence_versions is immutable"},
-            {"trg_sentence_versions_no_delete", "sentence_versions", "DELETE", "sentence_versions is immutable"}
+            {
+                "trg_sentence_versions_no_update",
+                "sentence_versions",
+                "UPDATE",
+                "sentence_versions is immutable"
+            },
+            {
+                "trg_sentence_versions_no_delete",
+                "sentence_versions",
+                "DELETE",
+                "sentence_versions is immutable"
+            }
         };
     }
 

@@ -1612,16 +1612,20 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 
 ### 10.1 已实现（后端）
 
-| 组 | 端点 | 说明 |
-|---|---|---|
-| Account | `GET /api/auth/csrf`、`POST /api/auth/login`、`POST /api/auth/refresh`、`POST /api/auth/logout`、`POST /api/auth/register`、`GET /api/auth/me`、`POST /api/auth/password` | 双 token、CSRF 轮换、邀请码注册；`passwordChanged` 已返回 |
-| Account | `POST /api/auth/guest-upgrade` | 游客本机记录批量迁移：≤100 条/批、同 id 同载荷 skip、异载荷 40903 整体回滚；只落 attempts/attempt_gradings，不触发排程 |
-| Account | `GET /api/me/settings`、`PUT /api/me/settings` | 主题/目标/评分标准/时区/保留率等 |
-| Content | `GET /api/banks`、`GET /api/banks/{bankId}`、`GET /api/banks/{bankId}/sentences` | PUBLIC_OR_USER：匿名仅公开题库；句子为 §5.3 增量游标契约 |
-| Practice | `GET /api/practice/next`（D7 参数见 §6.1 差异表）、`POST /api/practice/attempts`（幂等 + norm-1/rubric-1 判分 + SRS 排程）、`GET /api/practice/attempts/{attemptId}`、批注 `appeal`/`dispute`（§6.4/§6.5）、`GET /api/practice/wrong-questions`、`GET /api/practice/reviews`、`POST /api/practice/reviews/{reviewId}/reset`、`GET /api/practice/reviews/overload`、`POST /api/practice/reviews/postpone`、`GET /api/practice/today` | 练习主链路（#8 波次三）；幂等口径 §6.2；复习卡一句一卡（DATA-MODEL §5.11 Q1） |
-| Analytics | `GET /api/analytics/accuracy`（含 `daily14`/`recent` 扩展）、`GET /api/analytics/error-tags` | 用户时区日界；disputed 批注排除 |
-| Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 |
-| 运维 | `/actuator/health` | 非业务 |
+> 接口级测试列对应 `server/src/test/java/io/github/codejinxz/yilian/**` 下的测试类（DoD §6 强化条款）：
+> `*ControllerTest` 为 WebMvcTest 切片（真实 `SecurityConfig`，锁鉴权边界/参数校验/错误码映射/信封形状），
+> `AuthFlowIntegrationTest` 为 RANDOM_PORT 真实 HTTP（认证链路专用）；两者都断言统一 `ApiResponse` 信封。
+
+| 组 | 端点 | 说明 | 接口级测试 |
+|---|---|---|---|
+| Account | `GET /api/auth/csrf`、`POST /api/auth/login`、`POST /api/auth/refresh`、`POST /api/auth/logout`、`POST /api/auth/register`、`GET /api/auth/me`、`POST /api/auth/password` | 双 token、CSRF 轮换、邀请码注册；`passwordChanged` 已返回 | `AuthFlowIntegrationTest`（真实 HTTP：登录/刷新/登出/me 全链路、注册即登录与重复邮箱 40901、改密吊销会话、错误密码 40101、缺 CSRF 40301、伪造 token 401、非管理员 403）；限流口径另由 `AuthRateLimitAnnotationTest` 锁定 |
+| Account | `POST /api/auth/guest-upgrade` | 游客本机记录批量迁移：≤100 条/批、同 id 同载荷 skip、异载荷 40903 整体回滚；只落 attempts/attempt_gradings，不触发排程 | `AuthGuestUpgradeControllerTest`（切片：匿名 401/信封/限流注解） |
+| Account | `GET /api/me/settings`、`PUT /api/me/settings` | 主题/目标/评分标准/时区/保留率等 | `MeControllerTest`（切片：匿名 401、信封、40000 字段明细、40001、首登 40303）；DTO 注解层另由 `UserSettingsRequestValidationTest` 锁定 |
+| Content | `GET /api/banks`、`GET /api/banks/{bankId}`、`GET /api/banks/{bankId}/sentences` | PUBLIC_OR_USER：匿名仅公开题库；句子为 §5.3 增量游标契约 | `BankControllerTest`（切片：匿名放行与私有隔离、40004/40005/40401、tombstone 信封） |
+| Practice | `GET /api/practice/next`（D7 参数见 §6.1 差异表）、`POST /api/practice/attempts`（幂等 + norm-1/rubric-1 判分 + SRS 排程）、`GET /api/practice/attempts/{attemptId}`、批注 `appeal`/`dispute`（§6.4/§6.5）、`GET /api/practice/wrong-questions`、`GET /api/practice/reviews`、`POST /api/practice/reviews/{reviewId}/reset`、`GET /api/practice/reviews/overload`、`POST /api/practice/reviews/postpone`、`GET /api/practice/today` | 练习主链路（#8 波次三）；幂等口径 §6.2；复习卡一句一卡（DATA-MODEL §5.11 Q1） | `PracticeControllerTest`（切片：全部 10 端点——匿名 401、mode 取值 40000、分页 40004、40903/40403/40404、信封形状、限流注解） |
+| Analytics | `GET /api/analytics/accuracy`（含 `daily14`/`recent` 扩展）、`GET /api/analytics/error-tags` | 用户时区日界；disputed 批注排除 | `AnalyticsControllerTest`（切片：匿名 401、§7.1/§7.2 信封、参数透传、非法日期 40000、空 items=[]） |
+| Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 | `ImportBatchControllerTest`（切片：匿名 401/非管理员 403、multipart 绑定与缺参 40000、缺请求体 40001、40405/40904、PageResponse 信封） |
+| 运维 | `/actuator/health` | 非业务 | `AuthFlowIntegrationTest`（healthIsPublicAndUp） |
 
 ### 10.2 过渡实现（不纳入冻结契约）
 
@@ -1659,6 +1663,7 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 | 2026-10-24 | v0.1.1 | 补异常详情端点、审计 `module` 筛选、设置端点与题库详情 | 技术负责人 |
 | 2026-10-25 | v0.2 | §10 重写为实现状态总览（已实现/前端 mock/未开发/待收口）；登记 upload 命名决策 | 技术负责人 |
 | 2026-10-31 | v0.3 | T18 文档收口：§6/§7/§4.6–4.9/§5.1–5.3 状态改 implemented；§6.1 补 D7 参数差异表；§6.2 补 payloadHash 幂等口径；§6.4/§6.5 补 appeal/dispute 实现口径；新增 §6.10/§6.11（overload/postpone）；§7.1 补 daily14/recent 扩展；§10 矩阵逐行更新 | 技术负责人 |
+| 2026-10-31 | v0.3.1 | DoD 接口级测试补全：§10.1 新增「接口级测试」列（`AnalyticsControllerTest`、`ImportBatchControllerTest`、`MeControllerTest` 新建；`PracticeControllerTest` 补 next/getAttempt/reviews/reset/overload/postpone；`AuthFlowIntegrationTest` 补 register/password 真实 HTTP），矩阵与测试一一对应 | 测试工程师 |
 
 ---
 
