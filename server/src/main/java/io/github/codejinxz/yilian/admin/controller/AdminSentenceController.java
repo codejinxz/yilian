@@ -2,6 +2,8 @@ package io.github.codejinxz.yilian.admin.controller;
 
 import io.github.codejinxz.yilian.admin.service.dto.AdminSentenceBulkMoveRequest;
 import io.github.codejinxz.yilian.admin.service.dto.AdminSentenceBulkStatusRequest;
+import io.github.codejinxz.yilian.admin.service.dto.AdminSentenceStatusRequest;
+import io.github.codejinxz.yilian.admin.service.dto.AdminSentenceUpdateRequest;
 import io.github.codejinxz.yilian.admin.service.vo.AdminSentenceBulkMoveResult;
 import io.github.codejinxz.yilian.admin.service.vo.AdminSentenceBulkStatusResult;
 import io.github.codejinxz.yilian.common.api.ApiResponse;
@@ -18,6 +20,8 @@ import jakarta.validation.Valid;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -25,7 +29,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 管理端题目域端点（/api/admin/sentences，API §8.8）：跨题库检索分页与批量状态/移动。
+ * 管理端题目域端点（/api/admin/sentences，API §8.8）：跨题库检索分页、批量状态/移动、 单题状态流转与行内编辑。
  *
  * <p>读写全部走 content 模块 {@link ContentAdminService} 接口；admin 模块不接触 content 的 dao/entity。
  * 批量操作单事务且实际处理数随响应暴露 （不存在的 id 跳过不报错）；一次批量写一条审计， 批量目标 id 以「updated=N / moved=N」摘要落审计，避免 500 个 ULID
@@ -33,7 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/admin/sentences")
-@Tag(name = "admin/sentences", description = "管理端题目检索与批量操作")
+@Tag(name = "admin/sentences", description = "管理端题目检索、批量操作与单题编辑")
 public class AdminSentenceController {
 
     private final ContentAdminService contentAdminService;
@@ -108,5 +112,59 @@ public class AdminSentenceController {
                         actor.id(), request.ids(), request.bankId(), request.reason());
         OperationLogContext.set("sentence", "moved=" + moved, request.reason());
         return ApiResponse.success(new AdminSentenceBulkMoveResult(moved));
+    }
+
+    /**
+     * 单题状态流转（停用/恢复/回收）；恢复清软删标记，已处于目标状态时幂等不推进修订号。
+     *
+     * @param sentenceId 题目 ULID
+     * @param request 目标状态与审计原因
+     * @param actor 当前管理员
+     * @return 更新后的题目视图
+     */
+    @Operation(summary = "停用/恢复/回收题目", description = "恢复会清软删标记；reason 必填，写审计。")
+    @OperationLog(module = "admin", action = "SENTENCE_STATUS", targetType = "sentence")
+    @PatchMapping("/{sentenceId}/status")
+    public ApiResponse<SentenceDetail> changeStatus(
+            @PathVariable String sentenceId,
+            @Valid @RequestBody AdminSentenceStatusRequest request,
+            @AuthenticationPrincipal YilianUserPrincipal actor) {
+        OperationLogContext.set("sentence", sentenceId, request.reason());
+        return ApiResponse.success(
+                contentAdminService.adminChangeSentenceStatus(
+                        actor.id(), sentenceId, request.status(), request.reason()));
+    }
+
+    /**
+     * 行内编辑题目可变字段：zh/level/tags/note 落新版本快照（每题递增修订号），bankId/status 是元字段。
+     *
+     * @param sentenceId 题目 ULID
+     * @param request 待更新字段与可选审计原因
+     * @param actor 当前管理员
+     * @return 更新后的题目视图（含归属题库 bankId）
+     */
+    @Operation(
+            summary = "编辑题目可变字段",
+            description =
+                    "zh/level/tags/note 产生新的内容版本（快照不可变）；ref/chunks/blank 不可改；bankId 移动、status 流转。")
+    @OperationLog(module = "admin", action = "SENTENCE_UPDATE", targetType = "sentence")
+    @PatchMapping("/{sentenceId}")
+    public ApiResponse<SentenceDetail> update(
+            @PathVariable String sentenceId,
+            @Valid @RequestBody AdminSentenceUpdateRequest request,
+            @AuthenticationPrincipal YilianUserPrincipal actor) {
+        // reason 可空（前端可选；编辑弹窗固定传「编辑题目」）。
+        OperationLogContext.set("sentence", sentenceId, request.reason());
+        return ApiResponse.success(
+                contentAdminService.adminUpdateSentenceDetail(
+                        actor.id(),
+                        sentenceId,
+                        request.zh(),
+                        request.level(),
+                        request.tags(),
+                        request.note(),
+                        request.bankId(),
+                        request.status(),
+                        request.reason()));
     }
 }

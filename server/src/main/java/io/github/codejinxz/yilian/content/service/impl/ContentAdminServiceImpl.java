@@ -4,6 +4,7 @@ import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.api.PageResponse;
 import io.github.codejinxz.yilian.common.util.StringUtils;
+import io.github.codejinxz.yilian.common.util.TextNormalizer;
 import io.github.codejinxz.yilian.content.dao.AdminSentenceQueryDao;
 import io.github.codejinxz.yilian.content.dao.AdminSentenceRow;
 import io.github.codejinxz.yilian.content.dao.BankDao;
@@ -12,7 +13,10 @@ import io.github.codejinxz.yilian.content.entity.BankVisibility;
 import io.github.codejinxz.yilian.content.entity.ContentStatus;
 import io.github.codejinxz.yilian.content.entity.Sentence;
 import io.github.codejinxz.yilian.content.entity.SentenceBank;
+import io.github.codejinxz.yilian.content.entity.SentenceVersion;
 import io.github.codejinxz.yilian.content.service.ContentAdminService;
+import io.github.codejinxz.yilian.content.service.ContentImportService;
+import io.github.codejinxz.yilian.content.service.dto.SentenceContent;
 import io.github.codejinxz.yilian.content.service.vo.BankView;
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
 import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
@@ -37,10 +41,11 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
- * 内容管理用例实现：题库 CRUD 与生命周期、跨题库题目检索、批量状态/移动。
+ * 内容管理用例实现：题库 CRUD 与生命周期、跨题库题目检索、批量状态/移动、单题状态流转与行内编辑。
  *
- * <p>写路径全部复用既有 JPA 实体（sentence_banks/sentences），银行级修订号按「每题递增」推进 （切片设计 §4.5 P1-1：增量游标 {@code version
- * > sinceVersion} 永不重版本分组）；批量操作单事务、 悲观锁按题库 id 升序获取，避免两个并发批量的 ABBA 死锁。
+ * <p>写路径全部复用既有 JPA 实体（sentence_banks/sentences/sentence_versions），银行级修订号按「每题递增」推进 （切片设计 §4.5
+ * P1-1：增量游标 {@code version > sinceVersion} 永不重版本分组）；批量操作单事务、 悲观锁按题库 id 升序获取，避免两个并发批量的 ABBA 死锁。
+ * 行内编辑的 zh/level/tags/note 落在不可变内容快照上——新增版本行并回填指纹，而不是原地改历史行。
  */
 @Service
 public class ContentAdminServiceImpl implements ContentAdminService {
@@ -56,30 +61,44 @@ public class ContentAdminServiceImpl implements ContentAdminService {
 
     private static final int MAX_DESCRIPTION_LENGTH = 500;
 
+    /** 编辑字段长度上限，与 sentence_versions 列定义及前端 mock 校验对齐。 */
+    private static final int MAX_ZH_LENGTH = 255;
+
+    private static final int MIN_ZH_LENGTH = 4;
+
+    private static final int MAX_LEVEL_LENGTH = 32;
+
+    private static final int MAX_NOTE_LENGTH = 1000;
+
     private final BankDao bankDao;
 
     private final SentenceDao sentenceDao;
 
     private final AdminSentenceQueryDao adminSentenceQueryDao;
 
+    private final ContentImportService contentImportService;
+
     private final ObjectMapper objectMapper;
 
     /**
-     * 注入题库/题目 Dao、管理端题目查询 Dao 与序列化器。
+     * 注入题库/题目 Dao、管理端题目查询 Dao、导入服务（复用指纹算法）与序列化器。
      *
      * @param bankDao 题库 Dao
      * @param sentenceDao 题目与快照 Dao
      * @param adminSentenceQueryDao 管理端题目列表 JOIN 查询 Dao（MyBatis 实现）
+     * @param contentImportService 导入落库服务（fingerprintsOf 与导入共用 canonical 指纹算法）
      * @param objectMapper Jackson 映射器（chunks/blank/tags 解析）
      */
     public ContentAdminServiceImpl(
             BankDao bankDao,
             SentenceDao sentenceDao,
             AdminSentenceQueryDao adminSentenceQueryDao,
+            ContentImportService contentImportService,
             ObjectMapper objectMapper) {
         this.bankDao = bankDao;
         this.sentenceDao = sentenceDao;
         this.adminSentenceQueryDao = adminSentenceQueryDao;
+        this.contentImportService = contentImportService;
         this.objectMapper = objectMapper;
     }
 
@@ -298,6 +317,344 @@ public class ContentAdminServiceImpl implements ContentAdminService {
         }
         lockedBanks.values().forEach(bankDao::save);
         return matched.size();
+    }
+
+    @Override
+    @Transactional
+    public SentenceDetail adminChangeSentenceStatus(
+            long actorId, String sentenceId, String status, String reason) {
+        requireReason(reason, "变更状态必须填写原因");
+        ContentStatus target = requireContentStatus(status, "status 不受支持");
+        Sentence sentence = requireSentence(sentenceId);
+        // 幂等：已处于目标状态不推进修订号（与批量同语义），空操作不制造增量流量。
+        if (sentence.getStatus() == target) {
+            return detailOf(sentence);
+        }
+        Instant now = Instant.now();
+        SentenceBank bank = lockedBankOf(sentence.getBankId());
+        long nextVersion = bank.getVersion() + 1;
+        sentence.changeStatus(target, nextVersion, actorId, now);
+        bank.advanceVersion(nextVersion, actorId, now);
+        sentenceDao.save(sentence);
+        bankDao.save(bank);
+        return detailOf(sentence);
+    }
+
+    @Override
+    @Transactional
+    public SentenceDetail adminUpdateSentenceDetail(
+            long actorId,
+            String sentenceId,
+            String zh,
+            String level,
+            List<String> tags,
+            String note,
+            String bankId,
+            String status,
+            String reason) {
+        // 编辑字段分两类（语义见 API §8.8）：
+        // - 版本字段 zh/level/tags/note：sentence_versions 不可变（DB 触发器禁止 UPDATE），改内容 = 新增
+        //   version_no=最新+1 的版本行并回填指纹，所属题库按「每题递增」推进修订号；
+        // - 元字段 bankId/status：只改 sentences 行，移动/状态各自推进修订号。
+        String zhEdit = normalizeEditZh(zh);
+        // level 用「原始参数是否为 null」判断是否修改：显式传空白串表示清空难度。
+        boolean levelProvided = level != null;
+        String levelEdit = level == null ? null : normalizeLevel(level);
+        List<String> tagsEdit = tags == null ? null : normalizeTags(tags);
+        String noteEdit = note == null ? null : normalizeNote(note);
+        ContentStatus statusTarget = parseContentStatus(status, "status 不受支持");
+        Long targetBankId = parseBankId(bankId);
+        Sentence sentence = requireSentence(sentenceId);
+        Instant now = Instant.now();
+
+        boolean contentChange =
+                zhEdit != null || levelProvided || tagsEdit != null || noteEdit != null;
+        if (contentChange) {
+            applyContentEdit(
+                    actorId, sentence, zhEdit, levelProvided, levelEdit, tagsEdit, noteEdit, now);
+        }
+        // 与当前状态相同则不推进修订号（前端编辑弹窗恒带当前 status，属常见空操作）。
+        if (statusTarget != null && sentence.getStatus() != statusTarget) {
+            SentenceBank bank = lockedBankOf(sentence.getBankId());
+            long nextVersion = bank.getVersion() + 1;
+            sentence.changeStatus(statusTarget, nextVersion, actorId, now);
+            bank.advanceVersion(nextVersion, actorId, now);
+            sentenceDao.save(sentence);
+            bankDao.save(bank);
+        }
+        if (targetBankId != null && targetBankId != sentence.getBankId()) {
+            moveSentence(actorId, sentence, targetBankId, now);
+        }
+        return detailOf(sentence);
+    }
+
+    /**
+     * 落实版本字段编辑：新增不可变版本行、回填指纹与 content_hash、推进题库修订号并指向新快照。
+     *
+     * @param actorId 操作管理员 id
+     * @param sentence 目标题目
+     * @param zhEdit 新中文，null 表示不改
+     * @param levelProvided 是否显式提供了 level（区分「不改」与「清空」）
+     * @param levelEdit 新难度（已归一化，可为 null 表示清空）
+     * @param tagsEdit 新标签，null 表示不改
+     * @param noteEdit 新解析，null 表示不改
+     * @param now 统一时钟
+     */
+    private void applyContentEdit(
+            long actorId,
+            Sentence sentence,
+            String zhEdit,
+            boolean levelProvided,
+            String levelEdit,
+            List<String> tagsEdit,
+            String noteEdit,
+            Instant now) {
+        SentenceBank bank = lockedBankOf(sentence.getBankId());
+        SentenceVersion current = currentVersionOf(sentence);
+        int nextVersionNo =
+                sentenceDao
+                        .findLatestVersion(sentence.getId())
+                        .map(latest -> latest.getVersionNo() + 1)
+                        .orElse(1);
+        String newZh = zhEdit != null ? zhEdit : current.getZh();
+        String newNote = noteEdit != null ? noteEdit : current.getNote();
+        String newLevel = levelProvided ? levelEdit : current.getLevel();
+        String newTagsJson =
+                tagsEdit != null ? objectMapper.writeValueAsString(tagsEdit) : current.getTags();
+        // content_hash 与导入同式：原始 zh|ref|note|chunks|blank|tags 的 SHA-256（ref/chunks/blank 本端点不可改）。
+        String contentHash =
+                TextNormalizer.sha256(
+                        newZh
+                                + "|"
+                                + current.getRef()
+                                + "|"
+                                + newNote
+                                + "|"
+                                + current.getChunks()
+                                + "|"
+                                + current.getBlank()
+                                + "|"
+                                + newTagsJson);
+        // 指纹与导入共用 fingerprintsOf 的 canonical 算法：改题后再次导入相同内容仍会被去重拦截。
+        String fingerprint =
+                contentImportService
+                        .fingerprintsOf(
+                                List.of(
+                                        new SentenceContent(
+                                                null,
+                                                newZh,
+                                                current.getRef(),
+                                                newNote,
+                                                parseArray(
+                                                        current.getChunks(), SentenceChunk[].class),
+                                                parseArray(current.getBlank(), Integer[].class),
+                                                tagsEdit != null
+                                                        ? tagsEdit
+                                                        : parseArray(
+                                                                current.getTags(), String[].class),
+                                                newLevel,
+                                                null,
+                                                null)))
+                        .get(0);
+        SentenceVersion nextVersion =
+                SentenceVersion.create(
+                        sentence.getId(),
+                        sentence.getBankId(),
+                        nextVersionNo,
+                        newZh,
+                        current.getRef(),
+                        newNote,
+                        current.getChunks(),
+                        current.getBlank(),
+                        newTagsJson,
+                        newLevel,
+                        current.getSource(),
+                        current.getLicense(),
+                        contentHash,
+                        current.getImportBatchId(),
+                        actorId,
+                        now);
+        SentenceVersion saved = sentenceDao.saveVersion(nextVersion);
+        long bankVersion = bank.getVersion() + 1;
+        bank.advanceVersion(bankVersion, actorId, now);
+        sentence.pointToVersion(saved.getId(), nextVersionNo, bankVersion, fingerprint, actorId);
+        sentenceDao.save(sentence);
+        bankDao.save(bank);
+    }
+
+    /**
+     * 单题移动：目标库须可用且无相同内容，目标库每题递增修订号、源库推进一次（语义与批量移动一致）。
+     *
+     * @param actorId 操作管理员 id
+     * @param sentence 待移动题目
+     * @param targetBankId 目标题库 id
+     * @param now 统一时钟
+     */
+    private void moveSentence(long actorId, Sentence sentence, long targetBankId, Instant now) {
+        requireUsableBank(targetBankId);
+        // 源题库 id 必须在移动前捕获：moveToBank 会原地改写 bankId。
+        long sourceBankId = sentence.getBankId();
+        if (!sentenceDao
+                .findActiveFingerprints(targetBankId, List.of(sentence.getFingerprint()))
+                .isEmpty()) {
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, "目标题库已存在相同题目");
+        }
+        TreeSet<Long> lockOrder = new TreeSet<>(List.of(sourceBankId, targetBankId));
+        Map<Long, SentenceBank> lockedBanks = new LinkedHashMap<>();
+        for (Long id : lockOrder) {
+            lockedBanks.put(id, lockedBankOf(id));
+        }
+        SentenceBank targetBank = lockedBanks.get(targetBankId);
+        long nextVersion = targetBank.getVersion() + 1;
+        targetBank.advanceVersion(nextVersion, actorId, now);
+        sentence.moveToBank(targetBankId, nextVersion, actorId);
+        sentenceDao.save(sentence);
+        // 源题库推进一次修订号；移动不在源库产生 tombstone（已知限制，与批量移动一致）。
+        SentenceBank source = lockedBanks.get(sourceBankId);
+        source.advanceVersion(source.getVersion() + 1, actorId, now);
+        lockedBanks.values().forEach(bankDao::save);
+    }
+
+    /**
+     * 取题目，不存在回 40402（题目不存在，与 mock/错误码语义一致）。
+     *
+     * @param sentenceId 题目 ULID
+     * @return 题目实体
+     */
+    private Sentence requireSentence(String sentenceId) {
+        return sentenceDao
+                .findById(sentenceId)
+                .orElseThrow(() -> new BusinessException(ApiCode.SENTENCE_NOT_FOUND));
+    }
+
+    /**
+     * 取当前内容快照；缺失视为数据损坏，按未知异常上抛转 500 并落 error_log（与只读查询同口径）。
+     *
+     * @param sentence 题目实体
+     * @return 当前快照
+     */
+    private SentenceVersion currentVersionOf(Sentence sentence) {
+        Long currentVersionId = sentence.getCurrentVersionId();
+        if (currentVersionId == null) {
+            throw new IllegalStateException("题目缺少内容快照: " + sentence.getId());
+        }
+        return sentenceDao.findVersionsByIds(List.of(currentVersionId)).stream()
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("题目快照缺失: " + sentence.getId()));
+    }
+
+    /**
+     * 构造题目当前视图：按 sentences 行 + 当前快照组装（管理端不做 tombstone 裁剪）。
+     *
+     * @param sentence 题目实体
+     * @return 题目视图
+     */
+    private SentenceDetail detailOf(Sentence sentence) {
+        return toDetail(sentence, currentVersionOf(sentence));
+    }
+
+    /**
+     * 由题目身份与内容快照组装视图。
+     *
+     * @param sentence 题目实体
+     * @param snapshot 内容快照
+     * @return 题目视图
+     */
+    private SentenceDetail toDetail(Sentence sentence, SentenceVersion snapshot) {
+        return new SentenceDetail(
+                sentence.getId(),
+                Long.toString(sentence.getBankId()),
+                sentence.getVersion(),
+                snapshot.getId() == null ? null : Long.toString(snapshot.getId()),
+                snapshot.getVersionNo(),
+                sentence.getStatus().name(),
+                sentence.getDeletedAt() != null,
+                snapshot.getZh(),
+                snapshot.getRef(),
+                snapshot.getNote(),
+                parseArray(snapshot.getChunks(), SentenceChunk[].class),
+                parseArray(snapshot.getBlank(), Integer[].class),
+                parseArray(snapshot.getTags(), String[].class),
+                snapshot.getLevel());
+    }
+
+    /**
+     * 加悲观写锁取题库；题目行有外键保证题库存在，缺失按数据损坏上抛。
+     *
+     * @param bankId 题库 id
+     * @return 已锁定的题库
+     */
+    private SentenceBank lockedBankOf(long bankId) {
+        return bankDao.lockById(bankId)
+                .orElseThrow(() -> new IllegalStateException("题目所属题库缺失: " + bankId));
+    }
+
+    /**
+     * 归一化编辑的中文：必填（null 表示不改）、去首尾空白、4–255 字符。
+     *
+     * @param zh 原始中文
+     * @return 归一化中文；未提供时为 null
+     */
+    private static String normalizeEditZh(String zh) {
+        if (zh == null) {
+            return null;
+        }
+        String trimmed = zh.trim();
+        if (trimmed.isEmpty()) {
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, "请填写中文");
+        }
+        if (trimmed.length() < MIN_ZH_LENGTH) {
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, "中文太短");
+        }
+        if (trimmed.length() > MAX_ZH_LENGTH) {
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, "中文最多 255 个字符");
+        }
+        return trimmed;
+    }
+
+    /**
+     * 归一化编辑的难度：空白视为清空，超长按 40000 收敛。
+     *
+     * @param level 原始难度（调用方保证非 null）
+     * @return 归一化难度；清空时为 null
+     */
+    private static String normalizeLevel(String level) {
+        String trimmed = level.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        if (trimmed.length() > MAX_LEVEL_LENGTH) {
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, "难度最多 32 个字符");
+        }
+        return trimmed;
+    }
+
+    /**
+     * 归一化编辑的标签：逐项去空白并剔除空白项（允许清空为空列表）。
+     *
+     * @param tags 原始标签（调用方保证非 null）
+     * @return 归一化标签
+     */
+    private static List<String> normalizeTags(List<String> tags) {
+        return tags.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(tag -> !tag.isEmpty())
+                .toList();
+    }
+
+    /**
+     * 归一化编辑的解析：去首尾空白（允许清空为空串），超长按 40000 收敛。
+     *
+     * @param note 原始解析（调用方保证非 null）
+     * @return 归一化解析
+     */
+    private static String normalizeNote(String note) {
+        String trimmed = note.trim();
+        if (trimmed.length() > MAX_NOTE_LENGTH) {
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, "解析最多 1000 个字符");
+        }
+        return trimmed;
     }
 
     /**

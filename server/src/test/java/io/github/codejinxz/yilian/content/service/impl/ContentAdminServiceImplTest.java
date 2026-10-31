@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.inOrder;
@@ -19,6 +20,7 @@ import static org.mockito.Mockito.when;
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.api.PageResponse;
+import io.github.codejinxz.yilian.common.util.TextNormalizer;
 import io.github.codejinxz.yilian.content.dao.AdminSentenceQueryDao;
 import io.github.codejinxz.yilian.content.dao.AdminSentenceRow;
 import io.github.codejinxz.yilian.content.dao.BankDao;
@@ -27,6 +29,9 @@ import io.github.codejinxz.yilian.content.entity.BankVisibility;
 import io.github.codejinxz.yilian.content.entity.ContentStatus;
 import io.github.codejinxz.yilian.content.entity.Sentence;
 import io.github.codejinxz.yilian.content.entity.SentenceBank;
+import io.github.codejinxz.yilian.content.entity.SentenceVersion;
+import io.github.codejinxz.yilian.content.service.ContentImportService;
+import io.github.codejinxz.yilian.content.service.dto.SentenceContent;
 import io.github.codejinxz.yilian.content.service.vo.BankView;
 import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 
@@ -43,6 +48,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -72,16 +78,26 @@ class ContentAdminServiceImplTest {
 
     private AdminSentenceQueryDao adminSentenceQueryDao;
 
+    private ContentImportService contentImportService;
+
     private ContentAdminServiceImpl service;
+
+    private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
         bankDao = mock(BankDao.class);
         sentenceDao = mock(SentenceDao.class);
         adminSentenceQueryDao = mock(AdminSentenceQueryDao.class);
+        contentImportService = mock(ContentImportService.class);
+        objectMapper = new ObjectMapper();
         service =
                 new ContentAdminServiceImpl(
-                        bankDao, sentenceDao, adminSentenceQueryDao, new ObjectMapper());
+                        bankDao,
+                        sentenceDao,
+                        adminSentenceQueryDao,
+                        contentImportService,
+                        objectMapper);
     }
 
     /** 题库检索：字符串筛选解析为枚举透传，分页按 id 倒序，视图带题数统计。 */
@@ -554,6 +570,306 @@ class ContentAdminServiceImplTest {
         verifyNoInteractionsOnDaos();
     }
 
+    /** 单题状态流转：回收站恢复清软删标记（恢复语义），并按「每题递增」推进所属题库修订号。 */
+    @Test
+    void adminChangeSentenceStatusRestoresFromRecycleBinAndClearsDeletedAt() {
+        SentenceBank bank = bank(5L, ContentStatus.PUBLISHED, 3);
+        Sentence recycled = sentence("01A", 5L, ContentStatus.RECYCLED);
+        when(sentenceDao.findById("01A")).thenReturn(Optional.of(recycled));
+        when(bankDao.lockById(5L)).thenReturn(Optional.of(bank));
+        when(sentenceDao.findVersionsByIds(List.of(11L))).thenReturn(List.of(currentVersion()));
+
+        SentenceDetail view = service.adminChangeSentenceStatus(9L, "01A", "PUBLISHED", "恢复");
+
+        assertThat(recycled.getStatus()).isEqualTo(ContentStatus.PUBLISHED);
+        assertThat(recycled.getDeletedAt()).isNull();
+        assertThat(recycled.getVersion()).isEqualTo(4L);
+        assertThat(bank.getVersion()).isEqualTo(4L);
+        assertThat(view.deleted()).isFalse();
+        assertThat(view.status()).isEqualTo("PUBLISHED");
+        assertThat(view.zh()).isEqualTo("他越来越胖。");
+        verify(sentenceDao).save(recycled);
+        verify(bankDao).save(bank);
+    }
+
+    /** 单题状态流转幂等：已处于目标状态不推进修订号，直接回当前视图。 */
+    @Test
+    void adminChangeSentenceStatusSkipsNoOpWhenAlreadyInTargetStatus() {
+        Sentence disabled = sentence("01A", 5L, ContentStatus.DISABLED);
+        when(sentenceDao.findById("01A")).thenReturn(Optional.of(disabled));
+        when(sentenceDao.findVersionsByIds(List.of(11L))).thenReturn(List.of(currentVersion()));
+
+        SentenceDetail view = service.adminChangeSentenceStatus(9L, "01A", "DISABLED", "重复操作");
+
+        assertThat(view.status()).isEqualTo("DISABLED");
+        verify(bankDao, never()).lockById(anyLong());
+        verify(sentenceDao, never()).save(any());
+    }
+
+    /** 单题状态流转校验：空白原因 / 题目缺失（40402）/ 非法状态 → 业务失败收敛。 */
+    @Test
+    void adminChangeSentenceStatusRejectsBlankReasonMissingSentenceAndBadStatus() {
+        assertThatThrownBy(() -> service.adminChangeSentenceStatus(9L, "01A", "PUBLISHED", " "))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.VALIDATION_FAILED));
+        when(sentenceDao.findById("01A")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.adminChangeSentenceStatus(9L, "01A", "PUBLISHED", "原因"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.SENTENCE_NOT_FOUND));
+        assertThatThrownBy(() -> service.adminChangeSentenceStatus(9L, "01A", "NOPE", "原因"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.VALIDATION_FAILED));
+        verify(sentenceDao, never()).save(any());
+        verify(bankDao, never()).save(any());
+    }
+
+    /**
+     * 行内编辑版本字段：zh/level/tags/note 产生新版本行（version_no+1、保留 ref/chunks/blank 与来源溯源列）， content_hash
+     * 与导入同式、指纹与导入共用 canonical 算法；题库按「每题递增」推进。
+     */
+    @Test
+    void adminUpdateSentenceDetailCreatesNewVersionForVersionFields() {
+        SentenceBank bank = bank(5L, ContentStatus.PUBLISHED, 7);
+        Sentence sentence = sentenceWithVersion("01A", 5L, ContentStatus.PUBLISHED, 7);
+        List<SentenceVersion> versions = new ArrayList<>(List.of(currentVersion()));
+        when(sentenceDao.findById("01A")).thenReturn(Optional.of(sentence));
+        when(sentenceDao.findVersionsByIds(anyCollection()))
+                .thenAnswer(
+                        invocation -> {
+                            Collection<Long> ids = invocation.getArgument(0);
+                            return versions.stream()
+                                    .filter(version -> ids.contains(version.getId()))
+                                    .toList();
+                        });
+        when(sentenceDao.findLatestVersion("01A")).thenReturn(Optional.of(currentVersion()));
+        when(bankDao.lockById(5L)).thenReturn(Optional.of(bank));
+        when(sentenceDao.saveVersion(any(SentenceVersion.class)))
+                .thenAnswer(
+                        invocation -> {
+                            SentenceVersion version = invocation.getArgument(0);
+                            ReflectionTestUtils.setField(version, "id", 12L);
+                            versions.add(version);
+                            return version;
+                        });
+        when(contentImportService.fingerprintsOf(any())).thenReturn(List.of("fp-new"));
+
+        SentenceDetail view =
+                service.adminUpdateSentenceDetail(
+                        9L,
+                        "01A",
+                        "  他越来越胖了呀。  ",
+                        "  ",
+                        List.of(" 搭配 ", "", "新考点"),
+                        " 新解析。 ",
+                        null,
+                        null,
+                        "编辑题目");
+
+        ArgumentCaptor<SentenceVersion> versionCaptor =
+                ArgumentCaptor.forClass(SentenceVersion.class);
+        verify(sentenceDao).saveVersion(versionCaptor.capture());
+        SentenceVersion saved = versionCaptor.getValue();
+        assertThat(saved.getSentenceId()).isEqualTo("01A");
+        assertThat(saved.getBankId()).isEqualTo(5L);
+        assertThat(saved.getVersionNo()).isEqualTo(3);
+        assertThat(saved.getZh()).isEqualTo("他越来越胖了呀。");
+        assertThat(saved.getRef()).isEqualTo("He is getting fatter and fatter.");
+        assertThat(saved.getNote()).isEqualTo("新解析。");
+        assertThat(saved.getChunks()).isEqualTo(CHUNKS_JSON);
+        assertThat(saved.getBlank()).isEqualTo(BLANK_JSON);
+        assertThat(saved.getTags()).isEqualTo("[\"搭配\",\"新考点\"]");
+        assertThat(saved.getLevel()).isNull();
+        assertThat(saved.getSource()).isEqualTo("import");
+        assertThat(saved.getLicense()).isEqualTo("CC-BY");
+        assertThat(saved.getImportBatchId()).isEqualTo("batch-1");
+        assertThat(saved.getContentHash())
+                .isEqualTo(
+                        TextNormalizer.sha256(
+                                "他越来越胖了呀。|He is getting fatter and fatter.|新解析。|"
+                                        + CHUNKS_JSON
+                                        + "|"
+                                        + BLANK_JSON
+                                        + "|[\"搭配\",\"新考点\"]"));
+        verify(contentImportService)
+                .fingerprintsOf(
+                        argThat(
+                                rows -> {
+                                    SentenceContent content = rows.get(0);
+                                    return content.zh().equals("他越来越胖了呀。")
+                                            && content.ref()
+                                                    .equals("He is getting fatter and fatter.")
+                                            && content.note().equals("新解析。")
+                                            && content.chunks().size() == 2
+                                            && content.tags().equals(List.of("搭配", "新考点"));
+                                }));
+        assertThat(sentence.getCurrentVersionId()).isEqualTo(12L);
+        assertThat(sentence.getVersion()).isEqualTo(8L);
+        assertThat(sentence.getFingerprint()).isEqualTo("fp-new");
+        assertThat(bank.getVersion()).isEqualTo(8L);
+        assertThat(view.questionVersion()).isEqualTo(3);
+        assertThat(view.sentenceVersionId()).isEqualTo("12");
+        assertThat(view.zh()).isEqualTo("他越来越胖了呀。");
+    }
+
+    /** 行内编辑只带元字段（bankId/status）时不产生新版本行：状态流转推进源库一次，移动按目标库每题递增、 源库再推进一次。 */
+    @Test
+    void adminUpdateSentenceDetailAppliesMetaOnlyChangesWithoutNewVersion() {
+        SentenceBank sourceBank = bank(5L, ContentStatus.PUBLISHED, 7);
+        SentenceBank targetBank = bank(7L, ContentStatus.PUBLISHED, 10);
+        Sentence sentence = sentenceWithVersion("01A", 5L, ContentStatus.PUBLISHED, 7);
+        when(sentenceDao.findById("01A")).thenReturn(Optional.of(sentence));
+        when(sentenceDao.findVersionsByIds(List.of(11L))).thenReturn(List.of(currentVersion()));
+        when(bankDao.findById(7L)).thenReturn(Optional.of(targetBank));
+        when(bankDao.lockById(5L)).thenReturn(Optional.of(sourceBank));
+        when(bankDao.lockById(7L)).thenReturn(Optional.of(targetBank));
+        when(sentenceDao.findActiveFingerprints(eq(7L), anyCollection())).thenReturn(List.of());
+
+        SentenceDetail view =
+                service.adminUpdateSentenceDetail(
+                        9L, "01A", null, null, null, null, "7", "DISABLED", "整理");
+
+        verify(sentenceDao, never()).saveVersion(any());
+        verify(contentImportService, never()).fingerprintsOf(any());
+        assertThat(sentence.getStatus()).isEqualTo(ContentStatus.DISABLED);
+        assertThat(sentence.getBankId()).isEqualTo(7L);
+        assertThat(sentence.getVersion()).isEqualTo(11L);
+        assertThat(sourceBank.getVersion()).isEqualTo(9L);
+        assertThat(targetBank.getVersion()).isEqualTo(11L);
+        assertThat(view.bankId()).isEqualTo("7");
+        assertThat(view.status()).isEqualTo("DISABLED");
+    }
+
+    /** 行内编辑先改内容后移动：移动的指纹预检用的是回填后的新指纹。 */
+    @Test
+    void adminUpdateSentenceDetailChecksNewFingerprintWhenMovingAfterContentEdit() {
+        SentenceBank sourceBank = bank(5L, ContentStatus.PUBLISHED, 7);
+        SentenceBank targetBank = bank(7L, ContentStatus.PUBLISHED, 10);
+        Sentence sentence = sentenceWithVersion("01A", 5L, ContentStatus.PUBLISHED, 7);
+        List<SentenceVersion> versions = new ArrayList<>(List.of(currentVersion()));
+        when(sentenceDao.findById("01A")).thenReturn(Optional.of(sentence));
+        when(sentenceDao.findVersionsByIds(anyCollection()))
+                .thenAnswer(
+                        invocation -> {
+                            Collection<Long> ids = invocation.getArgument(0);
+                            return versions.stream()
+                                    .filter(version -> ids.contains(version.getId()))
+                                    .toList();
+                        });
+        when(sentenceDao.findLatestVersion("01A")).thenReturn(Optional.of(currentVersion()));
+        when(sentenceDao.saveVersion(any(SentenceVersion.class)))
+                .thenAnswer(
+                        invocation -> {
+                            SentenceVersion version = invocation.getArgument(0);
+                            ReflectionTestUtils.setField(version, "id", 12L);
+                            versions.add(version);
+                            return version;
+                        });
+        when(contentImportService.fingerprintsOf(any())).thenReturn(List.of("fp-new"));
+        when(bankDao.findById(7L)).thenReturn(Optional.of(targetBank));
+        when(bankDao.lockById(5L)).thenReturn(Optional.of(sourceBank));
+        when(bankDao.lockById(7L)).thenReturn(Optional.of(targetBank));
+        when(sentenceDao.findActiveFingerprints(eq(7L), anyCollection())).thenReturn(List.of());
+
+        service.adminUpdateSentenceDetail(
+                9L, "01A", "  他越来越胖了呀。  ", null, null, null, "7", null, "编辑题目");
+
+        verify(sentenceDao)
+                .findActiveFingerprints(
+                        eq(7L), argThat(asked -> asked.size() == 1 && asked.contains("fp-new")));
+        assertThat(sentence.getBankId()).isEqualTo(7L);
+        assertThat(sentence.getFingerprint()).isEqualTo("fp-new");
+    }
+
+    /** 行内编辑移动：目标库已有相同内容（按指纹）→ 40000 整体不落库。 */
+    @Test
+    void adminUpdateSentenceDetailRejectsDuplicateFingerprintInTargetBank() {
+        SentenceBank targetBank = bank(7L, ContentStatus.PUBLISHED, 10);
+        Sentence sentence = sentenceWithVersion("01A", 5L, ContentStatus.PUBLISHED, 7);
+        when(sentenceDao.findById("01A")).thenReturn(Optional.of(sentence));
+        when(sentenceDao.findVersionsByIds(List.of(11L))).thenReturn(List.of(currentVersion()));
+        when(bankDao.findById(7L)).thenReturn(Optional.of(targetBank));
+        when(sentenceDao.findActiveFingerprints(eq(7L), anyCollection()))
+                .thenReturn(List.of("fp-01A"));
+
+        assertThatThrownBy(
+                        () ->
+                                service.adminUpdateSentenceDetail(
+                                        9L, "01A", null, null, null, null, "7", null, "整理"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.VALIDATION_FAILED));
+        verify(sentenceDao, never()).save(any());
+        verify(bankDao, never()).save(any());
+        verify(sentenceDao, never()).saveVersion(any());
+    }
+
+    /** 行内编辑校验：中文太短 / 非法状态 / 题目缺失（40402）。 */
+    @Test
+    void adminUpdateSentenceDetailRejectsShortZhBadStatusAndMissingSentence() {
+        assertThatThrownBy(
+                        () ->
+                                service.adminUpdateSentenceDetail(
+                                        9L, "01A", "  中文  ", null, null, null, null, null, "编辑题目"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.VALIDATION_FAILED));
+        assertThatThrownBy(
+                        () ->
+                                service.adminUpdateSentenceDetail(
+                                        9L, "01A", null, null, null, null, null, "NOPE", null))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.VALIDATION_FAILED));
+        when(sentenceDao.findById("01A")).thenReturn(Optional.empty());
+        assertThatThrownBy(
+                        () ->
+                                service.adminUpdateSentenceDetail(
+                                        9L, "01A", "他越来越胖了呀。", null, null, null, null, null, null))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.SENTENCE_NOT_FOUND));
+        verify(sentenceDao, never()).saveVersion(any());
+    }
+
+    /** 行内编辑空体与同状态 status：无操作回当前视图，不推进修订号、不写版本行。 */
+    @Test
+    void adminUpdateSentenceDetailNoOpReturnsCurrentView() {
+        Sentence sentence = sentenceWithVersion("01A", 5L, ContentStatus.PUBLISHED, 7);
+        when(sentenceDao.findById("01A")).thenReturn(Optional.of(sentence));
+        when(sentenceDao.findVersionsByIds(List.of(11L))).thenReturn(List.of(currentVersion()));
+
+        SentenceDetail view =
+                service.adminUpdateSentenceDetail(
+                        9L, "01A", null, null, null, null, null, null, null);
+
+        assertThat(view.zh()).isEqualTo("他越来越胖。");
+        verify(sentenceDao, never()).saveVersion(any());
+        verify(sentenceDao, never()).save(any());
+        // 前端编辑弹窗恒带当前 status：同状态属空操作，不推进修订号。
+        SentenceDetail unchanged =
+                service.adminUpdateSentenceDetail(
+                        9L, "01A", null, null, null, null, null, "PUBLISHED", "编辑题目");
+        assertThat(unchanged.status()).isEqualTo("PUBLISHED");
+        verify(bankDao, never()).lockById(anyLong());
+    }
+
     /**
      * 构造 N 条去重题目 id。
      *
@@ -601,6 +917,50 @@ class ContentAdminServiceImplTest {
         if (status != ContentStatus.DRAFT) {
             created.changeStatus(status, 0L, 9L, NOW);
         }
+        return created;
+    }
+
+    /**
+     * 构造带初始修订号的题目实体（行内编辑用例需要非 0 起点验证递增）。
+     *
+     * @param id ULID
+     * @param bankId 所属题库
+     * @param status 生命周期
+     * @param version 初始修订号
+     * @return 题目实体
+     */
+    private static Sentence sentenceWithVersion(
+            String id, long bankId, ContentStatus status, long version) {
+        Sentence created = sentence(id, bankId, status);
+        ReflectionTestUtils.setField(created, "version", version);
+        return created;
+    }
+
+    /**
+     * 构造当前内容快照（version_no=2、id=11），与题目实体的 currentVersionId=11 对齐。
+     *
+     * @return 快照实体
+     */
+    private static SentenceVersion currentVersion() {
+        SentenceVersion created =
+                SentenceVersion.create(
+                        "01A",
+                        5L,
+                        2,
+                        "他越来越胖。",
+                        "He is getting fatter and fatter.",
+                        "主语 + 现在进行时。",
+                        CHUNKS_JSON,
+                        BLANK_JSON,
+                        TAGS_JSON,
+                        "CET-4",
+                        "import",
+                        "CC-BY",
+                        "hash-old",
+                        "batch-1",
+                        9L,
+                        NOW);
+        ReflectionTestUtils.setField(created, "id", 11L);
         return created;
     }
 

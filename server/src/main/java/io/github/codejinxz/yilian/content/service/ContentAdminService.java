@@ -138,4 +138,56 @@ public interface ContentAdminService {
      * @throws io.github.codejinxz.yilian.common.api.BusinessException 参数不合法（40000）、目标题库不可用（40401）
      */
     int adminBulkMove(long actorId, List<String> ids, String bankId, String reason);
+
+    /**
+     * 单题状态流转（停用/恢复/回收）；恢复会清软删标记，单事务。
+     *
+     * <p>已处于目标状态时不推进修订号（幂等，与批量同语义），直接回当前视图。
+     *
+     * @param actorId 操作管理员 id
+     * @param sentenceId 题目 ULID
+     * @param status 目标状态 DRAFT/PUBLISHED/DISABLED/RECYCLED/ARCHIVED
+     * @param reason 审计原因，必填 1–255 字符
+     * @return 更新后的题目视图（含归属题库 bankId）
+     * @throws io.github.codejinxz.yilian.common.api.BusinessException 题目不存在（40402）、参数不合法（40000）
+     */
+    SentenceDetail adminChangeSentenceStatus(
+            long actorId, String sentenceId, String status, String reason);
+
+    /**
+     * 行内编辑题目可变字段；单事务。空请求体视为无操作，返回当前视图。
+     *
+     * <p>字段分两类落地（语义见 API §8.8）：
+     *
+     * <ul>
+     *   <li><strong>版本字段</strong> zh/level/tags/note：内容快照 {@code sentence_versions} 不可变（DB 触发器禁止
+     *       UPDATE）， 因此新增 {@code version_no = 最新 + 1} 的版本行并回填指纹（与导入共用同一 canonical 算法，
+     *       改题后再次导入同内容仍会被去重拦截）， 所属题库按「每题递增」推进修订号；ref/chunks/blank 本端点不可改。
+     *   <li><strong>元字段</strong> bankId/status：只改 {@code sentences} 行——移动复用批量移动语义（目标库须存在且未回收 40401、
+     *       指纹冲突整批拒绝 40000、目标库每题递增、源库推进一次）；状态流转含恢复语义（移出回收站清 {@code deleted_at}）， 与当前状态相同则不推进修订号。
+     * </ul>
+     *
+     * @param actorId 操作管理员 id
+     * @param sentenceId 题目 ULID
+     * @param zh 新中文，4–255 字符，null 表示不改
+     * @param level 新难度，null 表示不改，空白清空
+     * @param tags 新考点标签，null 表示不改，空白项剔除
+     * @param note 新解析，最长 1000 字符，null 表示不改，空串清空
+     * @param bankId 目标题库 id，数字字符串，null 表示不移动
+     * @param status 新状态，null 表示不改
+     * @param reason 审计原因，可空
+     * @return 更新后的题目视图（含归属题库 bankId）
+     * @throws io.github.codejinxz.yilian.common.api.BusinessException
+     *     题目不存在（40402）、目标题库不可用（40401）、参数不合法（40000）
+     */
+    SentenceDetail adminUpdateSentenceDetail(
+            long actorId,
+            String sentenceId,
+            String zh,
+            String level,
+            List<String> tags,
+            String note,
+            String bankId,
+            String status,
+            String reason);
 }

@@ -242,6 +242,33 @@ public class SentenceVersion {
     }
 
     /**
+     * 内容来源。
+     *
+     * @return 来源，可空
+     */
+    public String getSource() {
+        return source;
+    }
+
+    /**
+     * 许可。
+     *
+     * @return 许可，可空
+     */
+    public String getLicense() {
+        return license;
+    }
+
+    /**
+     * 来源导入批次。
+     *
+     * @return 批次 id，可空
+     */
+    public String getImportBatchId() {
+        return importBatchId;
+    }
+
+    /**
      * 内容哈希。
      *
      * @return SHA-256

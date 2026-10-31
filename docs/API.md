@@ -318,7 +318,8 @@
 | admin | `/api/admin/sentences` | GET | ADMIN | M1 | implemented |
 | admin | `/api/admin/sentences/bulk-status` | POST | ADMIN | M1 | implemented |
 | admin | `/api/admin/sentences/bulk-move` | POST | ADMIN | M1 | implemented |
-| admin | `/api/admin/sentences/{sentenceId}/status` | PATCH | ADMIN | M1 | planned |
+| admin | `/api/admin/sentences/{sentenceId}` | PATCH | ADMIN | M1 | implemented |
+| admin | `/api/admin/sentences/{sentenceId}/status` | PATCH | ADMIN | M1 | implemented |
 
 > `implemented` 只覆盖当前认证骨架；其余在 M1/M2 实现后再改为 `implemented`。`transitional` 的 upload 上传接口见 §10，不纳入本表。
 
@@ -1492,9 +1493,10 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 - `GET /api/admin/sentences`：跨题库题目列表；query `keyword/bankId/level/status/page/size`， keyword 匹配中文/参考译文；**缺省隐藏回收站**，显式传 `status`（含 RECYCLED）时按精确状态过滤；`PageResponse<SentenceView+bankId>`。
 - `POST /api/admin/sentences/bulk-status`：请求 `{ids(1–500 去重), status, reason(1–255 必填)}`；响应 `{updated}`。 单事务；不存在的 id 与已处于目标状态的 id 跳过（`updated` 只计实际变更），每条变更按「每题递增」推进所属题库修订号， 草稿题库随内容变更发布（与导入同语义）。审计 `SENTENCE_BULK_STATUS`。
 - `POST /api/admin/sentences/bulk-move`：请求 `{ids(1–500 去重), bankId, reason(必填)}`；响应 `{moved}`。 目标题库必须存在且未进回收站（否则 `40401`）；目标库已有相同内容（指纹）时整批拒绝 `40000`； 不存在的 id 与已在目标库的 id 跳过；目标库修订号按「每题递增」推进，源库各推进一次。审计 `SENTENCE_BULK_MOVE`。
-- `PATCH /api/admin/sentences/{sentenceId}/status`（planned，下一波）：停用/恢复/回收；请求 `{status, reason}`；响应 `SentenceView`。
+- `PATCH /api/admin/sentences/{sentenceId}/status`：停用/恢复/回收；请求 `{status(白名单), reason(1–255 必填)}`；响应 `SentenceView+bankId`。 已处于目标状态时幂等不推进修订号；恢复清 `deleted_at`（回收站恢复语义）。题目缺失回 `40402`（题目不存在， 非题库的 40401）。审计 `SENTENCE_STATUS`。
+- `PATCH /api/admin/sentences/{sentenceId}`：行内编辑 `{zh?/level?/tags?/note?/bankId?/status?/reason?}`， null 字段不修改；响应 `SentenceView+bankId`。**字段分两类落地**： zh/level/tags/note 是版本字段——内容快照 `sentence_versions` 不可变（DB 触发器禁止 UPDATE）， 服务端新增 `version_no=最新+1` 的版本行并回填指纹（与导入共用 canonical 算法，改题后再导入同内容仍被去重拦截）与 content_hash（导入同式）， 所属题库按「每题递增」推进修订号，ref/chunks/blank 本端点不可改； bankId/status 是元字段——移动复用批量移动语义（目标库 40401/指纹冲突 40000/目标库每题递增、源库推进一次）， 状态流转含恢复语义、与当前状态相同则不推进。编辑先于移动：移动预检使用回填后的新指纹。审计 `SENTENCE_UPDATE`。
 
-错误：`40000`（字段/ids/枚举非法）、`40001`、`40004`、`40100`、`40300`、`40401`、`50000`。
+错误：`40000`（字段/ids/枚举非法，zh 需 4–255、note ≤1000）、`40001`、`40004`、`40100`、`40300`、`40401`（题库相关）、`40402`（题目不存在）、`50000`。
 
 字段回溯：`sentence_banks.*`、`sentences.*`、`sentence_versions.*`、`admin_audit_log.*`。
 
@@ -1673,7 +1675,7 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 | Analytics | `GET /api/analytics/accuracy`（含 `daily14`/`recent` 扩展）、`GET /api/analytics/error-tags` | 用户时区日界；disputed 批注排除 | `AnalyticsControllerTest`（切片：匿名 401、§7.1/§7.2 信封、参数透传、非法日期 40000、空 items=[]） |
 | Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 | `ImportBatchControllerTest`（切片：匿名 401/非管理员 403、multipart 绑定与缺参 40000、缺请求体 40001、40405/40904、PageResponse 信封） |
 | Admin | `GET /api/admin/overview`、`GET /api/admin/users`、`PATCH /api/admin/users/{id}/status`、`PATCH /api/admin/users/{id}/role`、`POST /api/admin/invites`、`GET /api/admin/invites`（011-a） | 概览聚合（活跃=attempts 当日去重用户，UTC 日界）、用户检索分页、启停/改角色（审计经 `OperationLogContext`）、邀请码生成（明文一次性）/前缀列表 | `AdminOverviewControllerTest`、`AdminUserControllerTest`、`AdminInviteControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse 形状、reason 越界 40000、40001、审计上下文断言）；service 分支另由 `UserAccountServiceImplTest`（自己停自己/自己降自己/邀请码哈希落库）、`AdminOverviewServiceImplTest`（补 0 与活动组装）覆盖 |
-| Admin | `GET/POST /api/admin/banks`、`GET/PATCH/DELETE /api/admin/banks/{bankId}`、`GET /api/admin/banks/{bankId}/sentences`、`GET /api/admin/sentences`、`POST /api/admin/sentences/bulk-status`、`POST /api/admin/sentences/bulk-move`（011-b） | 题库检索/新建/详情/部分更新/软删（状态流转 RECYCLED，恢复清 `deleted_at`）、题库内与跨题库题目检索（跨题库缺省隐藏回收站）、批量状态/移动（单事务；不存在的 id 与无变化 id 跳过、计数如实返回；每题递增银行修订号；移动预检指纹冲突 40000） | `AdminBankControllerTest`、`AdminSentenceControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse/SentenceView 形状、reason/ids 校验 40000、缺体 40001、40401、审计上下文断言）；批量与列表语义另由 `ContentAdminServiceImplTest`（每题递增版本、悲观锁按题库 id 升序、跳过语义、非法枚举 40000/分页 40004）覆盖 |
+| Admin | `GET/POST /api/admin/banks`、`GET/PATCH/DELETE /api/admin/banks/{bankId}`、`GET /api/admin/banks/{bankId}/sentences`、`GET /api/admin/sentences`、`POST /api/admin/sentences/bulk-status`、`POST /api/admin/sentences/bulk-move`、`PATCH /api/admin/sentences/{sentenceId}/status`、`PATCH /api/admin/sentences/{sentenceId}`（011-b） | 题库检索/新建/详情/部分更新/软删（状态流转 RECYCLED，恢复清 `deleted_at`）、题库内与跨题库题目检索（跨题库缺省隐藏回收站）、批量状态/移动（单事务；不存在的 id 与无变化 id 跳过、计数如实返回；每题递增银行修订号；移动预检指纹冲突 40000）、单题状态流转（幂等不推进）、行内编辑（zh/level/tags/note 走新版本行并回填指纹/content_hash，bankId/status 走元字段；编辑先于移动，预检用新指纹） | `AdminBankControllerTest`、`AdminSentenceControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse/SentenceView 形状、reason/ids/zh 校验 40000、缺体 40001、40401/40402、审计上下文断言）；批量与列表/编辑语义另由 `ContentAdminServiceImplTest`（每题递增版本、悲观锁按题库 id 升序、跳过语义、恢复清软删、版本字段新版本行、非法枚举 40000/分页 40004）覆盖 |
 | 运维 | `/actuator/health` | 非业务 | `AuthFlowIntegrationTest`（healthIsPublicAndUp） |
 
 ### 10.2 过渡实现（不纳入冻结契约）
@@ -1686,14 +1688,14 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 
 | 组 | 覆盖端点 |
 |---|---|
-| Admin（§8） | 审计与异常检索、句子单条状态/编辑、导入管理演示、`attempts/{id}/raw`、模型/出题/运维演示（011-a 后概览/用户管理/邀请码、011-b 后题库管理与题目列表/批量为真实接口，mock 仅保留演示语义：邀请码列表/生成同形回前缀） |
+| Admin（§8） | 审计与异常检索、导入管理演示、`attempts/{id}/raw`、模型/出题/运维演示（011-a 后概览/用户管理/邀请码、011-b 后题库管理与题目列表/批量/单题状态/行内编辑为真实接口，mock 仅保留演示语义：邀请码列表/生成同形回前缀） |
 
 说明：练习数据链路在真实模式下按登录态分流——**游客**由前端本地引擎承担（IndexedDB，RESEARCH 2026-10-24 增补），`lib/api.ts` 的 `LOCAL_ROUTE_GROUPS`（`mode:"guest"`）只对未登录访客本地应答、游客全链路零网络写请求；**登录用户**的 practice/analytics 请求直达服务端（波次四切换，冷启动竞态由 auth-state 探针 + Query 失效兜底）。mock 模式（`VITE_USE_MOCK=true`）仍优先于一切。
 
 ### 10.4 未开发（契约在案）
 
 - §6.1 `sentenceId`/`errors`/`excludeIds`/`tag` 四个查询参数的服务端实现（M2.1，D7）。
-- Admin 检索与写接口（§8 审计/异常检索、句子单条状态与编辑、模型配置；用户管理与概览/邀请码已随 011-a 落地，题库管理与题目检索/批量已随 011-b 落地）。
+- Admin 检索与写接口（§8 审计/异常检索、模型配置；用户管理与概览/邀请码已随 011-a 落地，题库管理与题目检索/批量/单题状态/行内编辑已随 011-b 落地）。
 - 深度批改（M3）、FSRS 排程真值（V2 字段已预留，M2.1 换函数体）、申诉 LLM 裁决（M3）。
 
 ### 10.5 待收口
@@ -1713,6 +1715,7 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 | 2026-10-25 | v0.2 | §10 重写为实现状态总览（已实现/前端 mock/未开发/待收口）；登记 upload 命名决策 | 技术负责人 |
 | 2026-10-31 | v0.3 | T18 文档收口：§6/§7/§4.6–4.9/§5.1–5.3 状态改 implemented；§6.1 补 D7 参数差异表；§6.2 补 payloadHash 幂等口径；§6.4/§6.5 补 appeal/dispute 实现口径；新增 §6.10/§6.11（overload/postpone）；§7.1 补 daily14/recent 扩展；§10 矩阵逐行更新 | 技术负责人 |
 | 2026-11-01 | v0.4 | 011-b 内容域管理接口：§8.8 改 implemented 并补 `GET /api/admin/sentences` 与 bulk-status/bulk-move 语义（跳过缺失/无变化并暴露计数、每题递增修订号、恢复清 `deleted_at`、移动指纹预检）；§3 矩阵、§10.1/10.3/10.4 同步 | 实现工程师 |
+| 2026-11-01 | v0.5 | 011-b 修复轮：§8.8 补 `PATCH /api/admin/sentences/{sentenceId}/status`（reason 必填、幂等不推进、40402）与 `PATCH /api/admin/sentences/{sentenceId}`（行内编辑：zh/level/tags/note 走新版本行+指纹回填，bankId/status 走元字段）实现语义；§3 矩阵、§10.1/10.3/10.4 同步 | 实现工程师 |
 | 2026-10-31 | v0.3.1 | DoD 接口级测试补全：§10.1 新增「接口级测试」列（`AnalyticsControllerTest`、`ImportBatchControllerTest`、`MeControllerTest` 新建；`PracticeControllerTest` 补 next/getAttempt/reviews/reset/overload/postpone；`AuthFlowIntegrationTest` 补 register/password 真实 HTTP），矩阵与测试一一对应 | 测试工程师 |
 | 2026-11-01 | v0.3.2 | 011-a 管理端用户域落地：§8.1–8.3 改 implemented（§8.2 审计 action 修正为 USER_STATUS_CHANGE、refresh 会话语义对齐实现），新增 §8.9 概览与 §8.10 邀请码（GET 列表改回 codePrefix，明文仅 POST 一次性返回）；§10.1 矩阵补 Admin 行（AdminOverview/User/Invite ControllerTest + UserAccountServiceImplTest/AdminOverviewServiceImplTest） | 实现工程师 |
 
