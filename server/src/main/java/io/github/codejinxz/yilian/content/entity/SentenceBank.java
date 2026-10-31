@@ -124,7 +124,9 @@ public class SentenceBank {
     }
 
     /**
-     * 变更生命周期；发布时记录首次/最近发布时间。
+     * 变更生命周期；发布时记录首次/最近发布时间，进回收站写 deleted_at，移出回收站清软删标记。
+     *
+     * <p>与题目同一状态机约定：恢复不清 deleted_at 的话，练习端可见性判定（status=PUBLISHED 且未软删） 仍然拒绝该题库，管理端「恢复」形同虚设。
      *
      * @param status 新状态
      * @param actorId 操作者
@@ -138,6 +140,9 @@ public class SentenceBank {
         if (status == ContentStatus.RECYCLED) {
             this.deletedAt = now;
             this.deletedBy = actorId;
+        } else if (this.deletedAt != null) {
+            this.deletedAt = null;
+            this.deletedBy = null;
         }
         this.updatedBy = actorId;
         touch();

@@ -51,8 +51,9 @@ public class JpaBankDao implements BankDao {
     }
 
     @Override
-    public Page<SentenceBank> searchAdmin(String keyword, ContentStatus status, Pageable pageable) {
-        return banks.searchAdmin(keyword, status, pageable);
+    public Page<SentenceBank> searchAdmin(
+            String keyword, BankVisibility visibility, ContentStatus status, Pageable pageable) {
+        return banks.searchAdmin(keyword, visibility, status, pageable);
     }
 
     @Override

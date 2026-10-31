@@ -49,14 +49,16 @@ public interface BankDao {
             Long userId, String keyword, BankVisibility visibility, Pageable pageable);
 
     /**
-     * 管理端题库检索。
+     * 管理端题库检索：不限可见集合，含 DRAFT/RECYCLED 等全部生命周期。
      *
-     * @param keyword 关键字
-     * @param status 状态
+     * @param keyword 关键字，匹配名称与说明，可为 null
+     * @param visibility 可见性过滤，可为 null
+     * @param status 状态过滤，可为 null
      * @param pageable 分页
      * @return 分页结果
      */
-    Page<SentenceBank> searchAdmin(String keyword, ContentStatus status, Pageable pageable);
+    Page<SentenceBank> searchAdmin(
+            String keyword, BankVisibility visibility, ContentStatus status, Pageable pageable);
 
     /**
      * 统计题库内已发布且未删题目数。

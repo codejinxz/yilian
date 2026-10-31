@@ -40,6 +40,11 @@ public class JpaSentenceDao implements SentenceDao {
     }
 
     @Override
+    public List<Sentence> findByIds(Collection<String> ids) {
+        return ids.isEmpty() ? List.of() : sentences.findAllById(ids);
+    }
+
+    @Override
     public Optional<Sentence> findByExternalKey(long bankId, String externalKey) {
         return sentences.findByBankIdAndExternalKey(bankId, externalKey);
     }

@@ -27,6 +27,14 @@ public interface SentenceDao {
     Optional<Sentence> findById(String id);
 
     /**
+     * 按 id 批量查题目，供管理端批量操作使用；不保证返回顺序。
+     *
+     * @param ids ULID 集合
+     * @return 存在的题目
+     */
+    List<Sentence> findByIds(Collection<String> ids);
+
+    /**
      * 按题库与外部键查题目。
      *
      * @param bankId 题库 id

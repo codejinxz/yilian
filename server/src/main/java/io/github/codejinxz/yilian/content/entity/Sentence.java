@@ -118,7 +118,10 @@ public class Sentence {
     }
 
     /**
-     * 变更生命周期并 bump 版本；回收站同时写 deleted_at。
+     * 变更生命周期并 bump 版本；进回收站写 deleted_at，移出回收站清软删标记。
+     *
+     * <p>「回收站 = RECYCLED + 非空 deleted_at」（ContentStatus 约定）：恢复/启用若不清 deleted_at， 详情与增量流仍会按
+     * tombstone 处理，管理端「恢复」就永远不生效。
      *
      * @param status 新状态
      * @param bankVersion 新银行级修订号
@@ -131,7 +134,27 @@ public class Sentence {
         if (status == ContentStatus.RECYCLED) {
             this.deletedAt = now;
             this.deletedBy = actorId;
+        } else if (this.deletedAt != null) {
+            this.deletedAt = null;
+            this.deletedBy = null;
         }
+        this.updatedBy = actorId;
+        touch();
+    }
+
+    /**
+     * 批量移动到另一题库，并推进到目标题库的新修订号。
+     *
+     * <p>只改 {@code sentences.bank_id} 定位列；历史内容快照（sentence_versions.bank_id）不可变， 管理端列表一律经 {@code
+     * current_version_id} JOIN 取内容，不依赖快照上的题库冗余列。
+     *
+     * @param targetBankId 目标题库 id
+     * @param bankVersion 目标题库本次移动后的修订号
+     * @param actorId 操作者
+     */
+    public void moveToBank(long targetBankId, long bankVersion, Long actorId) {
+        this.bankId = targetBankId;
+        this.version = bankVersion;
         this.updatedBy = actorId;
         touch();
     }

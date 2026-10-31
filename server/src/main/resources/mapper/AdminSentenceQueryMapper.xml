@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="io.github.codejinxz.yilian.content.dao.mybatis.AdminSentenceQueryMapper">
+
+    <!--
+      管理端题目列表（ContentAdminService 列表用例）：sentences JOIN 当前内容快照，动态筛选分页。
+      - 归属真值是 s.bank_id：sentence_versions.bank_id 只是导入时的历史冗余，题目移动后不回写（快照不可变）；
+      - INNER JOIN 当前快照：回收站行也要带完整内容供恢复预览，因此不做练习端的 tombstone 裁剪，
+        快照缺失（current_version_id 为 NULL 或指向缺失行）的损坏行在 JOIN 中天然丢弃，宁可少一行也不渲染残缺数据；
+      - hideRecycled：跨题库列表缺省隐藏回收站（前端契约），题库内列表恒为 false；
+      - 排序 created_at DESC, id DESC：管理端最新在前，同刻按 ULID 稳定。
+    -->
+    <sql id="adminSentenceFilter">
+        <if test="bankId != null">
+            AND s.bank_id = #{bankId}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (v.zh LIKE CONCAT('%', #{keyword}, '%') OR v.ref LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        <if test="level != null and level != ''">
+            AND v.level = #{level}
+        </if>
+        <if test="status != null and status != ''">
+            AND s.status = #{status}
+        </if>
+        <if test="hideRecycled">
+            AND s.status != 'RECYCLED'
+        </if>
+    </sql>
+
+    <select id="search" resultType="io.github.codejinxz.yilian.content.dao.AdminSentenceRow">
+        SELECT s.id                 AS sentence_id,
+               s.bank_id            AS bank_id,
+               s.version            AS version,
+               s.current_version_id AS version_id,
+               v.version_no         AS version_no,
+               s.status             AS status,
+               s.deleted_at         AS deleted_at,
+               v.zh                 AS zh,
+               v.ref                AS ref,
+               v.note               AS note,
+               v.chunks             AS chunks,
+               v.blank              AS blank,
+               v.tags               AS tags,
+               v.level              AS level
+        FROM sentences s
+        JOIN sentence_versions v ON v.id = s.current_version_id
+        WHERE 1 = 1
+        <include refid="adminSentenceFilter"/>
+        ORDER BY s.created_at DESC, s.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*)
+        FROM sentences s
+        JOIN sentence_versions v ON v.id = s.current_version_id
+        WHERE 1 = 1
+        <include refid="adminSentenceFilter"/>
+    </select>
+</mapper>

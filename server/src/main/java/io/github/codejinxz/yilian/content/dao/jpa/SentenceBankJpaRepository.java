@@ -53,9 +53,10 @@ public interface SentenceBankJpaRepository extends JpaRepository<SentenceBank, L
             Pageable pageable);
 
     /**
-     * 管理端题库检索：包含 DRAFT/DISABLED/RECYCLED。
+     * 管理端题库检索：包含 DRAFT/DISABLED/RECYCLED，关键字匹配名称与说明。
      *
      * @param keyword 关键字，可为 null
+     * @param visibility 可见性过滤，可为 null
      * @param status 状态过滤，可为 null
      * @param pageable 分页
      * @return 分页结果
@@ -63,11 +64,16 @@ public interface SentenceBankJpaRepository extends JpaRepository<SentenceBank, L
     @Query(
             """
             select b from SentenceBank b
-            where (:keyword is null or lower(b.name) like lower(concat('%', :keyword, '%')))
+            where (:keyword is null
+                    or lower(b.name) like lower(concat('%', :keyword, '%'))
+                    or lower(b.description) like lower(concat('%', :keyword, '%')))
+              and (:visibility is null or b.visibility = :visibility)
               and (:status is null or b.status = :status)
             """)
     Page<SentenceBank> searchAdmin(
             @Param("keyword") String keyword,
+            @Param("visibility")
+                    io.github.codejinxz.yilian.content.entity.BankVisibility visibility,
             @Param("status") io.github.codejinxz.yilian.content.entity.ContentStatus status,
             Pageable pageable);
 }
