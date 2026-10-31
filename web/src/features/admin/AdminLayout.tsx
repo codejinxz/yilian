@@ -42,9 +42,11 @@ export function AdminLayout() {
         </Notice>
       ) : null}
 
+      {/* 横向滚动容器会按内容高度裁剪:clientH 不含容器自身的 border,页签用 mb-[-1px] 把激活
+          下边框压在容器 border 上,恰好比 clientH 高 1px 而被裁掉;pb-px 把内容高度撑回去容纳它。 */}
       <nav
         aria-label="管理导航"
-        className="flex gap-6 overflow-x-auto border-b border-rule [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex gap-6 overflow-x-auto border-b border-rule pb-px [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {ADMIN_TABS.map((item) => {
           // 激活态由当前 search.tab 判定：九个页签都指向 /admin，路由的路径激活判定无法区分它们。
