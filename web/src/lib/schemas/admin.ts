@@ -104,3 +104,28 @@ export const importCommitRequestSchema = z.object({
 export const importRollbackRequestSchema = z.object({
   reason: z.string().trim().min(1, "请填写回滚原因").max(500),
 });
+
+/**
+ * 邀请码列表项：服务端只存哈希，列表只给展示前缀不给明文。
+ */
+export const inviteSummarySchema = z.object({
+  codePrefix: z.string().min(1),
+  used: z.boolean(),
+  usedBy: z.string().nullable(),
+  createdAt: isoDateTimeSchema,
+});
+
+/** 邀请码列表项类型。 */
+export type InviteSummary = z.infer<typeof inviteSummarySchema>;
+
+/**
+ * 新生成的邀请码：明文 code 只在此响应中出现一次，之后任何接口都拿不回。
+ */
+export const createdInviteSchema = z.object({
+  code: z.string().min(1),
+  codePrefix: z.string().min(1),
+  createdAt: isoDateTimeSchema,
+});
+
+/** 新生成的邀请码类型。 */
+export type CreatedInvite = z.infer<typeof createdInviteSchema>;

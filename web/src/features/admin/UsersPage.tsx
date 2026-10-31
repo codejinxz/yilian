@@ -135,6 +135,7 @@ export function UsersPage() {
     onSuccess: (invite) => {
       void queryClient.invalidateQueries({ queryKey: ["admin", "invites"] });
       void queryClient.invalidateQueries({ queryKey: queryKeys.admin.auditLogs({}) });
+      // 明文只在此刻展示一次，列表里永远只有前缀（服务端只存哈希）。
       toast.show(`已生成邀请码 ${invite.code}`);
     },
     onError: (error) => toast.show(error instanceof Error ? error.message : "生成失败"),
@@ -162,14 +163,14 @@ export function UsersPage() {
         <div className="ml-auto flex flex-wrap gap-2.5">
           {(invitesQuery.data ?? []).map((invite) => (
             <span
-              key={invite.code}
+              key={invite.codePrefix}
               className={
                 invite.used
                   ? "rounded-[2px] border border-rule px-[9px] py-[5px] font-mono text-[11px] tracking-[0.08em] text-ink-faint line-through opacity-60"
                   : "rounded-[2px] border border-rule px-[9px] py-[5px] font-mono text-[11px] tracking-[0.08em] text-ink-muted"
               }
             >
-              {invite.code}
+              {invite.codePrefix}
             </span>
           ))}
         </div>

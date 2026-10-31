@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="io.github.codejinxz.yilian.admin.dao.mybatis.AdminAuditLogQueryMapper">
+
+    <!--
+      管理端概览「最近活动」（只读）：admin_audit_log 是 V5 按月分区表（主键含 created_at），
+      无 JPA 实体；倒序取最近 N 条，同刻再按 id 倒序保证稳定排序，索引 idx_audit_created 可覆盖。
+    -->
+    <select id="findRecent" resultType="io.github.codejinxz.yilian.admin.dao.AuditActivityRow">
+        SELECT id,
+               actor_name  AS actorName,
+               action,
+               target_type AS targetType,
+               target_id   AS targetId,
+               created_at  AS createdAt
+        FROM admin_audit_log
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+</mapper>

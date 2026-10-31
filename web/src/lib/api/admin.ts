@@ -5,8 +5,12 @@ import {
   adminUserPageSchema,
   adminUserSchema,
   auditLogPageSchema,
+  type CreatedInvite,
+  createdInviteSchema,
   errorLogDetailSchema,
   errorLogPageSchema,
+  type InviteSummary,
+  inviteSummarySchema,
   rawAttemptSchema,
 } from "@/lib/schemas/admin";
 import { type PageResponse, pageResponseSchema } from "@/lib/schemas/common";
@@ -393,34 +397,23 @@ export async function getAdminOverview(signal?: AbortSignal): Promise<AdminOverv
   return parseData(adminOverviewSchema, data);
 }
 
-/** 邀请码形状。 */
-export const inviteSchema = z.object({
-  code: z.string().min(1),
-  used: z.boolean(),
-  usedBy: z.string().nullable(),
-  createdAt: z.string().min(1),
-});
-
-/** 邀请码类型。 */
-export type Invite = z.infer<typeof inviteSchema>;
-
 /**
- * 邀请码列表（新码在前）。
+ * 邀请码列表（新码在前）；服务端只存哈希，列表只回展示前缀不给明文。
  * @param signal 取消信号
  * @returns 邀请码数组
  */
-export async function getInvites(signal?: AbortSignal): Promise<Invite[]> {
+export async function getInvites(signal?: AbortSignal): Promise<InviteSummary[]> {
   const data = await apiRequest<unknown>("/admin/invites", { signal });
-  return parseData(z.object({ items: z.array(inviteSchema) }), data).items;
+  return parseData(z.object({ items: z.array(inviteSummarySchema) }), data).items;
 }
 
 /**
- * 生成一个新邀请码；一码一人，注册时核销。
- * @returns 新邀请码
+ * 生成一个新邀请码；一码一人，注册时核销，明文只随本响应出现一次。
+ * @returns 含一次性明文的新邀请码
  */
-export async function createInvite(): Promise<Invite> {
+export async function createInvite(): Promise<CreatedInvite> {
   const data = await jsonRequest<unknown>("/admin/invites", "POST");
-  return parseData(inviteSchema, data);
+  return parseData(createdInviteSchema, data);
 }
 
 /** 管理端题目视图：在 SentenceView 之上补充归属题库。 */

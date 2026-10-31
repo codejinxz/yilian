@@ -167,4 +167,13 @@ public class InviteCode {
     public Long getUsedBy() {
         return usedBy;
     }
+
+    /**
+     * 创建时间。
+     *
+     * @return UTC 时间戳
+     */
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
 }

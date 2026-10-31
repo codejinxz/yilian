@@ -8,6 +8,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /** AppUserDao 的 JPA 适配器，把仓库能力收窄为账号业务需要的方法。 */
@@ -34,6 +36,14 @@ public class JpaAppUserDao implements AppUserDao {
     @Override
     public Optional<AppUser> findById(Long id) {
         return repository.findById(id);
+    }
+
+    @Override
+    public List<AppUser> findByIds(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return repository.findAllById(ids);
     }
 
     @Override

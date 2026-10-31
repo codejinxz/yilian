@@ -984,7 +984,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     }
     const input = parsed.data;
     // 邀请码与用户页邀请码区共用一份数据：未使用才放行，注册后标记已用（一码一人）。
-    const invite = db.invites.find((item) => item.code === input.inviteCode);
+    const invite = db.invites.find((item) => item.codePrefix === input.inviteCode);
     if (!invite || invite.used || db.inviteUsedBy) {
       fail(400, 40002, "邀请码无效或已过期");
     }
@@ -2282,17 +2282,21 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
 
   if (pathname === "/admin/invites" && method === "POST") {
     const admin = requireAdmin(db);
-    const code = `YL-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    // 与真实接口同形：明文只随本次响应返回，库里（mock 存储）只留前缀。
+    const code = `YL-${Math.random().toString(36).slice(2, 6).toUpperCase()}-${Math.random()
+      .toString(36)
+      .slice(2, 6)
+      .toUpperCase()}`;
     const invite = {
-      code,
+      codePrefix: code.slice(0, 7),
       used: false,
       usedBy: null,
       createdAt: new Date().toISOString(),
     };
     db.invites.unshift(invite);
-    appendAudit(db, admin, "INVITE_CREATE", "INVITE", code, null);
+    appendAudit(db, admin, "INVITE_CREATE", "INVITE", invite.codePrefix, null);
     persistMockDb();
-    return invite;
+    return { code, codePrefix: invite.codePrefix, createdAt: invite.createdAt };
   }
 
   // ---- 管理端九页签演示：跨题库题目列表 ----

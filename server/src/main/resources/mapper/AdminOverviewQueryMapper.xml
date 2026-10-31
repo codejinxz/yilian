@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="io.github.codejinxz.yilian.admin.dao.mybatis.AdminOverviewQueryMapper">
+
+    <!--
+      管理端概览统计（只读聚合）：全部 #{} 占位，无 ${} 拼接。
+      库内 DATETIME(6) 均为 UTC（AGENTS §3），DATE_FORMAT 直接产出 UTC 日期串；
+      活跃口径 = 时间窗内 attempts 有提交记录的独立 user_id（不按单用户时区切分，管理端聚合口径）。
+    -->
+    <select id="countUsers" resultType="long">
+        SELECT COUNT(*) FROM users
+    </select>
+
+    <select id="countAttempts" resultType="long">
+        SELECT COUNT(*) FROM attempts
+    </select>
+
+    <select id="countActiveUsersBetween" resultType="long">
+        SELECT COUNT(DISTINCT user_id)
+        FROM attempts
+        WHERE created_at &gt;= #{from}
+          AND created_at &lt; #{to}
+    </select>
+
+    <select id="countDailyActiveUsersBetween"
+            resultType="io.github.codejinxz.yilian.admin.dao.DailyActiveCountRow">
+        SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS date,
+               COUNT(DISTINCT user_id)             AS count
+        FROM attempts
+        WHERE created_at &gt;= #{from}
+          AND created_at &lt; #{to}
+        GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d')
+        ORDER BY date
+    </select>
+</mapper>

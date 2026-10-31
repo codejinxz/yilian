@@ -6,6 +6,8 @@ import io.github.codejinxz.yilian.system.entity.UserRole;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /** 账号表 Dao：只暴露业务需要的单表操作，不向 Service 泄漏 delete/deleteAll。 */
@@ -26,6 +28,14 @@ public interface AppUserDao {
      * @return 账号实体
      */
     Optional<AppUser> findById(Long id);
+
+    /**
+     * 按主键集合批量查账号，供邀请码列表回填使用者用户名。
+     *
+     * @param ids 账号 id 集合，可为空列表
+     * @return 命中的账号实体
+     */
+    List<AppUser> findByIds(Collection<Long> ids);
 
     /**
      * 按登录名查账号。

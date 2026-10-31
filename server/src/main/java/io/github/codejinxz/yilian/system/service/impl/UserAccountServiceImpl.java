@@ -17,6 +17,8 @@ import io.github.codejinxz.yilian.system.service.dto.UserCredentials;
 import io.github.codejinxz.yilian.system.service.dto.UserSettings;
 import io.github.codejinxz.yilian.system.service.dto.UserSettingsPatch;
 import io.github.codejinxz.yilian.system.service.vo.AdminUserView;
+import io.github.codejinxz.yilian.system.service.vo.InviteCodeAdminView;
+import io.github.codejinxz.yilian.system.service.vo.InviteCodeCreatedView;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -30,13 +32,18 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /** 账号用例实现；邀请码只比对哈希，密码只落 BCrypt。 */
 @Service
@@ -49,6 +56,19 @@ public class UserAccountServiceImpl implements UserAccountService {
     private static final Set<String> USER_STATUSES = Set.of("active", "disabled", "deleted", "all");
 
     private static final int MIN_PASSWORD_LENGTH = 8;
+
+    /** 邀请码列表上限：管理端不翻页，只回最近 50 条，超出靠审计与数据库追溯。 */
+    private static final int INVITE_LIST_LIMIT = 50;
+
+    /** 邀请码随机码重摇次数：31 个字符取 8 位，空间足够大，仅防御极端哈希碰撞。 */
+    private static final int INVITE_CODE_MAX_ATTEMPTS = 5;
+
+    /** 随机码字母表：去掉易混的 I/L/O/0/1，方便口头转述；只出大写，与核销侧的归一一致。 */
+    private static final String INVITE_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+    private static final int INVITE_CODE_RANDOM_LENGTH = 8;
+
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final AppUserDao appUserDao;
     private final InviteCodeDao inviteCodeDao;
@@ -172,7 +192,7 @@ public class UserAccountServiceImpl implements UserAccountService {
     @Override
     @Transactional(readOnly = true)
     public PageResponse<AdminUserView> adminSearch(
-            String keyword, UserRole role, String status, int page, int size) {
+            String keyword, String role, String status, int page, int size) {
         if (page < 1 || size < 1 || size > 100) {
             throw new BusinessException(ApiCode.INVALID_PAGINATION);
         }
@@ -184,7 +204,7 @@ public class UserAccountServiceImpl implements UserAccountService {
         Page<AppUser> result =
                 appUserDao.search(
                         normalizedKeyword,
-                        role,
+                        parseRoleFilter(role),
                         normalizedStatus,
                         PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "id")));
         return PageResponse.of(
@@ -221,13 +241,11 @@ public class UserAccountServiceImpl implements UserAccountService {
 
     @Override
     @Transactional
-    public AdminUserView adminSetRole(long actorId, long targetId, UserRole role, String reason) {
-        if (role == null) {
-            throw new BusinessException(ApiCode.VALIDATION_FAILED, "role 必填");
-        }
+    public AdminUserView adminSetRole(long actorId, long targetId, String role, String reason) {
         if (StringUtils.isBlank(reason)) {
             throw new BusinessException(ApiCode.VALIDATION_FAILED, "变更角色必须填写原因");
         }
+        UserRole nextRole = parseRoleValue(role);
         AppUser target = requireUser(targetId);
         if (target.getDeletedAt() != null) {
             throw new BusinessException(ApiCode.NOT_FOUND, "用户已删除");
@@ -236,12 +254,102 @@ public class UserAccountServiceImpl implements UserAccountService {
             throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "不能变更自己的角色");
         }
         if (target.getRole() == UserRole.ADMIN
-                && role != UserRole.ADMIN
+                && nextRole != UserRole.ADMIN
                 && appUserDao.countActiveAdmins() <= 1) {
             throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "不能降级最后一个管理员");
         }
-        target.changeRole(role);
+        target.changeRole(nextRole);
         return AdminUserView.from(appUserDao.save(target));
+    }
+
+    @Override
+    @Transactional
+    public InviteCodeCreatedView adminCreateInvite(long actorId) {
+        Instant now = Instant.now();
+        for (int attempt = 0; attempt < INVITE_CODE_MAX_ATTEMPTS; attempt++) {
+            String code = generateInviteCode();
+            String hash = sha256(code);
+            if (inviteCodeDao.findByCodeHash(hash).isPresent()) {
+                // 唯一键 uk_invite_code_hash 兜底：撞哈希就重摇，不把约束异常漏给调用方。
+                continue;
+            }
+            // 前缀取 "YL-XXXX"（前 7 位），与库列 VARCHAR(12) 留有余量；不设过期，回收走软删。
+            InviteCode saved =
+                    inviteCodeDao.save(
+                            InviteCode.newSingleUse(
+                                    hash, code.substring(0, 7), null, actorId, now));
+            return new InviteCodeCreatedView(code, saved.getCodePrefix(), saved.getCreatedAt());
+        }
+        throw new BusinessException(ApiCode.INTERNAL_ERROR, "邀请码生成冲突，请重试");
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<InviteCodeAdminView> adminListInvites() {
+        List<InviteCode> codes = inviteCodeDao.findRecent(INVITE_LIST_LIMIT);
+        List<Long> usedByIds =
+                codes.stream().map(InviteCode::getUsedBy).filter(Objects::nonNull).toList();
+        Map<Long, String> usernamesById =
+                usedByIds.isEmpty()
+                        ? Map.of()
+                        : appUserDao.findByIds(usedByIds).stream()
+                                .collect(Collectors.toMap(AppUser::getId, AppUser::getUsername));
+        return codes.stream()
+                .map(
+                        code ->
+                                new InviteCodeAdminView(
+                                        code.getCodePrefix(),
+                                        code.getUsedCount() >= 1,
+                                        code.getUsedBy() == null
+                                                ? null
+                                                : usernamesById.get(code.getUsedBy()),
+                                        code.getCreatedAt()))
+                .toList();
+    }
+
+    /**
+     * 生成一次性明文邀请码：{@code YL-XXXX-XXXX}，随机部分取自去混字母表。
+     *
+     * @return 新明文邀请码
+     */
+    private static String generateInviteCode() {
+        StringBuilder random = new StringBuilder(INVITE_CODE_RANDOM_LENGTH);
+        for (int i = 0; i < INVITE_CODE_RANDOM_LENGTH; i++) {
+            random.append(
+                    INVITE_CODE_ALPHABET.charAt(
+                            SECURE_RANDOM.nextInt(INVITE_CODE_ALPHABET.length())));
+        }
+        return "YL-" + random.substring(0, 4) + "-" + random.substring(4);
+    }
+
+    /**
+     * 解析列表筛选的角色参数：空白表示不过滤，只接受 USER/ADMIN。
+     *
+     * @param role 前端传入的角色字符串，可为 null
+     * @return 角色枚举；不过滤时为 null
+     */
+    private static UserRole parseRoleFilter(String role) {
+        if (StringUtils.isBlank(role)) {
+            return null;
+        }
+        return parseRoleValue(role);
+    }
+
+    /**
+     * 解析必填角色字符串为枚举，非法值按参数校验失败收敛，避免 IllegalArgumentException 变 500。
+     *
+     * @param role USER/ADMIN
+     * @return 角色枚举
+     */
+    private static UserRole parseRoleValue(String role) {
+        if (StringUtils.isBlank(role)) {
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, "role 必填");
+        }
+        try {
+            return UserRole.valueOf(role.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, "role 不受支持");
+        }
     }
 
     private AppUser requireUser(long userId) {

@@ -76,9 +76,9 @@ export interface MockImportBatch {
   rawRows: Record<string, unknown>;
 }
 
-/** mock 邀请码：内测期间凭码注册，一码一人；与注册端点的校验共用。 */
+/** mock 邀请码：内测期间凭码注册，一码一人；与真实接口对齐只存展示前缀，注册校验共用前缀。 */
 export interface MockInvite {
-  code: string;
+  codePrefix: string;
   used: boolean;
   usedBy: string | null;
   createdAt: string;
@@ -747,7 +747,7 @@ function seedAttempt(
 export function seedInvites(): MockInvite[] {
   return [
     {
-      code: "YL-DEMO-2026",
+      codePrefix: "YL-DEMO-2026",
       used: false,
       usedBy: null,
       createdAt: isoAt(-30),

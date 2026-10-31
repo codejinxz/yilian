@@ -1,13 +1,15 @@
 package io.github.codejinxz.yilian.system.service;
 
 import io.github.codejinxz.yilian.common.api.PageResponse;
-import io.github.codejinxz.yilian.system.entity.UserRole;
 import io.github.codejinxz.yilian.system.service.dto.RegisterCommand;
 import io.github.codejinxz.yilian.system.service.dto.UserCredentials;
 import io.github.codejinxz.yilian.system.service.dto.UserSettings;
 import io.github.codejinxz.yilian.system.service.dto.UserSettingsPatch;
 import io.github.codejinxz.yilian.system.service.vo.AdminUserView;
+import io.github.codejinxz.yilian.system.service.vo.InviteCodeAdminView;
+import io.github.codejinxz.yilian.system.service.vo.InviteCodeCreatedView;
 
+import java.util.List;
 import java.util.Optional;
 
 /** 账号用例服务：认证读取、注册、改密、设置与管理端账号操作。 */
@@ -72,15 +74,17 @@ public interface UserAccountService {
     /**
      * 管理端用户检索。
      *
+     * <p>角色用字符串承载，管理模块只依赖本接口、不接触 {@code entity} 包；解析失败按参数校验失败返回。
+     *
      * @param keyword 用户名/邮箱关键字
-     * @param role 角色过滤，可为 null
+     * @param role 角色过滤 USER/ADMIN，null 或空表示全部
      * @param status active/disabled/deleted/all
      * @param page 页码，从 1 开始
      * @param size 每页大小
      * @return 分页视图
      */
     PageResponse<AdminUserView> adminSearch(
-            String keyword, UserRole role, String status, int page, int size);
+            String keyword, String role, String status, int page, int size);
 
     /**
      * 启停账号；停用必填原因，且不能停用自己或最后一个管理员。
@@ -94,13 +98,30 @@ public interface UserAccountService {
     AdminUserView adminSetStatus(long actorId, long targetId, boolean enabled, String reason);
 
     /**
-     * 变更角色；不能降级自己或最后一个管理员。
+     * 变更角色；不能变更自己的角色，也不能降级最后一个管理员。
+     *
+     * <p>角色用字符串承载，理由同 {@link #adminSearch}。
      *
      * @param actorId 操作者 id
      * @param targetId 目标用户 id
-     * @param role 新角色
+     * @param role 新角色 USER/ADMIN
      * @param reason 审计原因
      * @return 更新后的视图
      */
-    AdminUserView adminSetRole(long actorId, long targetId, UserRole role, String reason);
+    AdminUserView adminSetRole(long actorId, long targetId, String role, String reason);
+
+    /**
+     * 生成一次性邀请码：明文只随本响应返回一次，库里只存 SHA-256 与展示前缀。
+     *
+     * @param actorId 创建者管理员 id，写 {@code invite_codes.created_by}
+     * @return 含一次性明文的视图
+     */
+    InviteCodeCreatedView adminCreateInvite(long actorId);
+
+    /**
+     * 管理端邀请码列表：按创建时间倒序，最多返回最近 50 条，不含已软删。
+     *
+     * @return 列表项视图
+     */
+    List<InviteCodeAdminView> adminListInvites();
 }

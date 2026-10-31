@@ -57,9 +57,11 @@ const USERS_PAGE = {
   hasNext: false,
 } as const;
 
-/** 邀请码桩数据；getInvites 期望 { items: Invite[] }。 */
+/** 邀请码桩数据；getInvites 期望 { items: InviteSummary[] }，列表只给展示前缀。 */
 const INVITES = {
-  items: [{ code: "YILIAN-DEMO", used: false, usedBy: null, createdAt: "2026-01-01T08:00:00Z" }],
+  items: [
+    { codePrefix: "YILIAN-DEMO", used: false, usedBy: null, createdAt: "2026-01-01T08:00:00Z" },
+  ],
 } as const;
 
 /** 概览页签桩数据：空数组即可让概览渲染真实内容，作为页签切换的前像。 */

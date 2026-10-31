@@ -304,9 +304,11 @@
 | practice | `/api/practice/today` | GET | USER | M2 | planned |
 | analytics | `/api/analytics/accuracy` | GET | USER | M3 | planned |
 | analytics | `/api/analytics/error-tags` | GET | USER | M3 | planned |
-| admin | `/api/admin/users` | GET | ADMIN | M2 | planned |
-| admin | `/api/admin/users/{id}/status` | PATCH | ADMIN | M2 | planned |
-| admin | `/api/admin/users/{id}/role` | PATCH | ADMIN | M2 | planned |
+| admin | `/api/admin/users` | GET | ADMIN | M2 | implemented |
+| admin | `/api/admin/users/{id}/status` | PATCH | ADMIN | M2 | implemented |
+| admin | `/api/admin/users/{id}/role` | PATCH | ADMIN | M2 | implemented |
+| admin | `/api/admin/overview` | GET | ADMIN | M2 | implemented |
+| admin | `/api/admin/invites` | GET/POST | ADMIN | M2 | implemented |
 | admin | `/api/admin/audit-logs` | GET | ADMIN | M2 | planned |
 | admin | `/api/admin/error-logs` | GET | ADMIN | M2 | planned |
 | admin | `/api/admin/attempts/{attemptId}/raw` | POST | ADMIN | M2 | planned |
@@ -1277,7 +1279,7 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 
 ## 8. Admin
 
-### 8.1 `GET /api/admin/users`（planned，M2）
+### 8.1 `GET /api/admin/users`（implemented，011-a）
 
 用途：用户列表；单人后台“找到人”。
 
@@ -1312,9 +1314,9 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 
 字段回溯：`users.*`；`deleted` 派生 `deleted_at`。
 
-### 8.2 `PATCH /api/admin/users/{id}/status`（planned，M2）
+### 8.2 `PATCH /api/admin/users/{id}/status`（implemented，011-a）
 
-用途：停用/恢复账号；停用必填原因；立即吊销 refresh 会话。
+用途：停用/恢复账号；停用必填原因。
 
 请求：
 
@@ -1322,13 +1324,13 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 { "enabled": false, "reason": "用户申请" }
 ```
 
-规则：不能停用自己；不能停用最后一个 ADMIN；停用写 `admin_audit_log`（action=`USER_DISABLE`）；恢复写 `USER_ENABLE`。
+规则：不能停用自己；不能停用最后一个 ADMIN；启停统一写 `admin_audit_log`（action=`USER_STATUS_CHANGE`，reason/target 随审计记录）。停用后 refresh 校验拒绝（账号 enabled=false），access token 到期自然失效（无黑名单，契约 §3.7）。
 
 响应：`AdminUserView`；错误 `40000`、`40100`、`40300`、`40400`、`40900`、`50000`。
 
 字段回溯：`users.enabled/disabled_reason/disabled_at`；`admin_audit_log.*`；Spring Session 删除。
 
-### 8.3 `PATCH /api/admin/users/{id}/role`（planned，M2）
+### 8.3 `PATCH /api/admin/users/{id}/role`（implemented，011-a）
 
 用途：变更角色；不能降级自己/最后一个 ADMIN。
 
@@ -1490,6 +1492,43 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 
 ---
 
+### 8.9 `GET /api/admin/overview`（implemented，011-a）
+
+用途：管理端概览聚合；纯读。
+
+响应 `data`：
+
+```json
+{
+  "metrics": { "totalUsers": 12, "activeToday": 3, "totalAttempts": 456, "estimatedCost": 0 },
+  "active7d": [{ "date": "2026-10-31", "count": 2 }],
+  "todos": [{ "id": "import", "title": "导入题库", "meta": "uploads 页签", "href": "/admin?tab=banks" }],
+  "activity": [{ "id": "9", "who": "admin", "what": "USER_STATUS_CHANGE · user 7", "at": "2026-10-31T02:00:00Z" }]
+}
+```
+
+口径：`totalUsers`=注册用户总数（含软删）；`activeToday`/`active7d`=当日（UTC 日界）`attempts` 有提交记录的独立用户数；`totalAttempts`=`attempts` 总数；`estimatedCost` 恒 0（无模型调用，011-b 接入）。`todos` 为静态引导项，011-b 接真实待办。`activity` 取 `admin_audit_log` 倒序 5 条，`at` 为 ISO UTC。
+
+字段回溯：`users`/`attempts` 聚合；`admin_audit_log.*`（分区表，MyBatis 只读）。
+
+错误：`40100`、`40300`、`50000`。
+
+### 8.10 `/api/admin/invites`（implemented，011-a）
+
+`POST`（无请求体）：生成一次性邀请码；明文 `code` 只随本响应返回一次，库中只存 SHA-256（与注册核销同算法）与前缀。
+
+响应 `data`：`{ "code": "YL-AB2C-DE3F", "codePrefix": "YL-AB2C", "createdAt": "2026-10-31T03:00:00Z" }`
+
+`GET`：列表（非分页，创建时间倒序，上限 50，不含软删）；只给展示前缀，不给明文。
+
+响应 `data`：`{ "items": [{ "codePrefix": "YL-AB2C", "used": true, "usedBy": "learner", "createdAt": "2026-10-31T03:00:00Z" }] }`
+
+字段回溯：`invite_codes.code_hash/code_prefix/used_count/used_by/created_by/created_at`；`users.username`（回填 `usedBy`）。
+
+写操作审计：action=`INVITE_CREATE`（targetType=invite，targetId=前缀，明文不落日志）。前端邀请码列表展示 `codePrefix`（`lib/schemas/admin.ts` `InviteSummary`）。
+
+错误：`40100`、`40300`、`50000`。
+
 ## 9. 字段回溯对照
 
 > 规则：每个字段必须能落到 `DATA-MODEL.md` 的表列；找不到的标“派生”，并写来源。嵌套对象按 `parent.child` 列。
@@ -1625,6 +1664,7 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 | Practice | `GET /api/practice/next`（D7 参数见 §6.1 差异表）、`POST /api/practice/attempts`（幂等 + norm-1/rubric-1 判分 + SRS 排程）、`GET /api/practice/attempts/{attemptId}`、批注 `appeal`/`dispute`（§6.4/§6.5）、`GET /api/practice/wrong-questions`、`GET /api/practice/reviews`、`POST /api/practice/reviews/{reviewId}/reset`、`GET /api/practice/reviews/overload`、`POST /api/practice/reviews/postpone`、`GET /api/practice/today` | 练习主链路（#8 波次三）；幂等口径 §6.2；复习卡一句一卡（DATA-MODEL §5.11 Q1） | `PracticeControllerTest`（切片：全部 10 端点——匿名 401、mode 取值 40000、分页 40004、40903/40403/40404、信封形状、限流注解） |
 | Analytics | `GET /api/analytics/accuracy`（含 `daily14`/`recent` 扩展）、`GET /api/analytics/error-tags` | 用户时区日界；disputed 批注排除 | `AnalyticsControllerTest`（切片：匿名 401、§7.1/§7.2 信封、参数透传、非法日期 40000、空 items=[]） |
 | Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 | `ImportBatchControllerTest`（切片：匿名 401/非管理员 403、multipart 绑定与缺参 40000、缺请求体 40001、40405/40904、PageResponse 信封） |
+| Admin | `GET /api/admin/overview`、`GET /api/admin/users`、`PATCH /api/admin/users/{id}/status`、`PATCH /api/admin/users/{id}/role`、`POST /api/admin/invites`、`GET /api/admin/invites`（011-a） | 概览聚合（活跃=attempts 当日去重用户，UTC 日界）、用户检索分页、启停/改角色（审计经 `OperationLogContext`）、邀请码生成（明文一次性）/前缀列表 | `AdminOverviewControllerTest`、`AdminUserControllerTest`、`AdminInviteControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse 形状、reason 越界 40000、40001、审计上下文断言）；service 分支另由 `UserAccountServiceImplTest`（自己停自己/自己降自己/邀请码哈希落库）、`AdminOverviewServiceImplTest`（补 0 与活动组装）覆盖 |
 | 运维 | `/actuator/health` | 非业务 | `AuthFlowIntegrationTest`（healthIsPublicAndUp） |
 
 ### 10.2 过渡实现（不纳入冻结契约）
@@ -1637,14 +1677,14 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 
 | 组 | 覆盖端点 |
 |---|---|
-| Admin（§8） | 用户列表/停用/恢复/角色/重置密码、审计与异常检索、题库 CRUD、句子状态、导入管理演示、`attempts/{id}/raw`、模型/出题/运维演示 |
+| Admin（§8） | 审计与异常检索、题库 CRUD、句子状态、导入管理演示、`attempts/{id}/raw`、模型/出题/运维演示（011-a 后概览/用户管理/邀请码为真实接口，mock 仅保留演示语义：邀请码列表/生成同形回前缀） |
 
 说明：练习数据链路在真实模式下按登录态分流——**游客**由前端本地引擎承担（IndexedDB，RESEARCH 2026-10-24 增补），`lib/api.ts` 的 `LOCAL_ROUTE_GROUPS`（`mode:"guest"`）只对未登录访客本地应答、游客全链路零网络写请求；**登录用户**的 practice/analytics 请求直达服务端（波次四切换，冷启动竞态由 auth-state 探针 + Query 失效兜底）。mock 模式（`VITE_USE_MOCK=true`）仍优先于一切。
 
 ### 10.4 未开发（契约在案）
 
 - §6.1 `sentenceId`/`errors`/`excludeIds`/`tag` 四个查询参数的服务端实现（M2.1，D7）。
-- Admin 检索与写接口（§8 用户管理、审计/异常检索、题目与题库管理、模型配置）。
+- Admin 检索与写接口（§8 审计/异常检索、题目与题库管理、模型配置；用户管理与概览/邀请码已随 011-a 落地）。
 - 深度批改（M3）、FSRS 排程真值（V2 字段已预留，M2.1 换函数体）、申诉 LLM 裁决（M3）。
 
 ### 10.5 待收口
@@ -1664,6 +1704,7 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 | 2026-10-25 | v0.2 | §10 重写为实现状态总览（已实现/前端 mock/未开发/待收口）；登记 upload 命名决策 | 技术负责人 |
 | 2026-10-31 | v0.3 | T18 文档收口：§6/§7/§4.6–4.9/§5.1–5.3 状态改 implemented；§6.1 补 D7 参数差异表；§6.2 补 payloadHash 幂等口径；§6.4/§6.5 补 appeal/dispute 实现口径；新增 §6.10/§6.11（overload/postpone）；§7.1 补 daily14/recent 扩展；§10 矩阵逐行更新 | 技术负责人 |
 | 2026-10-31 | v0.3.1 | DoD 接口级测试补全：§10.1 新增「接口级测试」列（`AnalyticsControllerTest`、`ImportBatchControllerTest`、`MeControllerTest` 新建；`PracticeControllerTest` 补 next/getAttempt/reviews/reset/overload/postpone；`AuthFlowIntegrationTest` 补 register/password 真实 HTTP），矩阵与测试一一对应 | 测试工程师 |
+| 2026-11-01 | v0.3.2 | 011-a 管理端用户域落地：§8.1–8.3 改 implemented（§8.2 审计 action 修正为 USER_STATUS_CHANGE、refresh 会话语义对齐实现），新增 §8.9 概览与 §8.10 邀请码（GET 列表改回 codePrefix，明文仅 POST 一次性返回）；§10.1 矩阵补 Admin 行（AdminOverview/User/Invite ControllerTest + UserAccountServiceImplTest/AdminOverviewServiceImplTest） | 实现工程师 |
 
 ---
 
