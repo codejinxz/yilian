@@ -9,6 +9,7 @@ import {
   deleteAdminBank,
   getAdminBankSentences,
   getAdminBanks,
+  updateAdminBank,
   updateAdminBankStatus,
 } from "@/lib/api/admin";
 import { queryKeys } from "@/lib/query";
@@ -41,10 +42,20 @@ function levelChipClassName(): string {
   return "rounded-sm border border-rule bg-transparent px-[7px] py-[3px] font-mono text-[10px] text-ink-muted transition-colors hover:border-vermilion hover:text-vermilion";
 }
 
+/** 新建/编辑题库的表单载荷；说明为空串时归一为 null（与 bankCreateRequestSchema/后端一致）。 */
+interface BankFormInput {
+  name: string;
+  description: string | null;
+  visibility: "PUBLIC" | "PRIVATE";
+}
+
 /**
  * 题库页签：原型三段式——现有题库 → 难度配置 → 导入。
  * 导入由 UploadPage 折叠为页内区块（ImportSection），上传/轮询/行错误/resume 数据流不变。
  * 官方题库不可停用、不可删除；难度配置为前端演示态，刷新后恢复默认。
+ *
+ * 回收站语义（与 mock 契约一致）：mock 的 GET /admin/banks 缺省不过滤状态——已回收题库
+ * 仍出现在列表里，因此行内加「已回收」标注而不是前端隐藏；要单独看回收库时显式传 status=RECYCLED。
  */
 export function BanksPage() {
   const { show: toast, node: toastNode } = useToastMessage();
@@ -52,6 +63,7 @@ export function BanksPage() {
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(10);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<BankView | null>(null);
   const [drawerBankId, setDrawerBankId] = useState<string | null>(null);
   const [levels, setLevels] = useState(LEVELS);
   const [newLevel, setNewLevel] = useState("");
@@ -78,6 +90,20 @@ export function BanksPage() {
       toast(`已创建「${bank.name}」`);
     },
     onError: (error) => toast(error instanceof Error ? error.message : "创建失败"),
+  });
+  const editMutation = useMutation({
+    mutationFn: (input: { bank: BankView; form: BankFormInput }) =>
+      updateAdminBank(input.bank.id, {
+        name: input.form.name,
+        description: input.form.description,
+        visibility: input.form.visibility,
+      }),
+    onSuccess: (bank) => {
+      invalidate();
+      setEditing(null);
+      toast(`已保存「${bank.name}」`);
+    },
+    onError: (error) => toast(error instanceof Error ? error.message : "保存失败"),
   });
   const toggleMutation = useMutation({
     mutationFn: (input: { bank: BankView; status: string; reason: string }) =>
@@ -130,20 +156,25 @@ export function BanksPage() {
                       main={bank.name}
                       meta={`${bank.sentenceCount} 句 · ${bank.visibility === "PUBLIC" ? "公开" : "私有"}`}
                     />
+                    {/* 回收站标注优先于可见性标签：已回收题库按 mock 契约仍在缺省列表出现，得能一眼认出。 */}
                     <StatePill
                       tone={
-                        bank.status === "DISABLED"
-                          ? "warn"
-                          : bank.visibility === "PUBLIC"
-                            ? "ok"
-                            : "muted"
+                        bank.status === "RECYCLED"
+                          ? "muted"
+                          : bank.status === "DISABLED"
+                            ? "warn"
+                            : bank.visibility === "PUBLIC"
+                              ? "ok"
+                              : "muted"
                       }
                     >
-                      {bank.status === "DISABLED"
-                        ? "已停用"
-                        : bank.visibility === "PUBLIC"
-                          ? "公开"
-                          : "私有"}
+                      {bank.status === "RECYCLED"
+                        ? "已回收"
+                        : bank.status === "DISABLED"
+                          ? "已停用"
+                          : bank.visibility === "PUBLIC"
+                            ? "公开"
+                            : "私有"}
                     </StatePill>
                     {/* 公开题库只读（官方题库不可改），行动作按可见性区分「查看 / 管理」。 */}
                     <button
@@ -246,11 +277,37 @@ export function BanksPage() {
         />
       </Modal>
 
+      <Modal
+        open={editing !== null}
+        onClose={() => setEditing(null)}
+        kicker="编辑题库"
+        title="题库信息"
+      >
+        {editing ? (
+          <BankForm
+            key={editing.id}
+            submitLabel="保存"
+            pending={editMutation.isPending}
+            initial={{
+              name: editing.name,
+              description: editing.description,
+              visibility: editing.visibility,
+            }}
+            onSubmit={(form) => editMutation.mutate({ bank: editing, form })}
+            onCancel={() => setEditing(null)}
+          />
+        ) : null}
+      </Modal>
+
       {drawerBank ? (
         <BankDrawer
           key={drawerBank.id}
           bank={drawerBank}
           onClose={() => setDrawerBankId(null)}
+          onEdit={() => {
+            setDrawerBankId(null);
+            setEditing(drawerBank);
+          }}
           onToggle={(status) => {
             if (drawerBank.id === "1") {
               toast("官方题库不能停用");
@@ -299,24 +356,28 @@ export function BanksPage() {
   );
 }
 
-/** 新建/编辑题库的表单；编辑弹窗本轮未开放（原型保留），只服务新建。 */
+/**
+ * 新建/编辑题库的表单；编辑态由 initial 预填（key 换行重置内部状态）。
+ * 校验与 mock/后端一致：名称必填 1–128、说明可空 ≤500（空串归一为 null）。
+ */
 function BankForm({
   submitLabel,
   pending,
+  initial,
   onSubmit,
   onCancel,
 }: {
   submitLabel: string;
   pending: boolean;
-  onSubmit: (input: {
-    name: string;
-    description: string | null;
-    visibility: "PUBLIC" | "PRIVATE";
-  }) => void;
+  initial?: BankFormInput;
+  onSubmit: (input: BankFormInput) => void;
   onCancel: () => void;
 }) {
-  const [name, setName] = useState("");
-  const [visibility, setVisibility] = useState<"PUBLIC" | "PRIVATE">("PRIVATE");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [visibility, setVisibility] = useState<"PUBLIC" | "PRIVATE">(
+    initial?.visibility ?? "PRIVATE",
+  );
   return (
     <div className="mt-4">
       <AdminField label="名称">
@@ -326,8 +387,19 @@ function BankForm({
           aria-label="题库名称"
           placeholder="例：商务邮件常用句"
           value={name}
+          maxLength={128}
           onChange={(event) => setName(event.target.value)}
           className="w-full border-b border-rule bg-transparent py-2 text-[15px] text-ink outline-none transition placeholder:text-ink-faint focus:border-vermilion"
+        />
+      </AdminField>
+      <AdminField label="说明">
+        <input
+          aria-label="题库说明"
+          placeholder="一句话说明用途（可空）"
+          value={description}
+          maxLength={500}
+          onChange={(event) => setDescription(event.target.value)}
+          className="w-full border-b border-rule bg-transparent py-2 text-[13px] text-ink outline-none transition placeholder:text-ink-faint focus:border-vermilion"
         />
       </AdminField>
       <AdminField label="可见性">
@@ -349,7 +421,13 @@ function BankForm({
           type="button"
           className="btn primary"
           disabled={pending || name.trim() === ""}
-          onClick={() => onSubmit({ name: name.trim(), description: null, visibility })}
+          onClick={() =>
+            onSubmit({
+              name: name.trim(),
+              description: description.trim() === "" ? null : description.trim(),
+              visibility,
+            })
+          }
         >
           {submitLabel}
         </button>
@@ -358,15 +436,17 @@ function BankForm({
   );
 }
 
-/** 题库抽屉：练习入口、句子列表与边界操作；停用/删除的原因弹窗由页面层提供。 */
+/** 题库抽屉：练习入口、句子列表与边界操作；编辑/停用/删除由页面层弹窗承接。 */
 function BankDrawer({
   bank,
   onClose,
+  onEdit,
   onToggle,
   onDelete,
 }: {
   bank: BankView;
   onClose: () => void;
+  onEdit: () => void;
   onToggle: (status: "DISABLED" | "PUBLISHED") => void;
   onDelete: () => void;
 }) {
@@ -382,7 +462,7 @@ function BankDrawer({
       onClose={onClose}
       kicker={`题库 · ${bank.id}`}
       title={bank.name}
-      meta={`${bank.sentenceCount} 句 · ${bank.visibility === "PUBLIC" ? "公开" : "私有"}${bank.status === "DISABLED" ? " · 已停用" : ""}`}
+      meta={`${bank.sentenceCount} 句 · ${bank.visibility === "PUBLIC" ? "公开" : "私有"}${bank.status === "DISABLED" ? " · 已停用" : ""}${bank.status === "RECYCLED" ? " · 已回收" : ""}`}
     >
       <div className="mt-[22px] flex flex-wrap gap-4">
         <Link
@@ -392,6 +472,9 @@ function BankDrawer({
         >
           在这个题库练习
         </Link>
+        <button type="button" className="linkish" onClick={onEdit}>
+          编辑
+        </button>
         {isOfficial ? null : (
           <>
             <button
@@ -431,7 +514,11 @@ function BankDrawer({
               <p className="mt-[5px] font-mono text-[9.5px] tracking-[0.06em] text-ink-faint">
                 {levelLabel(sentence.level)} · {(sentence.tags ?? []).join(" / ")} · 挖{" "}
                 {(sentence.blank ?? []).length} 空
-                {sentence.status === "DISABLED" ? " · 已停用" : ""}
+                {sentence.status === "RECYCLED"
+                  ? " · 已回收"
+                  : sentence.status === "DISABLED"
+                    ? " · 已停用"
+                    : ""}
               </p>
             </div>
             <Link

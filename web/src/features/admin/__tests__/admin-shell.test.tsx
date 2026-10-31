@@ -73,6 +73,66 @@ const OVERVIEW = {
 } as const;
 
 /**
+ * 题库页签桩数据：第一行可编辑、第二行已回收——回收库按 mock 契约在缺省列表出现，
+ * 行内必须有「已回收」标注而不是被隐藏。
+ */
+const BANKS_PAGE = {
+  items: [
+    {
+      id: "2",
+      ownerId: null,
+      name: "编辑目标库",
+      description: null,
+      visibility: "PRIVATE",
+      status: "PUBLISHED",
+      version: 3,
+      sentenceCount: 5,
+    },
+    {
+      id: "3",
+      ownerId: null,
+      name: "回收站里的库",
+      description: null,
+      visibility: "PRIVATE",
+      status: "RECYCLED",
+      version: 9,
+      sentenceCount: 0,
+    },
+  ],
+  page: 1,
+  size: 10,
+  total: 2,
+  totalPages: 1,
+  hasNext: false,
+} as const;
+
+/** 题库抽屉的句子桩数据：一行已回收句子（管理端视图带完整快照，不做 tombstone 裁剪）。 */
+const BANK_SENTENCES_PAGE = {
+  items: [
+    {
+      id: "01JZZZZZZZZZZZZZZZZZZZZZZZ",
+      version: 3,
+      sentenceVersionId: "11",
+      questionVersion: 1,
+      status: "RECYCLED",
+      deleted: true,
+      zh: "被回收的句子。",
+      ref: "A recycled sentence.",
+      note: null,
+      chunks: [],
+      blank: [],
+      tags: [],
+      level: null,
+    },
+  ],
+  page: 1,
+  size: 20,
+  total: 1,
+  totalPages: 1,
+  hasNext: false,
+} as const;
+
+/**
  * 构造一个带 headers/json/text 的最小 Response，避免新代码读取 Retry-After 时崩溃。
  * @param body 响应体
  * @param status HTTP 状态
@@ -224,5 +284,78 @@ describe("admin shell", () => {
     expect(screen.queryByText("用户总数")).not.toBeInTheDocument();
     // 页签切换发生在壳层内：顶栏自始至终可见。
     expect(document.querySelector(".topbar")).toBeInTheDocument();
+  });
+
+  it("AC-1: 管理员打开 /admin 不再出现全局演示 Notice（核心页签已接真实接口）", async () => {
+    markPlaced();
+    vi.stubGlobal("fetch", adminFetchMock());
+
+    renderApp("/admin");
+
+    expect(await screen.findByRole("heading", { name: /^管理/ })).toBeInTheDocument();
+    // 演示 Notice 已随 011 切片撤场；出题/模型/运维页签各自的页内演示横幅仍然足够提示。
+    expect(screen.queryByText(/演示数据模式/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/VITE_USE_MOCK=true 启动体验完整管理端/)).not.toBeInTheDocument();
+  });
+
+  it("AC-5: 题库页签回收库带「已回收」标注、编辑弹窗预填并提交 PATCH", async () => {
+    markPlaced();
+    const patchBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/auth/me")) {
+          return jsonResponse(successEnvelope(ADMIN));
+        }
+        if (url.endsWith("/api/me/settings")) {
+          return jsonResponse(successEnvelope(SETTINGS));
+        }
+        if (url.endsWith("/api/practice/today")) {
+          return jsonResponse(successEnvelope(TODAY));
+        }
+        if (/\/api\/admin\/banks\/\d+\/sentences/.test(url)) {
+          return jsonResponse(successEnvelope(BANK_SENTENCES_PAGE));
+        }
+        if (/\/api\/admin\/banks\/\d+$/.test(url)) {
+          expect(init?.method).toBe("PATCH");
+          patchBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+          return jsonResponse(successEnvelope({ ...BANKS_PAGE.items[0], description: "新说明" }));
+        }
+        if (url.includes("/api/admin/banks")) {
+          return jsonResponse(successEnvelope(BANKS_PAGE));
+        }
+        throw new Error(`unexpected request: ${url}`);
+      }),
+    );
+
+    const { router } = renderApp("/admin?tab=banks");
+
+    // C 裁决：mock 的 GET /admin/banks 缺省不过滤状态——回收库仍在缺省列表出现，行内标注「已回收」。
+    expect(await screen.findByText("回收站里的库")).toBeInTheDocument();
+    expect(screen.getByText("已回收")).toBeInTheDocument();
+
+    // B：抽屉新增「编辑」入口 → 表单按当前值预填 → 保存提交 PATCH /api/admin/banks/{id}。
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: "管理" })[0]);
+    // Drawer 的 role="dialog" 无 aria-label，可访问名不可用；用抽屉内的 h2 标题定位。
+    const drawer = await screen.findByRole("dialog");
+    expect(within(drawer).getByRole("heading", { name: "编辑目标库" })).toBeInTheDocument();
+    await user.click(within(drawer).getByRole("button", { name: "编辑" }));
+
+    const nameInput = await screen.findByLabelText("题库名称");
+    expect(nameInput).toHaveValue("编辑目标库");
+    await user.type(screen.getByLabelText("题库说明"), "新说明");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(patchBodies).toHaveLength(1));
+    expect(patchBodies[0]).toEqual({
+      name: "编辑目标库",
+      description: "新说明",
+      visibility: "PRIVATE",
+    });
+    // 保存成功后编辑弹窗关闭、列表缓存失效后重新拉取（fetch 桩继续应答即证明）。
+    await waitFor(() => expect(screen.queryByLabelText("题库名称")).not.toBeInTheDocument());
+    expect(router.state.location.pathname).toBe("/admin");
   });
 });

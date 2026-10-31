@@ -1,6 +1,4 @@
 import { Link, useSearch } from "@tanstack/react-router";
-import { Notice } from "@/components/feedback";
-import { isMockEnabled } from "@/lib/mock-flag";
 import { AuditPage } from "./AuditPage";
 import { BanksPage } from "./BanksPage";
 import { ADMIN_TABS, type AdminTabId, type AdminTabParam, adminTabSearch } from "./constants";
@@ -20,8 +18,6 @@ import { UsersPage } from "./UsersPage";
  * 服务端仍会独立鉴权，这里只负责导航与预期说明。
  */
 export function AdminLayout() {
-  // 管理端数据依赖 mock 演示层；真实模式请求会失败，各页已有错误态兜底，这里只做预期说明。
-  const showDemoNotice = !isMockEnabled();
   // 页签状态就在本路由的 search 里；非法值已被 validateSearch 丢弃，缺省即概览。
   const search = useSearch({ strict: false }) as { tab?: AdminTabParam };
   const activeTab: AdminTabId = search.tab ?? "overview";
@@ -35,12 +31,6 @@ export function AdminLayout() {
         </span>
       </h1>
       <p className="page-sub">用户、题库、出题、模型、日志。单人运营，只看该看的。</p>
-
-      {showDemoNotice ? (
-        <Notice className="-mt-6 mb-9">
-          管理端数据接口属后续切片，当前为演示数据模式；请以 VITE_USE_MOCK=true 启动体验完整管理端。
-        </Notice>
-      ) : null}
 
       {/* 横向滚动容器会按内容高度裁剪:clientH 不含容器自身的 border,页签用 mb-[-1px] 把激活
           下边框压在容器 border 上,恰好比 clientH 高 1px 而被裁掉;pb-px 把内容高度撑回去容纳它。 */}
