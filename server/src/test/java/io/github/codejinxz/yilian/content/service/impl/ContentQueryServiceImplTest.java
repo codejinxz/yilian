@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.api.PageResponse;
+import io.github.codejinxz.yilian.common.config.CacheConfig;
 import io.github.codejinxz.yilian.content.dao.BankDao;
 import io.github.codejinxz.yilian.content.dao.PracticeCandidateQueryDao;
 import io.github.codejinxz.yilian.content.dao.PracticeCandidateRow;
@@ -74,9 +75,17 @@ class ContentQueryServiceImplTest {
         bankDao = mock(BankDao.class);
         sentenceDao = mock(SentenceDao.class);
         practiceCandidateQueryDao = mock(PracticeCandidateQueryDao.class);
+        // 缓存装配用真实 CacheManager；单测直调实现类不经过代理，@Cacheable 不生效，
+        // 行为与直查库一致（匿名详情经由 BankMetadataCache 的加载逻辑）。
+        BankMetadataCache bankMetadataCache =
+                new BankMetadataCache(bankDao, new CacheConfig().cacheManager());
         service =
                 new ContentQueryServiceImpl(
-                        bankDao, sentenceDao, practiceCandidateQueryDao, new ObjectMapper());
+                        bankDao,
+                        sentenceDao,
+                        practiceCandidateQueryDao,
+                        bankMetadataCache,
+                        new ObjectMapper());
     }
 
     // ---------- 题库列表 ----------

@@ -78,15 +78,18 @@ public class ContentAdminServiceImpl implements ContentAdminService {
 
     private final ContentImportService contentImportService;
 
+    private final BankMetadataCache bankMetadataCache;
+
     private final ObjectMapper objectMapper;
 
     /**
-     * 注入题库/题目 Dao、管理端题目查询 Dao、导入服务（复用指纹算法）与序列化器。
+     * 注入题库/题目 Dao、管理端题目查询 Dao、导入服务（复用指纹算法）、缓存失效装配与序列化器。
      *
      * @param bankDao 题库 Dao
      * @param sentenceDao 题目与快照 Dao
      * @param adminSentenceQueryDao 管理端题目列表 JOIN 查询 Dao（MyBatis 实现）
      * @param contentImportService 导入落库服务（fingerprintsOf 与导入共用 canonical 指纹算法）
+     * @param bankMetadataCache 匿名公开读缓存（写路径在事务提交后失效）
      * @param objectMapper Jackson 映射器（chunks/blank/tags 解析）
      */
     public ContentAdminServiceImpl(
@@ -94,14 +97,17 @@ public class ContentAdminServiceImpl implements ContentAdminService {
             SentenceDao sentenceDao,
             AdminSentenceQueryDao adminSentenceQueryDao,
             ContentImportService contentImportService,
+            BankMetadataCache bankMetadataCache,
             ObjectMapper objectMapper) {
         this.bankDao = bankDao;
         this.sentenceDao = sentenceDao;
         this.adminSentenceQueryDao = adminSentenceQueryDao;
         this.contentImportService = contentImportService;
+        this.bankMetadataCache = bankMetadataCache;
         this.objectMapper = objectMapper;
     }
 
+    /** 管理端题库列表：低频且要求实时，不走缓存（013 AC-2，理由见 {@link BankMetadataCache} 类注释）。 */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<BankView> adminListBanks(
@@ -142,7 +148,10 @@ public class ContentAdminServiceImpl implements ContentAdminService {
                         visibilityValue,
                         actorId,
                         Instant.now());
-        return toBankView(bankDao.save(bank));
+        SentenceBank saved = bankDao.save(bank);
+        // 新库出现在匿名列表里且总数变化：提交后清列表缓存（详情键此时本就不存在，顺带失效无妨）。
+        bankMetadataCache.evictWrittenBanks(List.of(saved.getId()));
+        return toBankView(saved);
     }
 
     @Override
@@ -168,7 +177,10 @@ public class ContentAdminServiceImpl implements ContentAdminService {
         if (statusValue != null) {
             bank.changeStatus(statusValue, actorId, Instant.now());
         }
-        return toBankView(bankDao.save(bank));
+        SentenceBank saved = bankDao.save(bank);
+        // 元数据（名称/说明/可见性/状态）变更直接影响匿名视图：提交后失效该库详情与列表缓存。
+        bankMetadataCache.evictWrittenBanks(List.of(bankId));
+        return toBankView(saved);
     }
 
     @Override
@@ -183,6 +195,8 @@ public class ContentAdminServiceImpl implements ContentAdminService {
         SentenceBank bank = requireBank(bankId);
         bank.recycle(actorId, Instant.now());
         bankDao.save(bank);
+        // 回收后对匿名立即不可见：提交后失效详情与列表缓存。
+        bankMetadataCache.evictWrittenBanks(List.of(bankId));
     }
 
     @Override
@@ -256,6 +270,8 @@ public class ContentAdminServiceImpl implements ContentAdminService {
             sentenceDao.save(sentence);
         }
         lockedBanks.values().forEach(bankDao::save);
+        // 批量状态变更改变「已发布且未删」计数：提交后失效受影响题库的详情与列表缓存。
+        bankMetadataCache.evictWrittenBanks(affectedBankIds(matched));
         return matched.size();
     }
 
@@ -320,6 +336,10 @@ public class ContentAdminServiceImpl implements ContentAdminService {
             source.advanceVersion(source.getVersion() + 1, actorId, now);
         }
         lockedBanks.values().forEach(bankDao::save);
+        // 两库句数此消彼长：提交后失效全部源库与目标库的缓存。
+        TreeSet<Long> affected = new TreeSet<>(sourceBankIds);
+        affected.add(targetBankId);
+        bankMetadataCache.evictWrittenBanks(affected);
         return matched.size();
     }
 
@@ -341,6 +361,8 @@ public class ContentAdminServiceImpl implements ContentAdminService {
         bank.advanceVersion(nextVersion, actorId, now);
         sentenceDao.save(sentence);
         bankDao.save(bank);
+        // 状态流转改变「已发布且未删」计数：提交后失效所属题库的缓存。
+        bankMetadataCache.evictWrittenBanks(List.of(sentence.getBankId()));
         return detailOf(sentence);
     }
 
@@ -369,6 +391,8 @@ public class ContentAdminServiceImpl implements ContentAdminService {
         ContentStatus statusTarget = parseContentStatus(status, "status 不受支持");
         Long targetBankId = parseBankId(bankId);
         Sentence sentence = requireSentence(sentenceId);
+        // 源题库 id 必须在移动前捕获：moveToBank 会原地改写 bankId。
+        long originalBankId = sentence.getBankId();
         Instant now = Instant.now();
 
         boolean contentChange =
@@ -386,8 +410,16 @@ public class ContentAdminServiceImpl implements ContentAdminService {
             sentenceDao.save(sentence);
             bankDao.save(bank);
         }
+        boolean moved = false;
         if (targetBankId != null && targetBankId != sentence.getBankId()) {
             moveSentence(actorId, sentence, targetBankId, now);
+            moved = true;
+        }
+        // 内容/状态编辑影响原库视图，移动还改变目标库句数：提交后一并失效。
+        if (moved) {
+            bankMetadataCache.evictWrittenBanks(List.of(originalBankId, targetBankId));
+        } else {
+            bankMetadataCache.evictWrittenBanks(List.of(originalBankId));
         }
         return detailOf(sentence);
     }
@@ -529,6 +561,20 @@ public class ContentAdminServiceImpl implements ContentAdminService {
         return sentenceDao
                 .findById(sentenceId)
                 .orElseThrow(() -> new BusinessException(ApiCode.SENTENCE_NOT_FOUND));
+    }
+
+    /**
+     * 收集批量操作实际涉及的题库 id（去重保序），供缓存失效使用。
+     *
+     * @param sentences 实际发生变更的题目
+     * @return 涉及的题库 id
+     */
+    private static List<Long> affectedBankIds(List<Sentence> sentences) {
+        LinkedHashSet<Long> ids = new LinkedHashSet<>();
+        for (Sentence sentence : sentences) {
+            ids.add(sentence.getBankId());
+        }
+        return List.copyOf(ids);
     }
 
     /**

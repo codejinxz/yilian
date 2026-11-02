@@ -42,19 +42,26 @@ public class ContentImportServiceImpl implements ContentImportService {
 
     private final SentenceDao sentenceDao;
 
+    private final BankMetadataCache bankMetadataCache;
+
     private final ObjectMapper objectMapper;
 
     /**
-     * 注入题库/题目 Dao 与序列化器。
+     * 注入题库/题目 Dao、缓存失效装配与序列化器。
      *
      * @param bankDao 题库 Dao
      * @param sentenceDao 题目与快照 Dao
+     * @param bankMetadataCache 匿名公开读缓存（导入改变句数视图，提交后失效）
      * @param objectMapper Jackson 映射器（chunks/blank/tags 序列化）
      */
     public ContentImportServiceImpl(
-            BankDao bankDao, SentenceDao sentenceDao, ObjectMapper objectMapper) {
+            BankDao bankDao,
+            SentenceDao sentenceDao,
+            BankMetadataCache bankMetadataCache,
+            ObjectMapper objectMapper) {
         this.bankDao = bankDao;
         this.sentenceDao = sentenceDao;
+        this.bankMetadataCache = bankMetadataCache;
         this.objectMapper = objectMapper;
     }
 
@@ -146,6 +153,8 @@ public class ContentImportServiceImpl implements ContentImportService {
             results.add(new ImportedSentence(sentence.getId(), savedVersion.getId(), 1));
         }
         bankDao.save(bank);
+        // 导入改变「已发布且未删」句数视图：提交后失效该库详情与列表缓存（013 AC-2 写后删）。
+        bankMetadataCache.evictWrittenBanks(List.of(bankId));
         return results;
     }
 
@@ -191,6 +200,8 @@ public class ContentImportServiceImpl implements ContentImportService {
                             });
         }
         bankDao.save(bank);
+        // 回收改变句数视图：提交后失效该库缓存（与导入同口径）。
+        bankMetadataCache.evictWrittenBanks(List.of(bankId));
         return recycled.get();
     }
 

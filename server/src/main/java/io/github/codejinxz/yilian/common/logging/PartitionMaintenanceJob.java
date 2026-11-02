@@ -7,6 +7,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
@@ -20,6 +22,8 @@ import java.util.Map;
  *
  * <p>两张表按 {@code created_at} 月分区；应用层不做行级 DELETE。任务可重入：分区已存在时跳过，
  * 单表失败只记日志，不阻塞调度。保留期按“整月粒度”执行：只有分区上界早于截止日才删除。
+ *
+ * <p>过期幂等占位记录的清理也并入本类（013 AC-1）：{@code idempotency_record} 未分区， 只能行级 DELETE；复用同一调度入口避免另起炉灶。
  */
 @Component
 public class PartitionMaintenanceJob {
@@ -27,6 +31,20 @@ public class PartitionMaintenanceJob {
     private static final Logger log = LoggerFactory.getLogger(PartitionMaintenanceJob.class);
 
     private static final int FUTURE_MONTHS = 3;
+
+    /** 幂等记录单批删除上限：限制单条 DELETE 的持锁时长与 binlog 压力，循环清到批不满即止。 */
+    private static final int IDEMPOTENCY_PURGE_BATCH_SIZE = 500;
+
+    /** 幂等记录单轮最大批数（500 × 200 = 10 万行）：异常积压时分轮清理，不拖死调度线程； 剩余部分等下一个半周期继续，清理本身永远追得上（幂等记录 24h 过期）。 */
+    private static final int IDEMPOTENCY_PURGE_MAX_BATCHES = 200;
+
+    /**
+     * 过期判定沿用 {@code JdbcIdempotencyService} 的 {@code expires_at <= ?} 语义：
+     * 恰好等于截止时间的记录视为过期，与「冲突时惰性清理」口径一致。
+     */
+    private static final String PURGE_EXPIRED_IDEMPOTENCY_SQL =
+            "DELETE FROM idempotency_record WHERE expires_at <= ? LIMIT "
+                    + IDEMPOTENCY_PURGE_BATCH_SIZE;
 
     private final JdbcTemplate jdbcTemplate;
     private final int auditRetentionDays;
@@ -60,6 +78,33 @@ public class PartitionMaintenanceJob {
             maintainTable("error_log", errorRetentionDays);
         } catch (RuntimeException exception) {
             log.error("failed to maintain error_log partitions", exception);
+        }
+    }
+
+    /**
+     * 每半小时清理一次过期幂等占位记录（013 AC-1）。
+     *
+     * <p>可重入性三重保证：{@code fixedDelay} 串行调度不与自身重叠；DELETE 本身幂等， 即便被并发触发
+     * （如未来多入口调用）也只是多删一次空集，不会报错；分批循环以「批不满」收敛， 单轮有最大批数兜底。 失败只记日志，下个周期重试。
+     */
+    @Scheduled(fixedDelay = 30 * 60 * 1000L, initialDelay = 10 * 60 * 1000L)
+    public void purgeExpiredIdempotencyRecords() {
+        try {
+            long total = 0;
+            for (int batch = 0; batch < IDEMPOTENCY_PURGE_MAX_BATCHES; batch++) {
+                int removed =
+                        jdbcTemplate.update(
+                                PURGE_EXPIRED_IDEMPOTENCY_SQL, Timestamp.from(Instant.now()));
+                total += removed;
+                if (removed < IDEMPOTENCY_PURGE_BATCH_SIZE) {
+                    break;
+                }
+            }
+            if (total > 0) {
+                log.info("purged {} expired idempotency records", total);
+            }
+        } catch (RuntimeException exception) {
+            log.error("failed to purge expired idempotency records", exception);
         }
     }
 

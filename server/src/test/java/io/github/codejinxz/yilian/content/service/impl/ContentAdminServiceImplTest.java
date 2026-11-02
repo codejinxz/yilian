@@ -20,6 +20,7 @@ import static org.mockito.Mockito.when;
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.api.PageResponse;
+import io.github.codejinxz.yilian.common.config.CacheConfig;
 import io.github.codejinxz.yilian.common.util.TextNormalizer;
 import io.github.codejinxz.yilian.content.dao.AdminSentenceQueryDao;
 import io.github.codejinxz.yilian.content.dao.AdminSentenceRow;
@@ -91,12 +92,16 @@ class ContentAdminServiceImplTest {
         adminSentenceQueryDao = mock(AdminSentenceQueryDao.class);
         contentImportService = mock(ContentImportService.class);
         objectMapper = new ObjectMapper();
+        // 真实 CacheManager + 真实失效装配：写路径的 evictWrittenBanks 在空缓存上是无害 no-op。
+        BankMetadataCache bankMetadataCache =
+                new BankMetadataCache(bankDao, new CacheConfig().cacheManager());
         service =
                 new ContentAdminServiceImpl(
                         bankDao,
                         sentenceDao,
                         adminSentenceQueryDao,
                         contentImportService,
+                        bankMetadataCache,
                         objectMapper);
     }
 

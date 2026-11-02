@@ -3,6 +3,7 @@ package io.github.codejinxz.yilian.content.service.impl;
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.api.PageResponse;
+import io.github.codejinxz.yilian.common.config.CacheConfig;
 import io.github.codejinxz.yilian.content.dao.BankDao;
 import io.github.codejinxz.yilian.content.dao.PracticeCandidateQueryDao;
 import io.github.codejinxz.yilian.content.dao.PracticeCandidateRow;
@@ -18,6 +19,7 @@ import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
 import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 import io.github.codejinxz.yilian.content.service.vo.SentencePage;
 
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -53,24 +55,29 @@ public class ContentQueryServiceImpl implements ContentQueryService {
 
     private final PracticeCandidateQueryDao practiceCandidateQueryDao;
 
+    private final BankMetadataCache bankMetadataCache;
+
     private final ObjectMapper objectMapper;
 
     /**
-     * 注入题库与题目 Dao、练习候选查询 Dao，以及解析快照 JSON 列的映射器。
+     * 注入题库与题目 Dao、练习候选查询 Dao、题库元数据缓存装配，以及解析快照 JSON 列的映射器。
      *
      * @param bankDao 题库 Dao
      * @param sentenceDao 题目与快照 Dao
      * @param practiceCandidateQueryDao 练习候选 JOIN 查询 Dao（MyBatis 实现）
+     * @param bankMetadataCache 题库元数据缓存（匿名公开读）
      * @param objectMapper Spring Boot 提供的 Jackson 3 映射器
      */
     public ContentQueryServiceImpl(
             BankDao bankDao,
             SentenceDao sentenceDao,
             PracticeCandidateQueryDao practiceCandidateQueryDao,
+            BankMetadataCache bankMetadataCache,
             ObjectMapper objectMapper) {
         this.bankDao = bankDao;
         this.sentenceDao = sentenceDao;
         this.practiceCandidateQueryDao = practiceCandidateQueryDao;
+        this.bankMetadataCache = bankMetadataCache;
         this.objectMapper = objectMapper;
     }
 
@@ -78,6 +85,10 @@ public class ContentQueryServiceImpl implements ContentQueryService {
      * 题库列表：匿名只返回公开题库，登录后附加自己的私有题库。
      *
      * <p>可见集合由 Dao 固定为已发布且未软删；题数逐题统计，页容量有上限（≤100），代价可控。 请求其他状态时直接返回空页：可见集合里不可能有它们，静默空页比报错更贴近筛选语义。
+     *
+     * <p>匿名请求走 L1 缓存（013 AC-2）：键为筛选参数指纹（见 {@link BankMetadataCache#listCacheKey}）， {@code sync =
+     * true} 防同键并发重建；登录请求结果含私有题库、键需带用户上下文， 不缓存。失效由写路径经 {@code BankMetadataCache#evictWrittenBanks}
+     * 在事务提交后执行。
      *
      * @param userId 当前用户 id，可为 null
      * @param keyword 关键字
@@ -89,6 +100,13 @@ public class ContentQueryServiceImpl implements ContentQueryService {
      */
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(
+            cacheNames = CacheConfig.CACHE_BANK_LIST,
+            key =
+                    "T(io.github.codejinxz.yilian.content.service.impl.BankMetadataCache)"
+                            + ".listCacheKey(#keyword, #visibility, #status, #page, #size)",
+            condition = "#userId == null",
+            sync = true)
     public PageResponse<BankView> listBanks(
             Long userId,
             String keyword,
@@ -116,6 +134,9 @@ public class ContentQueryServiceImpl implements ContentQueryService {
      *
      * <p>私有题库对匿名按「不存在」返回（40401），避免向未登录探测者泄露题库存在性； 登录后非所有者回 40300，与 API §5.2 的错误码约定一致。
      *
+     * <p>匿名请求走 L1 缓存（013 AC-2）：正缓存返回视图，负缓存（不存在/不可见）转 40401， 语义与直查库完全一致；登录/管理端维持直查库，理由见 {@link
+     * BankMetadataCache} 类注释。
+     *
      * @param bankId 题库 id
      * @param userId 当前用户 id，可为 null
      * @param admin 是否管理端
@@ -124,8 +145,24 @@ public class ContentQueryServiceImpl implements ContentQueryService {
     @Override
     @Transactional(readOnly = true)
     public BankView getBank(long bankId, Long userId, boolean admin) {
+        if (userId == null && !admin) {
+            return unwrapPublic(bankMetadataCache.loadPublicBankView(bankId));
+        }
         SentenceBank bank = requireVisibleBank(bankId, userId, admin, false);
         return toBankView(bank);
+    }
+
+    /**
+     * 解包匿名公开题库缓存条目：负缓存条目按「不存在」转 40401，与直查库的错误语义一致。
+     *
+     * @param entry 缓存条目
+     * @return 题库视图
+     */
+    private static BankView unwrapPublic(BankMetadataCache.Entry entry) {
+        if (entry instanceof BankMetadataCache.Absent) {
+            throw new BusinessException(ApiCode.BANK_NOT_FOUND);
+        }
+        return ((BankMetadataCache.Present) entry).view();
     }
 
     /**
