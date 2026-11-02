@@ -169,8 +169,6 @@ export function GenerationPage() {
   function invalidate() {
     void queryClient.invalidateQueries({ queryKey: ["admin", "sentences"] });
     void queryClient.invalidateQueries({ queryKey: ["admin", "banks"] });
-    void queryClient.invalidateQueries({ queryKey: ["admin", "imports"] });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.admin.imports({}) });
     void queryClient.invalidateQueries({ queryKey: ["admin", "overview"] });
     void queryClient.invalidateQueries({ queryKey: queryKeys.admin.auditLogs({}) });
   }
@@ -223,7 +221,8 @@ export function GenerationPage() {
   return (
     <div>
       <p className="font-mono text-[11px] tracking-[0.06em] text-ink-faint">
-        演示数据，不调用真实模型：「{generateLabel}」填入固定样本，导入与回滚走真实 mock 流程。
+        演示标注：「{generateLabel}」不调用真实模型，只填入固定样本；粘贴校验后的导入、
+        最近批次与回滚走真实接口（012）。
       </p>
 
       <div className="mt-6 grid gap-10 lg:grid-cols-2">
@@ -418,7 +417,10 @@ export function GenerationPage() {
         ) : (
           <RowList>
             {batchesQuery.data.items.length === 0 ? (
-              <EmptyRow>还没有导入批次。用模型生成或粘贴导入后会出现在这里。</EmptyRow>
+              <EmptyRow>
+                还没有文件导入批次。上传文件导入后会出现在这里；AI
+                生成的句子入库后直接出现在题库题目列表。
+              </EmptyRow>
             ) : (
               batchesQuery.data.items.map((batch) => (
                 <Row key={batch.batchId}>

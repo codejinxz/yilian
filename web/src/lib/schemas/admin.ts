@@ -46,8 +46,6 @@ export const auditLogSchema = z.object({
   action: z.string(),
   targetType: z.string().nullable(),
   targetId: z.string().nullable(),
-  // TODO(mock): 演示数据，真实接口落地后删除——对象的人类可读名，替代裸 targetId（UUID）展示。
-  targetLabel: z.string().nullable().optional(),
   reason: z.string().nullable(),
   outcome: auditOutcomeSchema,
   durationMs: z.number().int().nonnegative().nullable(),

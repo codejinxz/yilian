@@ -57,16 +57,23 @@ export const MODULE_OPTIONS = [
 export type TimeRange = "all" | "today" | "7d" | "30d";
 
 /**
- * 把时间范围转成 YYYY-MM-DD 的 from/to；「全部」返回空对象。
+ * 把时间范围转成 YYYY-MM-DD 的 from/to。
+ *
+ * 「全部」显式给出保留期窗口而不是空参数：后端是分区表检索（012 契约），from/to 缺省
+ * 会兜底为近 30 天，空参数会让「全部时间」名不副实。操作日志保留 1 年、异常日志 30 天，
+ * 由调用方按页传 allWindowDays。
+ *
  * @param range 时间范围
+ * @param allWindowDays 「全部」对应的保留期天数（审计 365、异常 30）
  * @returns 日期筛选参数
  */
-export function timeRangeParams(range: TimeRange): { from?: string; to?: string } {
-  if (range === "all") {
-    return {};
-  }
+export function timeRangeParams(
+  range: TimeRange,
+  allWindowDays = 30,
+): { from?: string; to?: string } {
   const now = new Date();
-  const days = range === "today" ? 0 : range === "7d" ? 6 : 29;
+  const days =
+    range === "today" ? 0 : range === "7d" ? 6 : range === "30d" ? 29 : allWindowDays - 1;
   const from = new Date(now.getTime() - days * 86_400_000);
   const toDate = (date: Date) => {
     const year = date.getFullYear();

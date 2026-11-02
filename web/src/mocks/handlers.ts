@@ -270,47 +270,8 @@ function inDateRange(iso: string, from: string | null, to: string | null): boole
 }
 
 /**
- * 由对象类型与 id 推导人类可读名；审计行用它替代裸 UUID 展示。
- * TODO(mock): 演示数据，真实接口落地后删除——服务端审计应直接返回 targetLabel。
- * @param db mock 数据库
- * @param targetType 对象类型
- * @param targetId 对象 id
- * @returns 可读名；无法推导时为 null
- */
-function targetLabelOf(
-  db: MockDb,
-  targetType: string | null,
-  targetId: string | null,
-): string | null {
-  if (!targetId) {
-    return null;
-  }
-  if (targetType === "USER") {
-    return db.users.find((user) => user.id === targetId)?.username ?? null;
-  }
-  if (targetType === "BANK") {
-    return db.banks.find((bank) => bank.id === targetId)?.name ?? null;
-  }
-  if (targetType === "SENTENCE") {
-    return db.sentences.find((sentence) => sentence.id === targetId)?.zh ?? null;
-  }
-  if (targetType === "ATTEMPT") {
-    const attempt = db.attempts.find((item) => item.request.attemptId === targetId);
-    if (!attempt) {
-      return null;
-    }
-    const who = db.users.find((user) => user.id === attempt.userId)?.username ?? "用户";
-    return `${who} · ${attempt.zh}`;
-  }
-  if (targetType === "IMPORT_BATCH") {
-    const batch = db.imports.find((item) => item.batchId === targetId);
-    return batch ? (db.banks.find((bank) => bank.id === batch.bankId)?.name ?? null) : null;
-  }
-  return null;
-}
-
-/**
  * 追加一条操作审计；mock 的所有管理端写操作都留痕。
+ * 012：真实接口按 admin_audit_log 原样返回（无 targetLabel 列），mock 同形，前端展示 targetType。
  * @param db mock 数据库
  * @param actor 操作者
  * @param action 稳定英文动作
@@ -336,8 +297,6 @@ function appendAudit(
     action,
     targetType,
     targetId,
-    // TODO(mock): 演示数据，真实接口落地后删除——审计行的人类可读对象名。
-    targetLabel: targetLabelOf(db, targetType, targetId),
     reason,
     outcome: "SUCCESS",
     durationMs: 12,
@@ -2177,8 +2136,6 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
       action: "VIEW_ATTEMPT_RAW",
       targetType: "ATTEMPT",
       targetId: attempt.request.attemptId,
-      // TODO(mock): 演示数据，真实接口落地后删除——审计行的人类可读对象名。
-      targetLabel: targetLabelOf(db, "ATTEMPT", attempt.request.attemptId),
       reason,
       outcome: "SUCCESS",
       durationMs: 9,

@@ -104,8 +104,10 @@ public class SentenceBank {
     /**
      * 修改基础信息。
      *
+     * <p>说明的契约是「null 表示不改、空串表示清空」：管理端部分更新用 null 区分「没传」与「传了空」， 清空必须显式置 null 才能落库（API §8.8）。
+     *
      * @param name 新名称，null 表示不改
-     * @param description 新说明，null 表示不改
+     * @param description 新说明，null 表示不改，空串清空（置 null）
      * @param visibility 新可见性，null 表示不改
      * @param actorId 操作者
      */
@@ -114,7 +116,7 @@ public class SentenceBank {
             this.name = name;
         }
         if (description != null) {
-            this.description = description;
+            this.description = description.isBlank() ? null : description;
         }
         if (visibility != null) {
             this.visibility = visibility;

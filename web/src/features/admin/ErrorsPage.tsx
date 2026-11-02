@@ -22,7 +22,8 @@ const MODULE_OPTIONS = [
 
 /**
  * 异常日志页签：搜索、模块与时间筛选、行级列表与堆栈抽屉。
- * 页脚固定保留期说明；列表不含堆栈，堆栈只在详情抽屉出现。
+ * 页脚固定保留期说明；列表不含堆栈（后端同样剥离），堆栈只在详情抽屉出现。
+ * 「全部时间」显式给 30 天窗口，与异常日志保留期及后端缺省兜底一致。
  */
 export function ErrorsPage() {
   const [keyword, setKeyword] = useState("");

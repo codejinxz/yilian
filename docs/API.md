@@ -284,7 +284,7 @@
 | account | `/api/auth/password` | PUT | USER | M1 | planned |
 | account | `/api/auth/guest-upgrade` | POST | USER | M2 | planned |
 | account | `/api/me/settings` | GET/PUT | USER | M1 | planned |
-| admin | `/api/admin/error-logs/{id}` | GET | ADMIN | M2 | planned |
+| admin | `/api/admin/error-logs/{id}` | GET | ADMIN | M2 | implemented |
 | content | `/api/banks` | GET | PUBLIC_OR_USER | M1 | planned |
 | content | `/api/banks/{bankId}` | GET | PUBLIC_OR_USER | M1 | planned |
 | content | `/api/banks/{bankId}/sentences` | GET | PUBLIC_OR_USER | M1/M2 | planned |
@@ -309,8 +309,10 @@
 | admin | `/api/admin/users/{id}/role` | PATCH | ADMIN | M2 | implemented |
 | admin | `/api/admin/overview` | GET | ADMIN | M2 | implemented |
 | admin | `/api/admin/invites` | GET/POST | ADMIN | M2 | implemented |
-| admin | `/api/admin/audit-logs` | GET | ADMIN | M2 | planned |
-| admin | `/api/admin/error-logs` | GET | ADMIN | M2 | planned |
+| admin | `/api/admin/audit-logs` | GET | ADMIN | M2 | implemented |
+| admin | `/api/admin/error-logs` | GET | ADMIN | M2 | implemented |
+| admin | `/api/admin/generation/import` | POST | ADMIN | M2 | implemented |
+| admin | `/api/admin/audit-events` | POST | ADMIN | M2 | implemented |
 | admin | `/api/admin/attempts/{attemptId}/raw` | POST | ADMIN | M2 | planned |
 | admin | `/api/admin/banks` | GET/POST | ADMIN | M1 | implemented |
 | admin | `/api/admin/banks/{bankId}` | GET/PATCH/DELETE | ADMIN | M1 | implemented |
@@ -1344,13 +1346,18 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 
 字段回溯：`users.role`；`admin_audit_log.*`。
 
-### 8.4 `GET /api/admin/audit-logs`（planned，M2）
+### 8.4 `GET /api/admin/audit-logs`（implemented，012）
 
-用途：操作日志检索；只读，不做状态流转。
+用途：操作日志检索；只读，不做状态流转，`admin_audit_log` 原样出（无 `detail` JSON 列，参数与请求体不进检索页）。
 
-请求：`page`、`size`、`from`、`to`、`module`、`action`、`actorId`、`targetType`、`targetId`、`keyword`。
+请求：`page`（1 起，默认 1）、`size`（默认 20，**上限 100，越界归 100**）、`keyword`、`module`、`action`、`actorId`、`from`、`to`。
 
-响应 `PageResponse<AuditLogView>`：
+- `keyword` 对 `action/actorName/targetType/targetId/reason` 拼串 contains（大小写不敏感；SQL LIKE 通配符已转义，检索语义为纯 contains）。
+- `module`/`action` 精确匹配，`actorId` 为数字（非数字 `40000`）。
+- `from`/`to` 为 `YYYY-MM-DD`（`to` 含当日）；**缺省兜底近 30 天**——`admin_audit_log` 是按月分区表，WHERE 恒含 `created_at` 范围。
+- 排序 `created_at` 倒序、同刻按 `id` 倒序保证分页稳定。
+
+响应 `PageResponse<AdminAuditLogView>`：
 
 ```json
 {
@@ -1379,17 +1386,23 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 }
 ```
 
-错误：`40004`、`40100`、`40300`、`50000`。
+> 原 planned 版本列出的 `targetType`/`targetId` 查询参数不实现（检索走 keyword 拼串 contains，与前端 AuditPage 一致）。
+
+错误：`40000`（from/to/actorId 非法）、`40004`（page/size 越界）、`40100`、`40300`、`50000`。
 
 字段回溯：`admin_audit_log.*`。
 
-### 8.5 `GET /api/admin/error-logs`（planned，M2）
+### 8.5 `GET /api/admin/error-logs`（implemented，012）
 
-用途：异常日志检索；显示模块、异常类、traceId、操作者、IP。
+用途：异常日志检索；显示模块、异常类、traceId、操作者、IP。**列表项剥离 `stackTrace`**（堆栈最长 16KB，只进详情）。
 
-请求：`page`、`size`、`from`、`to`、`module`、`keyword`。
+请求：`page`（1 起，默认 1）、`size`（默认 20，**上限 100，越界归 100**）、`keyword`、`module`、`from`、`to`。
 
-响应 `PageResponse<ErrorLogView>`：
+- `keyword` 对 `exceptionClass/message/traceId/operator` 拼串 contains（LIKE 通配符已转义）。
+- `module` 精确匹配；`from`/`to` 为 `YYYY-MM-DD`（`to` 含当日），**缺省兜底近 30 天**（分区表 WHERE 恒含 `created_at` 范围）。
+- 排序 `created_at` 倒序、同刻按 `id` 倒序。
+
+响应 `PageResponse<AdminErrorLogView>`：
 
 ```json
 {
@@ -1416,17 +1429,15 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 }
 ```
 
-规则：`stackTrace` 只在详情端点返回，避免列表过重；默认不返回完整译文/密码/token。
-
-错误：`40004`、`40100`、`40300`、`50000`。
+错误：`40000`（from/to 非法）、`40004`、`40100`、`40300`、`50000`。
 
 字段回溯：`error_log.*`。
 
-### 8.6 `GET /api/admin/error-logs/{id}`（planned，M2）
+### 8.6 `GET /api/admin/error-logs/{id}`（implemented，012）
 
 用途：异常详情；返回堆栈与 traceId，供管理员定位。
 
-请求：`id` 路径参数；错误 `40100`、`40300`、`40400`、`50000`。
+请求：`id` 路径参数；错误 `40100`、`40300`、`40400`（缺失，与 mock/前端消费一致）、`50000`。
 
 响应 `data`：
 
@@ -1447,7 +1458,7 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 }
 ```
 
-规则：`stackTrace` 只在此详情返回；仍不得包含密码/token/完整译文；列表不返回堆栈。
+规则：`stackTrace` 只在此详情返回；入库前已做敏感字段遮盖与长度截断；仍不得包含密码/token/完整译文。
 
 字段回溯：`error_log.*`。
 
@@ -1538,6 +1549,77 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 写操作审计：action=`INVITE_CREATE`（targetType=invite，targetId=前缀，明文不落日志）。前端邀请码列表展示 `codePrefix`（`lib/schemas/admin.ts` `InviteSummary`）。
 
 错误：`40100`、`40300`、`50000`。
+
+### 8.11 `POST /api/admin/generation/import`（implemented，012）
+
+用途：出题页签把 AI 生成、前端校验通过的句子整批入库；复用 content 导入接缝（`ContentImportService.importSentences`），**指纹去重语义与文件导入完全一致**（批内/库内指纹重复整批 `40904` 回滚），目标题库修订号按「每题递增」推进。
+
+请求：
+
+```json
+{
+  "bankId": "5",
+  "items": [
+    { "zh": "他越来越胖。", "ref": "He is getting fatter and fatter.", "note": "主语 + 系表结构；现在进行时描述变化趋势。",
+      "level": "CET-4", "tags": ["搭配"],
+      "chunks": [{ "zh": "他", "answers": ["He"] }, { "zh": "越来越胖", "answers": ["is getting fatter and fatter"] }],
+      "blank": [1] }
+  ],
+  "reason": "AI 生成导入"
+}
+```
+
+- `items` 1–500 行，任一行校验失败整批 `40000`（fail-fast，错误带行号）；校验口径与文件导入校验器一致（zh 4–60 字、ref 8–300、note 20–300、chunks 非空且每块至少一个非空答案、blank 下标必须命中语块、tags 1–5），拼接比对按「小写+仅保留字母数字」宽松归一（与出题 Prompt 的「去掉标点后等于 ref」口径一致，即前端 `gen.ts` normLoose）。
+- `chunk.index` 可省略，服务端按数组位置补齐；`externalKey` 服务端按 `gen_` + 行号生成。
+- 题库不存在或不可导入（已回收/停用）回 `40401`；`bankId` 非数字 `40000`。
+- **不创建 upload 批次记录**：批次 id 是随机 UUID，只写入 `sentence_versions.import_batch_id` 供溯源；响应的批次视图仅供前端展示（`originalFilename` 固定「AI 生成.json」），不能走批次回滚——撤销已导入句子走题目状态流转（回收站）。「最近导入」列表（§5.7）只含文件导入批次。
+
+响应 `data`（`ImportBatchView`，与 §5.5 同形状）：
+
+```json
+{
+  "batchId": "9f0b-…",
+  "bankId": "5",
+  "status": "COMMITTED",
+  "format": "JSON",
+  "originalFilename": "AI 生成.json",
+  "totalRows": 1,
+  "validRows": 1,
+  "invalidRows": 0,
+  "importedRows": 1,
+  "createdAt": "2026-11-02T12:00:00Z",
+  "previewedAt": "2026-11-02T12:00:00Z",
+  "committedAt": "2026-11-02T12:00:00Z",
+  "errorSummary": null
+}
+```
+
+写操作审计：action=`GENERATION_IMPORT`（targetType=import-batch，targetId=合成批次 id，reason 缺省「AI 生成导入」）。
+
+错误：`40000`（items 空/超 500/行校验/bankId 非数字）、`40001`、`40100`、`40300`、`40401`、`40904`（指纹重复）、`50000`。
+
+字段回溯：`sentences.*`、`sentence_versions.*`、`sentence_banks.version`；批次视图字段为派生（无 upload 批次行）。
+
+### 8.12 `POST /api/admin/audit-events`（implemented，012）
+
+用途：演示动作的通用审计入口——重置密码、导出数据、模型配置、运维吊销等尚无专属写端点的动作，用它在操作日志留下可见、有理由的记录。
+
+请求：
+
+```json
+{ "action": "RESET_PASSWORD", "targetType": "USER", "targetId": "7", "reason": "用户忘记密码" }
+```
+
+- `action` 必填且必须在白名单内（防任意串污染只增不改的审计表）：`RESET_PASSWORD`、`EXPORT_USER_DATA`、`SESSION_REVOKE`、`MODEL_CONFIG_UPDATE`、`MODEL_TOGGLE`、`PROMPT_UPDATE`（覆盖前端 `appendAuditEvent` 的全部调用点）；越界或缺失回 `40000`。未来动作上线专属端点后从白名单移除。
+- `targetType`/`targetId`/`reason` 可空（`RESET_PASSWORD`/`EXPORT_USER_DATA` 前端不传 targetType）。
+- 写入行：module=`admin`、outcome=`SUCCESS`、actor=当前管理员，traceId/clientIp/request_* 与 `@OperationLog` 切面同源；`created_at` 由数据库默认值生成。
+- 本端点刻意不标 `@OperationLog`：它的产出就是一条审计行（action 随请求体动态变化），再标一次会产生重复行。
+
+响应 `data`：`{ "id": "901" }`（id 字符串化，与前端 `z.string()` 解析契约一致）。
+
+错误：`40000`（action 缺失/越界）、`40001`、`40100`、`40300`、`50000`。
+
+字段回溯：`admin_audit_log.*`。
 
 ## 9. 字段回溯对照
 
@@ -1676,6 +1758,7 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 | Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 | `ImportBatchControllerTest`（切片：匿名 401/非管理员 403、multipart 绑定与缺参 40000、缺请求体 40001、40405/40904、PageResponse 信封） |
 | Admin | `GET /api/admin/overview`、`GET /api/admin/users`、`PATCH /api/admin/users/{id}/status`、`PATCH /api/admin/users/{id}/role`、`POST /api/admin/invites`、`GET /api/admin/invites`（011-a） | 概览聚合（活跃=attempts 当日去重用户，UTC 日界）、用户检索分页、启停/改角色（审计经 `OperationLogContext`）、邀请码生成（明文一次性）/前缀列表 | `AdminOverviewControllerTest`、`AdminUserControllerTest`、`AdminInviteControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse 形状、reason 越界 40000、40001、审计上下文断言）；service 分支另由 `UserAccountServiceImplTest`（自己停自己/自己降自己/邀请码哈希落库）、`AdminOverviewServiceImplTest`（补 0 与活动组装）覆盖 |
 | Admin | `GET/POST /api/admin/banks`、`GET/PATCH/DELETE /api/admin/banks/{bankId}`、`GET /api/admin/banks/{bankId}/sentences`、`GET /api/admin/sentences`、`POST /api/admin/sentences/bulk-status`、`POST /api/admin/sentences/bulk-move`、`PATCH /api/admin/sentences/{sentenceId}/status`、`PATCH /api/admin/sentences/{sentenceId}`（011-b） | 题库检索/新建/详情/部分更新/软删（状态流转 RECYCLED，恢复清 `deleted_at`）、题库内与跨题库题目检索（跨题库缺省隐藏回收站）、批量状态/移动（单事务；不存在的 id 与无变化 id 跳过、计数如实返回；每题递增银行修订号；移动预检指纹冲突 40000）、单题状态流转（幂等不推进）、行内编辑（zh/level/tags/note 走新版本行并回填指纹/content_hash，bankId/status 走元字段；编辑先于移动，预检用新指纹） | `AdminBankControllerTest`、`AdminSentenceControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse/SentenceView 形状、reason/ids/zh 校验 40000、缺体 40001、40401/40402、审计上下文断言）；批量与列表/编辑语义另由 `ContentAdminServiceImplTest`（每题递增版本、悲观锁按题库 id 升序、跳过语义、恢复清软删、版本字段新版本行、非法枚举 40000/分页 40004）覆盖 |
+| Admin | `GET /api/admin/audit-logs`、`GET /api/admin/error-logs`、`GET /api/admin/error-logs/{id}`、`POST /api/admin/generation/import`、`POST /api/admin/audit-events`（012） | 操作日志/异常日志检索（分区表强制时间兜底：from/to 缺省近 30 天；size 上限 100 越界归 100；keyword LIKE 转义纯 contains；异常列表剥离 stackTrace、详情含堆栈缺失 40400）、出题导入（复用 content 导入接缝，指纹去重 40904 整批回滚，行校验与文件导入同口径、拼接比对按前端 normLoose 宽松归一，不建 upload 批次）、审计事件（动作白名单防污染，返回字符串 id） | `AdminAuditLogControllerTest`、`AdminErrorLogControllerTest`、`AdminGenerationControllerTest`、`AdminAuditEventControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse/批次视图形状、stackTrace 剥离与详情、审计上下文/字符串 id 断言）；服务层分支另由 `AdminLogServiceImplTest`（时间兜底/转义/size 归一/40000/40400）、`AdminGenerationServiceImplTest`（行校验 fail-fast/接缝透传/40904 上抛）、`AdminAuditEventServiceImplTest`（白名单/行形状）覆盖；题库「空串清空说明」契约由 `ContentAdminServiceImplTest` 补测（012 AC-5） |
 | 运维 | `/actuator/health` | 非业务 | `AuthFlowIntegrationTest`（healthIsPublicAndUp） |
 
 ### 10.2 过渡实现（不纳入冻结契约）
@@ -1688,14 +1771,14 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 
 | 组 | 覆盖端点 |
 |---|---|
-| Admin（§8） | 审计与异常检索、导入管理演示、`attempts/{id}/raw`、模型/出题/运维演示（011-a 后概览/用户管理/邀请码、011-b 后题库管理与题目列表/批量/单题状态/行内编辑为真实接口，mock 仅保留演示语义：邀请码列表/生成同形回前缀） |
+| Admin（§8） | `attempts/{id}/raw`、模型/运维演示页签与出题页「用当前模型生成」演示样本（011-a 后概览/用户管理/邀请码、011-b 后题库管理与题目列表/批量/单题状态/行内编辑、012 后审计/异常检索与出题导入/audit-events 为真实接口；mock 的审计行已随真实契约去掉 targetLabel，出题导入 audit-events 动作走服务端白名单） |
 
 说明：练习数据链路在真实模式下按登录态分流——**游客**由前端本地引擎承担（IndexedDB，RESEARCH 2026-10-24 增补），`lib/api.ts` 的 `LOCAL_ROUTE_GROUPS`（`mode:"guest"`）只对未登录访客本地应答、游客全链路零网络写请求；**登录用户**的 practice/analytics 请求直达服务端（波次四切换，冷启动竞态由 auth-state 探针 + Query 失效兜底）。mock 模式（`VITE_USE_MOCK=true`）仍优先于一切。
 
 ### 10.4 未开发（契约在案）
 
 - §6.1 `sentenceId`/`errors`/`excludeIds`/`tag` 四个查询参数的服务端实现（M2.1，D7）。
-- Admin 检索与写接口（§8 审计/异常检索、模型配置；用户管理与概览/邀请码已随 011-a 落地，题库管理与题目检索/批量/单题状态/行内编辑已随 011-b 落地）。
+- Admin 剩余写接口（§8.7 `attempts/{id}/raw` 查看原文、§8 模型配置；审计/异常检索与出题导入/audit-events 已随 012 落地，用户管理与概览/邀请码已随 011-a 落地，题库管理与题目检索/批量/单题状态/行内编辑已随 011-b 落地）。模型/运维页签保留演示态（012 观察项，随模型域切片真实化）。
 - 深度批改（M3）、FSRS 排程真值（V2 字段已预留，M2.1 换函数体）、申诉 LLM 裁决（M3）。
 
 ### 10.5 待收口
@@ -1718,6 +1801,7 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 | 2026-11-01 | v0.5 | 011-b 修复轮：§8.8 补 `PATCH /api/admin/sentences/{sentenceId}/status`（reason 必填、幂等不推进、40402）与 `PATCH /api/admin/sentences/{sentenceId}`（行内编辑：zh/level/tags/note 走新版本行+指纹回填，bankId/status 走元字段）实现语义；§3 矩阵、§10.1/10.3/10.4 同步 | 实现工程师 |
 | 2026-10-31 | v0.3.1 | DoD 接口级测试补全：§10.1 新增「接口级测试」列（`AnalyticsControllerTest`、`ImportBatchControllerTest`、`MeControllerTest` 新建；`PracticeControllerTest` 补 next/getAttempt/reviews/reset/overload/postpone；`AuthFlowIntegrationTest` 补 register/password 真实 HTTP），矩阵与测试一一对应 | 测试工程师 |
 | 2026-11-01 | v0.3.2 | 011-a 管理端用户域落地：§8.1–8.3 改 implemented（§8.2 审计 action 修正为 USER_STATUS_CHANGE、refresh 会话语义对齐实现），新增 §8.9 概览与 §8.10 邀请码（GET 列表改回 codePrefix，明文仅 POST 一次性返回）；§10.1 矩阵补 Admin 行（AdminOverview/User/Invite ControllerTest + UserAccountServiceImplTest/AdminOverviewServiceImplTest） | 实现工程师 |
+| 2026-11-02 | v0.6 | 012 管理端收尾波次：§8.4–8.6 改 implemented（检索语义落地：分区表 from/to 缺省兜底近 30 天、size 越界归 100、keyword LIKE 转义、异常列表剥离 stackTrace、详情缺失 40400、原 planned 的 targetType/targetId 查询参数不实现）；新增 §8.11 出题导入（复用 content 导入接缝、指纹去重 40904、不建 upload 批次、审计 GENERATION_IMPORT）与 §8.12 audit-events（动作白名单、返回字符串 id）；§3 矩阵、§10.1/10.3/10.4 同步；题库「空串清空说明」契约随 AC-5 真实生效（§8.8 既有描述落地，前端不再把空说明归一为 null） | 实现工程师 |
 
 ---
 

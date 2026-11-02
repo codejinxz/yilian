@@ -42,7 +42,7 @@ function levelChipClassName(): string {
   return "rounded-sm border border-rule bg-transparent px-[7px] py-[3px] font-mono text-[10px] text-ink-muted transition-colors hover:border-vermilion hover:text-vermilion";
 }
 
-/** 新建/编辑题库的表单载荷；说明为空串时归一为 null（与 bankCreateRequestSchema/后端一致）。 */
+/** 新建/编辑题库的表单载荷；说明空串原样透传——后端契约 null=不改、空串=清空（012 AC-5）。 */
 interface BankFormInput {
   name: string;
   description: string | null;
@@ -358,7 +358,8 @@ export function BanksPage() {
 
 /**
  * 新建/编辑题库的表单；编辑态由 initial 预填（key 换行重置内部状态）。
- * 校验与 mock/后端一致：名称必填 1–128、说明可空 ≤500（空串归一为 null）。
+ * 校验与 mock/后端一致：名称必填 1–128、说明可空 ≤500。说明不再把空串归一为 null——
+ * PATCH 语义是「null=不改、空串=清空」，归一会让清空说明的操作静默失效（011 熔断遗留）。
  */
 function BankForm({
   submitLabel,
@@ -424,7 +425,8 @@ function BankForm({
           onClick={() =>
             onSubmit({
               name: name.trim(),
-              description: description.trim() === "" ? null : description.trim(),
+              // 空串透传（= 清空说明），不能归一成 null（= 不改）：否则「清空说明」静默失效。
+              description: description.trim(),
               visibility,
             })
           }

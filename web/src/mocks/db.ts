@@ -756,11 +756,9 @@ export function seedInvites(): MockInvite[] {
 }
 
 function seedAuditLogs(): AuditLog[] {
-  // 每行末位是 targetLabel（对象的人类可读名）；TODO(mock): 演示数据，真实接口落地后删除。
-  const items: Array<
-    [string, string, string | null, string | null, string | null, string, string | null]
-  > = [
-    ["admin", "USER_DISABLE", "USER", "3", "用户申请暂停账号", "2 天前", "quietuser"],
+  // 012：真实接口按 admin_audit_log 原样返回（无 targetLabel 列），mock 同形，前端展示 targetType。
+  const items: Array<[string, string, string | null, string | null, string | null, string]> = [
+    ["admin", "USER_DISABLE", "USER", "3", "用户申请暂停账号", "2 天前"],
     [
       "content",
       "IMPORT_COMMIT",
@@ -768,10 +766,9 @@ function seedAuditLogs(): AuditLog[] {
       "8f14e45f-ceea-467f-9f0b-1a2b3c4d5e6f",
       "首次导入",
       "3 天前",
-      "官方题库 · TEM8 翻译",
     ],
-    ["admin", "ROLE_CHANGE", "USER", "4", "团队调整", "4 天前", "translator"],
-    ["content", "BANK_CREATE", "BANK", "2", "创建私有题库", "5 天前", "写作常用句"],
+    ["admin", "ROLE_CHANGE", "USER", "4", "团队调整", "4 天前"],
+    ["content", "BANK_CREATE", "BANK", "2", "创建私有题库", "5 天前"],
     [
       "admin",
       "VIEW_ATTEMPT_RAW",
@@ -779,20 +776,11 @@ function seedAuditLogs(): AuditLog[] {
       "3f0e8400-e29b-41d4-a716-446655440002",
       "评分申诉",
       "6 天前",
-      "learner · 会议被推迟到下周三。",
     ],
-    ["account", "LOGIN", "USER", "2", null, "今天", "learner"],
-    [
-      "content",
-      "SENTENCE_DISABLE",
-      "SENTENCE",
-      "01J9Z6K2M8Q4R7T1V3W5X7Y9A7",
-      "内容有误",
-      "8 天前",
-      "越来越多的人开始关注环境保护。",
-    ],
-    ["admin", "USER_ENABLE", "USER", "3", "用户恢复使用", "9 天前", "quietuser"],
-    ["account", "PASSWORD_CHANGE", "USER", "2", null, "10 天前", "learner"],
+    ["account", "LOGIN", "USER", "2", null, "今天"],
+    ["content", "SENTENCE_DISABLE", "SENTENCE", "01J9Z6K2M8Q4R7T1V3W5X7Y9A7", "内容有误", "8 天前"],
+    ["admin", "USER_ENABLE", "USER", "3", "用户恢复使用", "9 天前"],
+    ["account", "PASSWORD_CHANGE", "USER", "2", null, "10 天前"],
     [
       "content",
       "IMPORT_ROLLBACK",
@@ -800,10 +788,9 @@ function seedAuditLogs(): AuditLog[] {
       "6f14e45f-ceea-467f-9f0b-1a2b3c4d5e6f",
       "内容有误",
       "12 天前",
-      "官方题库 · TEM8 翻译",
     ],
   ];
-  return items.map(([module, action, targetType, targetId, reason, when, targetLabel], index) => ({
+  return items.map(([module, action, targetType, targetId, reason, when], index) => ({
     id: String(900 + index),
     module,
     actorId: "1",
@@ -813,7 +800,6 @@ function seedAuditLogs(): AuditLog[] {
     action,
     targetType,
     targetId,
-    targetLabel, // TODO(mock): 演示数据，真实接口落地后删除
     reason,
     outcome: "SUCCESS",
     durationMs: 8 + index * 3,

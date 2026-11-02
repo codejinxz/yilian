@@ -358,4 +358,59 @@ describe("admin shell", () => {
     await waitFor(() => expect(screen.queryByLabelText("题库名称")).not.toBeInTheDocument());
     expect(router.state.location.pathname).toBe("/admin");
   });
+
+  it("AC-5: 题库编辑弹窗清空说明保存时 PATCH body 收到空串而非 null（空串=清空，null=不改）", async () => {
+    markPlaced();
+    const patchBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/auth/me")) {
+          return jsonResponse(successEnvelope(ADMIN));
+        }
+        if (url.endsWith("/api/me/settings")) {
+          return jsonResponse(successEnvelope(SETTINGS));
+        }
+        if (url.endsWith("/api/practice/today")) {
+          return jsonResponse(successEnvelope(TODAY));
+        }
+        if (/\/api\/admin\/banks\/\d+\/sentences/.test(url)) {
+          return jsonResponse(successEnvelope(BANK_SENTENCES_PAGE));
+        }
+        if (/\/api\/admin\/banks\/\d+$/.test(url)) {
+          expect(init?.method).toBe("PATCH");
+          patchBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+          return jsonResponse(successEnvelope({ ...BANKS_PAGE.items[0], description: null }));
+        }
+        if (url.includes("/api/admin/banks")) {
+          return jsonResponse(successEnvelope(BANKS_PAGE));
+        }
+        throw new Error(`unexpected request: ${url}`);
+      }),
+    );
+
+    renderApp("/admin?tab=banks");
+
+    // 等题库列表渲染出来（异步拉取完成），再打开抽屉与编辑弹窗。
+    expect(await screen.findByText("编辑目标库")).toBeInTheDocument();
+    // 打开编辑弹窗：说明预填为 null（输入框显示空），输入一段说明再整体清空。
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: "管理" })[0]);
+    const drawer = await screen.findByRole("dialog");
+    await user.click(within(drawer).getByRole("button", { name: "编辑" }));
+    const descriptionInput = await screen.findByLabelText("题库说明");
+    await user.type(descriptionInput, "临时说明");
+    await user.clear(descriptionInput);
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    // 011 熔断遗留修复：清空说明必须把空串发给后端（null 会被理解为「不修改」）。
+    await waitFor(() => expect(patchBodies).toHaveLength(1));
+    expect(patchBodies[0]).toEqual({
+      name: "编辑目标库",
+      description: "",
+      visibility: "PRIVATE",
+    });
+    await waitFor(() => expect(screen.queryByLabelText("题库名称")).not.toBeInTheDocument());
+  });
 });

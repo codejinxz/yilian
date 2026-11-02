@@ -156,8 +156,12 @@ public class ContentAdminServiceImpl implements ContentAdminService {
             String status) {
         SentenceBank bank = requireBank(bankId);
         String normalizedName = name == null ? null : requireName(name);
+        // 契约：null=不改、空串=清空（§8.8）。normalizeDescription 会把空白归一成 null（与「不改」
+        // 同形），清空要在归一前截获，以空串穿透到实体层显式置 null。
         String normalizedDescription =
-                description == null ? null : normalizeDescription(description);
+                description == null
+                        ? null
+                        : (description.isBlank() ? "" : normalizeDescription(description));
         BankVisibility visibilityValue = parseVisibility(visibility);
         ContentStatus statusValue = parseContentStatus(status, "status 不受支持");
         bank.update(normalizedName, normalizedDescription, visibilityValue, actorId);

@@ -555,8 +555,9 @@ export async function deleteAdminUser(userId: string, reason: string): Promise<A
 }
 
 /**
- * 演示动作的通用审计入口（mock 专用）：重置密码、导出数据、模型配置、运维吊销等
- * 目前没有服务端写端点的动作，用它在 mock 模式留下可见、有理由的审计记录。
+ * 演示动作的通用审计入口：重置密码、导出数据、模型配置、运维吊销等
+ * 目前没有专属服务端写端点的动作，用它在操作日志留下可见、有理由的审计记录。
+ * 服务端校验动作白名单（012），未知动作回 40000。
  * @param input 动作、对象与原因
  * @returns 新审计条目 id
  */
@@ -571,7 +572,9 @@ export async function appendAuditEvent(input: {
 }
 
 /**
- * 导入 AI 生成的句子（出题页校验通过后调用）；生成一条 COMMITTED 批次，可回滚。
+ * 导入 AI 生成的句子（出题页校验通过后调用）；整批入库（指纹重复整批拒绝），
+ * 响应为 COMMITTED 批次视图。批次 id 仅用于溯源（upload 侧无批次记录），
+ * 撤销走题目状态流转而不是批次回滚。
  * @param input 目标题库、校验通过的句子与可选原因
  * @returns 批次视图
  */

@@ -16,7 +16,7 @@ import { AdminSearch, AdminSelect, EmptyRow, Row, RowList, RowText } from "./ui"
 
 /**
  * 操作日志页签：搜索、操作筛选、时间筛选与分页。
- * 页脚固定保留期说明；数据走 mock audit-logs，管理端的每个写操作都会追加到这里。
+ * 页脚固定保留期说明；数据走真实 audit-logs 检索（012），管理端每个写操作的审计都会出现在这里。
  */
 export function AuditPage() {
   const [keyword, setKeyword] = useState("");
@@ -28,7 +28,8 @@ export function AuditPage() {
   const logsQuery = useQuery({
     queryKey: queryKeys.admin.auditLogs({ page, size, keyword, action, range }),
     queryFn: ({ signal }) => {
-      const rangeParams = timeRangeParams(range);
+      // 操作日志保留 1 年：「全部时间」显式给窗口，避免后端缺省兜底近 30 天导致名不副实。
+      const rangeParams = timeRangeParams(range, 365);
       return getAuditLogs(
         {
           page,
@@ -96,10 +97,10 @@ export function AuditPage() {
             ) : (
               logsQuery.data.items.map((log) => (
                 <Row key={log.id}>
-                  {/* 裸 targetId（UUID）不可读：优先展示 targetLabel，缺失时退回对象类型，绝不显示裸 id。 */}
+                  {/* 真实审计行只有对象类型（targetType），不展示裸 targetId（UUID 不可读）。 */}
                   <RowText
                     main={actionLabel(log.action)}
-                    meta={`${log.actorName} · ${log.clientIp ?? "—"} · ${log.targetLabel ?? log.targetType ?? "—"}${log.reason ? ` · ${log.reason}` : ""}`}
+                    meta={`${log.actorName} · ${log.clientIp ?? "—"} · ${log.targetType ?? "—"}${log.reason ? ` · ${log.reason}` : ""}`}
                   />
                   <span className="whitespace-nowrap text-right font-mono text-[11px] text-ink-muted">
                     {relativeTimeLabel(log.createdAt)}

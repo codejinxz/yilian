@@ -234,6 +234,26 @@ class ContentAdminServiceImplTest {
         assertThat(view.status()).isEqualTo("PUBLISHED");
     }
 
+    /** [012 AC-5] 说明契约：null=不改、空串=清空——空串显式置 null 落库，null 保持原说明。 */
+    @Test
+    void adminUpdateBankClearsDescriptionWithEmptyStringOnly() {
+        SentenceBank bank = bank(5L, ContentStatus.DRAFT, 3);
+        when(bankDao.findById(5L)).thenReturn(Optional.of(bank));
+        when(bankDao.save(any(SentenceBank.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        // 空串 = 清空：实体说明置 null，视图回 null。
+        service.adminUpdateBank(9L, 5L, null, "", null, null);
+        assertThat(bank.getDescription()).isNull();
+
+        // null = 不改：清空后再传 null，说明保持 null（不会复活），再设值后 null 不覆盖。
+        service.adminUpdateBank(9L, 5L, null, "恢复说明", null, null);
+        assertThat(bank.getDescription()).isEqualTo("恢复说明");
+        service.adminUpdateBank(9L, 5L, "改名", null, null, null);
+        assertThat(bank.getDescription()).isEqualTo("恢复说明");
+        assertThat(bank.getName()).isEqualTo("改名");
+    }
+
     /** 更新/删除：题库不存在回 40401。 */
     @Test
     void adminUpdateAndDeleteRejectMissingBankWith40401() {
