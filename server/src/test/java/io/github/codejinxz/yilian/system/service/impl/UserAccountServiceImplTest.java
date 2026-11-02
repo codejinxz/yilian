@@ -15,6 +15,7 @@ import io.github.codejinxz.yilian.system.dao.AppUserDao;
 import io.github.codejinxz.yilian.system.dao.InviteCodeDao;
 import io.github.codejinxz.yilian.system.entity.AppUser;
 import io.github.codejinxz.yilian.system.entity.InviteCode;
+import io.github.codejinxz.yilian.system.entity.UserRole;
 import io.github.codejinxz.yilian.system.service.vo.InviteCodeAdminView;
 
 import org.junit.jupiter.api.Test;
@@ -155,6 +156,76 @@ class UserAccountServiceImplTest {
 
         assertThat(views.get(0).used()).isTrue();
         assertThat(views.get(0).usedBy()).isNull();
+    }
+
+    /** [AC-5] 降级最后一个管理员被拒：行锁计数为 1 时返回 40900 且不落库。 */
+    @Test
+    void adminSetRoleRejectsDemotingLastAdmin_ac5() {
+        when(appUserDao.findById(3L)).thenReturn(Optional.of(adminUser(3L, "deputy")));
+        when(appUserDao.countActiveAdminsForUpdate()).thenReturn(1L);
+
+        assertThatThrownBy(() -> service.adminSetRole(1L, 3L, "USER", "降级"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不能降级最后一个管理员")
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.IDEMPOTENT_CONFLICT);
+
+        verify(appUserDao, never()).save(any());
+    }
+
+    /** [AC-5] 存在多个管理员时降级放行：锁计数 ≥2，正常保存 USER 角色。 */
+    @Test
+    void adminSetRoleAllowsDemotingWhenOtherAdminsRemain_ac5() {
+        when(appUserDao.findById(3L)).thenReturn(Optional.of(adminUser(3L, "deputy")));
+        when(appUserDao.countActiveAdminsForUpdate()).thenReturn(2L);
+        when(appUserDao.save(any(AppUser.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.adminSetRole(1L, 3L, "USER", "降级");
+
+        ArgumentCaptor<AppUser> captor = ArgumentCaptor.forClass(AppUser.class);
+        verify(appUserDao).save(captor.capture());
+        assertThat(captor.getValue().getRole()).isEqualTo(UserRole.USER);
+    }
+
+    /** [AC-5] 停用最后一个管理员同样走行锁计数并拒绝（同一竞态的另一半）。 */
+    @Test
+    void adminSetStatusRejectsDisablingLastAdmin_ac5() {
+        when(appUserDao.findById(3L)).thenReturn(Optional.of(adminUser(3L, "deputy")));
+        when(appUserDao.countActiveAdminsForUpdate()).thenReturn(1L);
+
+        assertThatThrownBy(() -> service.adminSetStatus(1L, 3L, false, "违规"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不能停用最后一个管理员")
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.IDEMPOTENT_CONFLICT);
+
+        verify(appUserDao, never()).save(any());
+    }
+
+    /** [AC-5] 升级/平调不触发行锁计数：USER→ADMIN 不发起 FOR UPDATE。 */
+    @Test
+    void adminSetRolePromotionSkipsAdminCountLock_ac5() {
+        when(appUserDao.findById(3L)).thenReturn(Optional.of(user(3L, "learner")));
+        when(appUserDao.save(any(AppUser.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.adminSetRole(1L, 3L, "ADMIN", "接手运营");
+
+        verify(appUserDao, never()).countActiveAdminsForUpdate();
+    }
+
+    /**
+     * 构造带 id 的管理员账号实体。
+     *
+     * @param id 账号 id
+     * @param username 登录名
+     * @return 管理员实体
+     */
+    private static AppUser adminUser(long id, String username) {
+        AppUser user = user(id, username);
+        user.changeRole(UserRole.ADMIN);
+        return user;
     }
 
     /**

@@ -3,12 +3,16 @@ package io.github.codejinxz.yilian.system.dao.jpa;
 import io.github.codejinxz.yilian.system.entity.AppUser;
 import io.github.codejinxz.yilian.system.entity.UserRole;
 
+import jakarta.persistence.LockModeType;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 /** 账号 Spring Data 仓库，只允许同包 JpaAppUserDao 使用。 */
@@ -56,12 +60,23 @@ public interface AppUserJpaRepository extends JpaRepository<AppUser, Long> {
     boolean existsByEmail(String email);
 
     /**
-     * 统计未删除的启用管理员数量，用于「不能停用/降级最后一个管理员」。
+     * 锁定全部「启用且未删除」的管理员行（FOR UPDATE），用于「最后一个管理员」判定（013 AC-5）。
      *
-     * @param role 角色
-     * @return 数量
+     * <p>count 聚合无法直接 FOR UPDATE，改为锁定行集合后在 Java 侧计数： 并发降级在锁上串行化，后到者读到提交后的最新状态。ORDER BY id 保证锁定顺序唯一，
+     * 两个并发事务不会交叉加锁而死锁。
+     *
+     * @return 被锁定的管理员 id（升序），数量即启用管理员数
      */
-    long countByRoleAndEnabledTrueAndDeletedAtIsNull(UserRole role);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query(
+            """
+            select u.id from AppUser u
+            where u.role = :role
+              and u.enabled = true
+              and u.deletedAt is null
+            order by u.id
+            """)
+    List<Long> lockActiveAdminIds(@Param("role") UserRole role);
 
     /**
      * 管理端用户检索。

@@ -2,6 +2,13 @@
 
 ## 当前状态
 
+- **防护缺口批次完成（2026-11-03，计划 [docs/plans/013-protection-gaps.md](plans/013-protection-gaps.md)，analysis-protection-gaps Top10 之 #4/#5/#6/#8/#9）**：
+  - **幂等清理（#8）**：`PartitionMaintenanceJob` 并入 `@Scheduled(fixedDelay=30min)` 清理任务，`DELETE ... WHERE expires_at <= now LIMIT 500` 分批循环（单轮 ≤200 批、失败仅记日志），过期口径与惰性清理的含边界判定一致；`JdbcIdempotencyService` 链路不变。
+  - **缓存接线（#5）+ 三防护（#6）**：`CacheConfig` 改显式缓存名清单（`content:bank:detail:v1` / `content:bank:list:v1`，版本段进缓存名，禁动态建缓存）；落点为匿名公开读 `GET /api/banks` 列表与详情（登录/管理端不缓存，理由见 `BankMetadataCache` 类注释）；击穿=`@Cacheable(sync=true)`、穿透=`Absent` 负缓存条目（60s 短 TTL）、雪崩=`JitteredTtlExpiry` ±10% TTL 抖动（基准 10min）；写后删缓存经 `BankMetadataCache.evictWrittenBanks` 事务提交后执行（详情逐键、列表整体清），失效路径覆盖题库 CRUD/删除/批量状态/批量移动/单题状态/行内编辑/导入/导入回收。
+  - **安全响应头（#9）**：`SecurityConfig` 增加 nosniff、`X-Frame-Options: DENY`、`Referrer-Policy: strict-origin-when-cross-origin`、HSTS（仅 HTTPS 请求写入，max-age 1 年含子域）、CSP（prod 从紧：自托管 + Google Fonts 两域 `fonts.googleapis.com`/`fonts.gstatic.com`；local 放宽内联脚本供 swagger-ui；来源盘点记录于 `SecurityConfig` 常量注释）。
+  - **最后管理员锁（#4）**：`AppUserJpaRepository.lockActiveAdminIds` 以 `@Lock(PESSIMISTIC_WRITE)` 锁定启用管理员行（ORDER BY id 防死锁）后计数，`adminSetRole`/`adminSetStatus` 两处接入；新增真实 MySQL 两线程并发互降回归测试（仅一人成功、败者 40900）。
+  - 质量门禁：`mvnw test` 525 run / 0 Failures / 0 Errors（基线 490，+35）；`fmt:check` 0 不合规。前端无改动；无新增端点，API.md §10.1 不动。
+
 - **波次一完成（2026-10-29）**：V1–V8 迁移链已由 commit `857e644` 从构建产物恢复（下文 2026-10-28「迁移全部缺失」的更正已过时，以本条为准）。`AuthFlowIntegrationTest` 恢复 7/7 全绿——根因链：`ImportBatch` 实体仍映射已 DROP 的旧 `import_batch` 表（叠加 `sentence_versions.schema_version` 实体 `int` 与 DDL/契约 `SMALLINT` 错配，两者都是被首个 validate 错误掩盖的存量问题）。已按 preview→commit 契约重写 `ImportBatch`/`ImportBatchRow` 实体与状态机（切片 T3 实体部分提前），删除旧 upload→PROCESSING→resume 过渡机制（旧端点/service/recovery/async/DTO 及其测试）；全量 `mvnw test` 245 run / 0 Failures / 0 Errors。覆盖率工具接入：后端 JaCoCo（`mvn test` 产出 `target/site/jacoco/`）、前端 @vitest/coverage-v8（`pnpm test:coverage`，既有 50/50 不变）。CI 的 `-Dtest=!AuthFlowIntegrationTest` 排除按计划随波次四移除；preview→commit 新端点与前端导入改造为波次二（T4/T6），banks P1×2 为 T5。
 
 截至 2026-10-24 实测收口：

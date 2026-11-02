@@ -229,7 +229,8 @@ public class UserAccountServiceImpl implements UserAccountService {
             if (StringUtils.isBlank(reason)) {
                 throw new BusinessException(ApiCode.VALIDATION_FAILED, "停用必须填写原因");
             }
-            if (target.getRole() == UserRole.ADMIN && appUserDao.countActiveAdmins() <= 1) {
+            if (target.getRole() == UserRole.ADMIN
+                    && appUserDao.countActiveAdminsForUpdate() <= 1) {
                 throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "不能停用最后一个管理员");
             }
             target.disable(reason.trim(), Instant.now());
@@ -253,9 +254,14 @@ public class UserAccountServiceImpl implements UserAccountService {
         if (targetId == actorId) {
             throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "不能变更自己的角色");
         }
+        // 最后管理员行锁（013 AC-5）：降级前在事务内锁定全部现存管理员行（FOR UPDATE）再计数，
+        // 把「读-判-写」串行化——两个并发降级必然一先一后，后到者在锁上读到提交后的最新计数，
+        // count<=1 时拒绝，任何时刻都不可能出现 0 管理员状态。选型说明：count 聚合无法直接
+        // FOR UPDATE，JPA 侧改为 @Lock(PESSIMISTIC_WRITE) 锁定管理员行集合后按行数计数；
+        // ORDER BY id 保证锁定顺序唯一，并发事务不会交叉加锁而死锁。
         if (target.getRole() == UserRole.ADMIN
                 && nextRole != UserRole.ADMIN
-                && appUserDao.countActiveAdmins() <= 1) {
+                && appUserDao.countActiveAdminsForUpdate() <= 1) {
             throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "不能降级最后一个管理员");
         }
         target.changeRole(nextRole);

@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -19,9 +20,10 @@ import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 
 /**
- * HTTP 安全边界：无状态 JWT 认证、SPA 可读的 CSRF cookie、按路径划分的公开与鉴权规则。
+ * HTTP 安全边界：无状态 JWT 认证、SPA 可读的 CSRF cookie、按路径划分的公开与鉴权规则、 安全响应头。
  *
  * <p>access token 只从 {@code Authorization: Bearer} 读取，因此不启用表单登录、HTTP Basic、 请求缓存与默认登出端点；未认证/越权由两个
  * handler 输出统一的 {@link io.github.codejinxz.yilian.common.api.ApiResponse} 信封。 刷新会话虽然存放在 Spring
@@ -30,6 +32,30 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+
+    /**
+     * CSP 资源来源盘点（013 AC-4，依据 web/index.html 与 Vite 构建产物）： 脚本（Vite 打包）、样式（构建
+     * CSS）、图标、manifest、service worker 全部自托管（'self'）； 唯一外部依赖是 Google Fonts——样式表来自
+     * fonts.googleapis.com，字体文件来自 fonts.gstatic.com。 React 的内联 style 属性需要 style-src
+     * 'unsafe-inline'；Vite 会把小图标内联为 data: URI，故 img-src 带 data:。 PWA 为自托管部署，prod 策略从紧、不含任何第三方脚本来源。
+     */
+    private static final String CSP_PROD =
+            "default-src 'self'; script-src 'self'; "
+                    + "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                    + "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; "
+                    + "connect-src 'self'; manifest-src 'self'; worker-src 'self'; "
+                    + "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'";
+
+    /**
+     * local 专用 CSP：springdoc swagger-ui 同源自托管但使用内联脚本与内联样式， 故额外放开 'unsafe-inline'。仅 local profile
+     * 生效；local+prod 误叠加时仍取 prod 从紧策略。
+     */
+    private static final String CSP_LOCAL =
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+                    + "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                    + "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; "
+                    + "connect-src 'self'; manifest-src 'self'; worker-src 'self'; "
+                    + "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'";
 
     /**
      * BCrypt 密码编码器，强度 10 在启动耗时与暴力破解成本间取平衡。
@@ -91,11 +117,36 @@ public class SecurityConfig {
         boolean exposeApiDocs =
                 environment.acceptsProfiles(Profiles.of("local"))
                         && !environment.acceptsProfiles(Profiles.of("prod"));
+        // CSP 与接口文档同口径：仅 local（且未叠加 prod）放宽给 swagger-ui，其余一律 prod 从紧。
+        // Vite dev server(5173) 经代理访问 /api，浏览器不加载后端 HTML，后端 CSP 不影响 HMR，
+        // 无需为 dev 额外放开 ws: 来源。
+        String cspDirectives = exposeApiDocs ? CSP_LOCAL : CSP_PROD;
 
         http.csrf(
                         csrf ->
                                 csrf.csrfTokenRepository(csrfTokenRepository)
                                         .csrfTokenRequestHandler(csrfRequestHandler))
+                // 安全响应头（013 AC-4）：nosniff / X-Frame-Options:DENY / Referrer-Policy /
+                // HSTS / CSP。HSTS 由 Spring Security 仅在 HTTPS 请求上写入（request.isSecure()），
+                // local 的 http 自测自然不带；公网部署经反代终结 TLS 时需保证转发头还原 scheme。
+                // X-Frame-Options 取 DENY（比 SAMEORIGIN 更紧）：练习页与管理后台均无被嵌入需求，
+                // PWA 走浏览器安装而非 iframe，故一概拒绝嵌入；frame-ancestors 'none' 双保险。
+                .headers(
+                        headers ->
+                                headers.contentTypeOptions(Customizer.withDefaults())
+                                        .frameOptions(frame -> frame.deny())
+                                        .referrerPolicy(
+                                                referrer ->
+                                                        referrer.policy(
+                                                                ReferrerPolicyHeaderWriter
+                                                                        .ReferrerPolicy
+                                                                        .STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                                        .httpStrictTransportSecurity(
+                                                hsts ->
+                                                        hsts.maxAgeInSeconds(31_536_000L)
+                                                                .includeSubDomains(true))
+                                        .contentSecurityPolicy(
+                                                csp -> csp.policyDirectives(cspDirectives)))
                 .authorizeHttpRequests(
                         auth -> {
                             auth.requestMatchers(HttpMethod.GET, "/api/auth/csrf")
