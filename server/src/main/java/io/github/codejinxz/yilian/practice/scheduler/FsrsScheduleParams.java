@@ -49,6 +49,45 @@ public record FsrsScheduleParams(
      */
     public static FsrsScheduleParams fromWeightsJson(
             String weightsJson, ObjectMapper objectMapper) {
+        JsonNode root = readRoot(weightsJson, objectMapper);
+        if (root.isArray()) {
+            return fromFsrs6Array(root);
+        }
+        if (root.has("w") && root.get("w").isArray()) {
+            return fromPrototypeObject(root.get("w"));
+        }
+        throw new BusinessException(ApiCode.INTERNAL_ERROR, "FSRS 权重形状不合法");
+    }
+
+    /**
+     * weights JSON → 数值数组（双形态解码，视图输出的唯一解析点）。
+     *
+     * <p>两种在库形态都接受：优化器候选是 21 维纯数组（DATA-MODEL §6.8）；V9 原型种子是 对象形 {@code {"w":[18 维],"note":…}}，取其
+     * "w" 数组原样返回（18 维，不伪造补齐到 21）。 只认纯数组形会让种子行在管理端版本列表永远 500（D-2 的根因）。
+     *
+     * @param weightsJson fsrs_parameter_versions.weights 原文
+     * @param objectMapper JSON 解析器
+     * @return 权重数组（种子 18 维 / 优化器行 21 维）
+     */
+    public static double[] weightsArray(String weightsJson, ObjectMapper objectMapper) {
+        JsonNode root = readRoot(weightsJson, objectMapper);
+        if (root.isArray()) {
+            return nodeToArray(root);
+        }
+        if (root.has("w") && root.get("w").isArray()) {
+            return nodeToArray(root.get("w"));
+        }
+        throw new BusinessException(ApiCode.INTERNAL_ERROR, "FSRS 权重形状不合法");
+    }
+
+    /**
+     * 读 weights JSON 根节点；解析失败按内部错误拒绝。
+     *
+     * @param weightsJson JSON 原文
+     * @param objectMapper JSON 解析器
+     * @return 根节点
+     */
+    private static JsonNode readRoot(String weightsJson, ObjectMapper objectMapper) {
         JsonNode root;
         try {
             root = objectMapper.readTree(weightsJson);
@@ -58,13 +97,21 @@ public record FsrsScheduleParams(
         if (root == null) {
             throw new BusinessException(ApiCode.INTERNAL_ERROR, "FSRS 权重 JSON 不合法");
         }
-        if (root.isArray()) {
-            return fromFsrs6Array(root);
+        return root;
+    }
+
+    /**
+     * 数组节点 → double 数组。
+     *
+     * @param node 数组节点
+     * @return 数值数组
+     */
+    private static double[] nodeToArray(JsonNode node) {
+        double[] values = new double[node.size()];
+        for (int i = 0; i < values.length; i++) {
+            values[i] = node.get(i).asDouble();
         }
-        if (root.has("w") && root.get("w").isArray()) {
-            return fromPrototypeObject(root.get("w"));
-        }
-        throw new BusinessException(ApiCode.INTERNAL_ERROR, "FSRS 权重形状不合法");
+        return values;
     }
 
     /**

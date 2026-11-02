@@ -74,6 +74,31 @@ class FsrsScheduleParamsTest {
                 .isInstanceOf(BusinessException.class);
     }
 
+    /** [D-2 回归] weightsArray 双形态解码：数组形原样返回、对象形取 "w" 数组、其他形状 50000。 */
+    @Test
+    @DisplayName("[D-2] weightsArray 双形态解码")
+    void d2_weightsArrayDecodesBothShapes() {
+        // 数组形（优化器候选）：原样返回 21 维。
+        double[] array =
+                FsrsScheduleParams.weightsArray(toJson(FsrsOptimizerDefaults.FSRS6), objectMapper);
+        assertThat(array).containsExactly(FsrsOptimizerDefaults.FSRS6);
+        // 对象形（V9 种子）：取 "w" 数组原值（18 维，不伪造补齐到 21）——管理端版本列表曾因此 500。
+        String seedJson =
+                "{\"schemaVersion\": 1, \"w\": [0.4, 1.2, 2.4, 5.3, 3.2, 0.8, 0.6, 2.0, 1.5,"
+                        + " 0.3, 1.0, 2.0, 40.0, 0.6, 3.0, 5.1, 0.9, 0.4],"
+                        + " \"note\": \"prototype placeholder; optimizer lands in M2.1\"}";
+        assertThat(FsrsScheduleParams.weightsArray(seedJson, objectMapper))
+                .containsExactly(
+                        0.4, 1.2, 2.4, 5.3, 3.2, 0.8, 0.6, 2.0, 1.5, 0.3, 1.0, 2.0, 40.0, 0.6, 3.0,
+                        5.1, 0.9, 0.4);
+        // 非数组/无 "w" 键的对象：50000。
+        assertThatThrownBy(() -> FsrsScheduleParams.weightsArray("{\"note\": \"x\"}", objectMapper))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode()).isEqualTo(ApiCode.INTERNAL_ERROR));
+    }
+
     /**
      * 序列化为 JSON 数组。
      *

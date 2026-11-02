@@ -8,6 +8,7 @@ import io.github.codejinxz.yilian.practice.dao.ReviewLogDao;
 import io.github.codejinxz.yilian.practice.entity.FsrsParameterVersion;
 import io.github.codejinxz.yilian.practice.entity.ReviewLog;
 import io.github.codejinxz.yilian.practice.optimizer.FsrsOptimizer;
+import io.github.codejinxz.yilian.practice.scheduler.FsrsScheduleParams;
 import io.github.codejinxz.yilian.practice.service.FsrsAdminService;
 import io.github.codejinxz.yilian.practice.service.vo.FsrsParameterVersionView;
 
@@ -74,7 +75,10 @@ public class FsrsAdminServiceImpl implements FsrsAdminService {
                         .map(
                                 logRow ->
                                         new FsrsOptimizer.Sample(
-                                                logRow.getId(),
+                                                // 必须带 review_id（复习卡）：优化器按卡分组重放记忆状态，
+                                                // 每卡首评不进损失；若传日志行主键，每条日志自成一组、
+                                                // 全部沦为「首评」→ 0 损失事件 → 零梯度 → 恒 no-op（D-1）。
+                                                logRow.getReviewId(),
                                                 logRow.getReviewAt(),
                                                 logRow.getRating()))
                         .toList();
@@ -182,16 +186,15 @@ public class FsrsAdminServiceImpl implements FsrsAdminService {
     }
 
     /**
-     * weights JSON → 数组。
+     * weights JSON → 数组（双形态：优化器行 21 维纯数组 / V9 种子对象形取 "w"）。
+     *
+     * <p>解码统一走 {@link FsrsScheduleParams#weightsArray}——只认纯数组形会让 V9 种子行 （对象形）在版本列表永远 500（D-2
+     * 的根因）；解析失败按内部错误拒绝，不吞脏数据。
      *
      * @param weightsJson JSON 原文
      * @return 权重数组
      */
     private double[] parseWeights(String weightsJson) {
-        try {
-            return objectMapper.readValue(weightsJson, double[].class);
-        } catch (RuntimeException exception) {
-            throw new BusinessException(ApiCode.INTERNAL_ERROR, "FSRS 权重 JSON 不合法");
-        }
+        return FsrsScheduleParams.weightsArray(weightsJson, objectMapper);
     }
 }

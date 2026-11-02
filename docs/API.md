@@ -1649,9 +1649,14 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 
 ### 8.13.2 `GET /api/admin/fsrs/parameters`
 
-用途：全部版本行，创建时间倒序、id 倒序；含 weights（21 维数组）与 metrics。读接口，不标操作日志。
+用途：全部版本行，创建时间倒序、id 倒序；含 weights 与 metrics。读接口，不标操作日志。
 
-响应 `data`：`FsrsParameterVersionView[]`。
+响应 `data`：`FsrsParameterVersionView[]`。`weights` 是数值数组，**双形态如实输出**（勘误 2026-11-03，原文误写「21 维数组」）：
+
+- 优化器产出的行：21 维纯数组（DATA-MODEL §6.8）；
+- V9 原型种子行：底层 weights 列是对象形 `{"w":[18 维],"note":…}`，响应取其 `w` 数组原值输出（18 维原型值，不伪造补齐到 21）。
+
+后续行统一 21 维数组形（优化器写入即此形态）；种子行保持历史原样，不回改数据。
 
 错误：`40100`、`40300`。
 
@@ -1683,7 +1688,7 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 }
 ```
 
-- `metrics` 为 null（V9 种子行）时响应中缺省。
+- `metrics` 为 null（V9 种子行）时响应中缺省；`weights` 双形态见 §8.13.2（种子行 18 维 w 数组，优化器行 21 维数组）。
 - 状态机：`CANDIDATE → ACTIVE → RETIRED`；不提供「回滚到旧版本」端点（把旧候选重新训练/走管理流程，M2.1 不做状态回跳）。
 
 字段回溯：`fsrs_parameter_versions.*`。

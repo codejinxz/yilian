@@ -213,6 +213,8 @@ class AdminFsrsControllerTest {
                 .andExpect(jsonPath("$.data[0].status").value("CANDIDATE"))
                 .andExpect(jsonPath("$.data[0].weights.length()").value(21))
                 .andExpect(jsonPath("$.data[1].status").value("ACTIVE"))
+                // 种子行是对象形 {"w":[18 维]}:视图如实输出 18 维 w 数组,不是 21 维(曾掩盖 D-2 根因)。
+                .andExpect(jsonPath("$.data[1].weights.length()").value(18))
                 .andExpect(jsonPath("$.data[1].metrics").doesNotExist());
         verify(fsrsAdminService).listParameters();
     }
@@ -352,7 +354,9 @@ class AdminFsrsControllerTest {
                 "FSRS-6",
                 "GLOBAL",
                 "ACTIVE",
-                List.of(0.4, 1.2),
+                List.of(
+                        0.4, 1.2, 2.4, 5.3, 3.2, 0.8, 0.6, 2.0, 1.5, 0.3, 1.0, 2.0, 40.0, 0.6, 3.0,
+                        5.1, 0.9, 0.4),
                 0,
                 null,
                 null,

@@ -8,6 +8,7 @@ import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.content.service.ContentImportService;
 import io.github.codejinxz.yilian.content.service.dto.SentenceContent;
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
+import io.github.codejinxz.yilian.practice.optimizer.FsrsOptimizer;
 import io.github.codejinxz.yilian.practice.service.FsrsAdminService;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
 import io.github.codejinxz.yilian.practice.service.dto.AnswerPayload;
@@ -148,6 +149,24 @@ class FsrsAdminIntegrationTest {
         assertThat(candidate.metrics().get("optimizer")).isEqualTo("java-sgd-m2.1");
         assertThat(((Number) candidate.metrics().get("sampleCount")).intValue()).isEqualTo(60);
         assertThat(candidate.metrics().get("logLoss")).isInstanceOf(Number.class);
+        // D-1 回归防线：训练必须真的发生——损失事件 = 样本数 − 卡数（60 条日志同一张卡 → 59）；
+        // 若误用日志行主键分组，每条日志自成一组全部沦为「首评」，lossEvents=0、零梯度、权重不动。
+        assertThat(((Number) candidate.metrics().get("lossEvents")).intValue())
+                .as("损失事件数（首评除外）")
+                .isEqualTo(59);
+        // 训练后损失必须低于初始损失（FSRS-6 默认权重起点）。
+        assertThat(((Number) candidate.metrics().get("logLoss")).doubleValue())
+                .isLessThan(((Number) candidate.metrics().get("initialLoss")).doubleValue());
+        // 权重必须离开默认点：至少 5 维相对 FSRS-6 默认移动超过 0.05（真数据上必不同，
+        // 防「metrics 好看但权重原样落库」的伪训练回归）。
+        int movedDims = 0;
+        for (int i = 0; i < 21; i++) {
+            if (Math.abs(candidate.weights().get(i) - FsrsOptimizer.FSRS6_DEFAULT_WEIGHTS[i])
+                    > 0.05) {
+                movedDims++;
+            }
+        }
+        assertThat(movedDims).as("相对默认权重移动的维度数").isGreaterThanOrEqualTo(5);
         // 落库行与视图一致，且不触碰 V9 种子状态。
         Map<String, Object> row =
                 jdbcTemplate.queryForMap(
@@ -164,6 +183,36 @@ class FsrsAdminIntegrationTest {
                                 + " WHERE owner_type = 'GLOBAL' AND status = 'ACTIVE'",
                         Long.class);
         assertThat(activeCount).isEqualTo(1L);
+    }
+
+    /** [AC-3] 恰好 50 条（边界）：放行训练，样本数如实记 50、损失事件 49（同一张卡首评除外）。 */
+    @Test
+    @DisplayName("[AC-3] 恰好 50 条样本边界通过")
+    void ac3_optimizeAcceptsExactlyFiftySamples() {
+        seedReviewLogs(50);
+        FsrsParameterVersionView candidate = fsrsAdminService.optimize(USER_ID, ADMIN_ID);
+        assertThat(candidate.status()).isEqualTo("CANDIDATE");
+        assertThat(candidate.sampleCount()).isEqualTo(50);
+        assertThat(((Number) candidate.metrics().get("lossEvents")).intValue()).isEqualTo(49);
+    }
+
+    /** [AC-3] 版本列表：V9 种子（对象形 weights）必须能解码返回而不是 500（D-2 回归防线）。 */
+    @Test
+    @DisplayName("[AC-3] listParameters 兼容 V9 种子对象形 weights")
+    void ac3_listParametersDecodesPrototypeSeed() {
+        List<FsrsParameterVersionView> versions = fsrsAdminService.listParameters();
+        FsrsParameterVersionView seed =
+                versions.stream()
+                        .filter(version -> version.id().equals(seedVersionId))
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(seed.status()).isEqualTo("ACTIVE");
+        // 种子是 18 维对象形 {"w":[…]}：返回 w 数组原值，不伪造补齐到 21 维。
+        assertThat(seed.weights())
+                .containsExactly(
+                        0.4, 1.2, 2.4, 5.3, 3.2, 0.8, 0.6, 2.0, 1.5, 0.3, 1.0, 2.0, 40.0, 0.6, 3.0,
+                        5.1, 0.9, 0.4);
+        assertThat(seed.metrics()).isNull();
     }
 
     /** [AC-3] 样本不足 50：40000 拒绝，不写任何候选行（「没有真实数据前不生成候选权重」）。 */
