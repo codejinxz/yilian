@@ -1,5 +1,6 @@
 package io.github.codejinxz.yilian.content.dao;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -16,9 +17,11 @@ public interface PracticeCandidateQueryDao {
      * <p>与被替换的两步 JPA 实现的边界差：先 JOIN 丢弃快照缺失行、再应用 limit， 因此缺快照行不再占用 limit 名额（返回的可用行只会更多，不会更少）。
      *
      * @param bankId 限定题库，null 表示全部可练题库
-     * @param excludeSentenceId 排除的题目 id，null 表示不排除
+     * @param excludeIds 排除的题目 id 集合，null 或空表示不排除
+     * @param tag 考点筛选（tags JSON 精确成员匹配），null 表示不筛选
      * @param limit 最多返回条数，必须为正
      * @return 候选行；无可练题目时为空列表
      */
-    List<PracticeCandidateRow> findCandidates(Long bankId, String excludeSentenceId, int limit);
+    List<PracticeCandidateRow> findCandidates(
+            Long bankId, Collection<String> excludeIds, String tag, int limit);
 }

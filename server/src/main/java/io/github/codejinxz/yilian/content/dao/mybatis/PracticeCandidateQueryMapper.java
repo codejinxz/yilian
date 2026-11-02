@@ -5,6 +5,7 @@ import io.github.codejinxz.yilian.content.dao.PracticeCandidateRow;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -19,12 +20,14 @@ public interface PracticeCandidateQueryMapper {
      * 按动态筛选取练习候选（XML 动态 SQL）。
      *
      * @param bankId 限定题库，null 表示全部
-     * @param excludeSentenceId 排除题目，null 表示不排除
+     * @param excludeIds 排除题目集合，null 或空表示不排除
+     * @param tag 考点筛选，null 表示不筛选
      * @param limit 最多返回条数
      * @return 候选行
      */
     List<PracticeCandidateRow> findCandidates(
             @Param("bankId") Long bankId,
-            @Param("excludeSentenceId") String excludeSentenceId,
+            @Param("excludeIds") Collection<String> excludeIds,
+            @Param("tag") String tag,
             @Param("limit") int limit);
 }

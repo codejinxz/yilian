@@ -106,7 +106,8 @@ class PracticeCandidateQueryDaoIntegrationTest {
         String s5 = insertPublishedSentence(104, 5, T2, null);
         insertSentenceWithoutSnapshot(101, 6, T2);
 
-        List<PracticeCandidateRow> rows = practiceCandidateQueryDao.findCandidates(null, null, 50);
+        List<PracticeCandidateRow> rows =
+                practiceCandidateQueryDao.findCandidates(null, java.util.List.of(), null, 50);
 
         // 对拍原实现语义：软删题库（102）与草稿题库（103）的句子不出现；
         // 私有发布题库（104）的句子按原 JPA 查询语义参与候选（可见性由调用方约束，此处保持一致）。
@@ -132,17 +133,23 @@ class PracticeCandidateQueryDaoIntegrationTest {
         String s3 = insertPublishedSentence(201, 3, T2, null);
 
         assertThat(
-                        practiceCandidateQueryDao.findCandidates(201L, null, 50).stream()
+                        practiceCandidateQueryDao
+                                .findCandidates(201L, java.util.List.of(), null, 50)
+                                .stream()
                                 .map(PracticeCandidateRow::sentenceId)
                                 .toList())
                 .hasSize(1);
         assertThat(
-                        practiceCandidateQueryDao.findCandidates(null, s1, 50).stream()
+                        practiceCandidateQueryDao
+                                .findCandidates(null, java.util.List.of(s1), null, 50)
+                                .stream()
                                 .map(PracticeCandidateRow::sentenceId)
                                 .toList())
                 .containsExactly(s2, s3);
         assertThat(
-                        practiceCandidateQueryDao.findCandidates(null, null, 1).stream()
+                        practiceCandidateQueryDao
+                                .findCandidates(null, java.util.List.of(), null, 1)
+                                .stream()
                                 .map(PracticeCandidateRow::sentenceId)
                                 .toList())
                 .containsExactly(s1);
@@ -156,7 +163,8 @@ class PracticeCandidateQueryDaoIntegrationTest {
         String firstId = insertPublishedSentence(101, 1, T0, null);
         String secondId = insertPublishedSentence(101, 2, T0, null);
 
-        List<PracticeCandidateRow> rows = practiceCandidateQueryDao.findCandidates(null, null, 50);
+        List<PracticeCandidateRow> rows =
+                practiceCandidateQueryDao.findCandidates(null, java.util.List.of(), null, 50);
 
         assertThat(rows)
                 .extracting(PracticeCandidateRow::sentenceId)

@@ -427,7 +427,7 @@ class ContentQueryServiceImplTest {
     /** 候选行来自 MyBatis JOIN Dao；服务层负责行 → SentenceDetail 的映射（快照缺失丢弃在 SQL 层）。 */
     @Test
     void findPracticeCandidatesMapsJoinedRows() {
-        when(practiceCandidateQueryDao.findCandidates(isNull(), isNull(), eq(20)))
+        when(practiceCandidateQueryDao.findCandidates(isNull(), isNull(), isNull(), eq(20)))
                 .thenReturn(
                         List.of(
                                 new PracticeCandidateRow(
@@ -445,7 +445,7 @@ class ContentQueryServiceImplTest {
                                         TAGS_JSON,
                                         null)));
 
-        List<SentenceDetail> candidates = service.findPracticeCandidates(null, null, 20);
+        List<SentenceDetail> candidates = service.findPracticeCandidates(null, null, null, 20);
 
         assertThat(candidates).hasSize(1);
         SentenceDetail detail = candidates.getFirst();

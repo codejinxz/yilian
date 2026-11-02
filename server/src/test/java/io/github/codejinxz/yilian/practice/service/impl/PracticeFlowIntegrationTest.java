@@ -15,6 +15,7 @@ import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
 import io.github.codejinxz.yilian.practice.service.dto.AnswerPayload;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
+import io.github.codejinxz.yilian.practice.service.dto.NextQuery;
 import io.github.codejinxz.yilian.practice.service.vo.AppealView;
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
 import io.github.codejinxz.yilian.practice.service.vo.NextPracticeView;
@@ -506,20 +507,26 @@ class PracticeFlowIntegrationTest {
     @DisplayName("[AC-5] next 到期优先/新题次之 + overload/postpone")
     void ac5_nextSelectionAndOverloadPostpone() {
         // 无卡无提交：next 走新题，review=null。
-        NextPracticeView first = practiceService.next(USER_ID, null, null);
+        NextPracticeView first =
+                practiceService.next(
+                        USER_ID, NextQuery.normalize(null, null, null, null, null, null));
         assertThat(first.selection()).isEqualTo("NEW");
         assertThat(first.review()).isNull();
         assertThat(first.sentence().id()).isEqualTo(seeded.sentenceId());
 
         // FIRST 错 → s_0001 卡明天到期（未到期不入队列），next 转投第二题 NEW。
         practiceService.submitAttempt(USER_ID, firstAttempt(wrongAnswer(), 1000));
-        NextPracticeView second = practiceService.next(USER_ID, null, null);
+        NextPracticeView second =
+                practiceService.next(
+                        USER_ID, NextQuery.normalize(null, null, null, null, null, null));
         assertThat(second.selection()).isEqualTo("NEW");
         assertThat(second.sentence().id()).isEqualTo(secondSeeded.sentenceId());
 
         // 到期时间拨到过去 → next 走 DUE，返回该复习卡。
         jdbcTemplate.update("UPDATE reviews SET due_at = DATE_SUB(NOW(6), INTERVAL 1 MINUTE)");
-        NextPracticeView due = practiceService.next(USER_ID, null, null);
+        NextPracticeView due =
+                practiceService.next(
+                        USER_ID, NextQuery.normalize(null, null, null, null, null, null));
         assertThat(due.selection()).isEqualTo("DUE");
         assertThat(due.sentence().id()).isEqualTo(seeded.sentenceId());
         assertThat(due.review().state()).isEqualTo("LEARNING");
@@ -565,7 +572,7 @@ class PracticeFlowIntegrationTest {
         contentImportService.importSentences(
                 9002L, "batch-it-0088-0000-0000-000000000088", rows, USER_ID, T0.toInstant());
         List<SentenceDetail> candidates =
-                contentQueryService.findPracticeCandidates(9002L, null, 20);
+                contentQueryService.findPracticeCandidates(9002L, java.util.List.of(), null, 20);
         assertThat(candidates).hasSize(7);
         for (SentenceDetail candidate : candidates) {
             practiceService.submitAttempt(
@@ -601,10 +608,135 @@ class PracticeFlowIntegrationTest {
         assertThat(practiceService.overload(USER_ID).dueCount()).isEqualTo(5L);
 
         // excludeSentenceId 生效：排除后新题选题跳过该句。
-        NextPracticeView excluded = practiceService.next(USER_ID, 9002L, candidates.get(0).id());
+        NextPracticeView excluded =
+                practiceService.next(
+                        USER_ID,
+                        NextQuery.normalize(9002L, null, null, null, candidates.get(0).id(), null));
         if (excluded != null && excluded.selection().equals("NEW")) {
             assertThat(excluded.sentence().id()).isNotEqualTo(candidates.get(0).id());
         }
+    }
+
+    /** [AC-1] D7 指定句优先：命中直接返回（MANUAL/NEW）并忽略 exclude/errors；找不到静默退回常规取题。 */
+    @Test
+    @DisplayName("[AC-1] D7 指定句优先 + 非法参数静默归一")
+    void ac1_d7SpecifiedSentencePriority() {
+        // tag 在新题召回生效：代词命中 s_0001；不存在的考点返回空态（data=null）。
+        NextPracticeView tagged =
+                practiceService.next(
+                        USER_ID, NextQuery.normalize(null, null, "代词", null, null, null));
+        assertThat(tagged.selection()).isEqualTo("NEW");
+        assertThat(tagged.sentence().id()).isEqualTo(seeded.sentenceId());
+        assertThat(
+                        practiceService.next(
+                                USER_ID,
+                                NextQuery.normalize(null, null, "不存在的考点", null, null, null)))
+                .isNull();
+
+        // s_0001 答错入队（明天到期）后，指定句重练优先级最高：同时带 exclude/errors 仍返回该句。
+        practiceService.submitAttempt(USER_ID, firstAttempt(wrongAnswer(), 1000));
+        NextPracticeView manual =
+                practiceService.next(
+                        USER_ID,
+                        NextQuery.normalize(
+                                null, seeded.sentenceId(), null, "1", seeded.sentenceId(), null));
+        assertThat(manual.selection()).isEqualTo("MANUAL");
+        assertThat(manual.sentence().id()).isEqualTo(seeded.sentenceId());
+        assertThat(manual.review().state()).isEqualTo("LEARNING");
+
+        // 未入队的句子指定返回 NEW（review=null）。
+        NextPracticeView fresh =
+                practiceService.next(
+                        USER_ID,
+                        NextQuery.normalize(
+                                null, secondSeeded.sentenceId(), null, null, null, null));
+        assertThat(fresh.selection()).isEqualTo("NEW");
+        assertThat(fresh.review()).isNull();
+
+        // 找不到的指定句（未知 ULID / 空白串）静默退回常规取题：s_0001 已入队被跳过 → s_0002。
+        NextPracticeView fallback =
+                practiceService.next(
+                        USER_ID,
+                        NextQuery.normalize(
+                                null, "01AAAAAAAAAAAAAAAAAAAAAAAA", null, null, null, null));
+        assertThat(fallback.selection()).isEqualTo("NEW");
+        assertThat(fallback.sentence().id()).isEqualTo(secondSeeded.sentenceId());
+        assertThat(
+                        practiceService
+                                .next(
+                                        USER_ID,
+                                        NextQuery.normalize(null, "   ", null, null, null, null))
+                                .sentence()
+                                .id())
+                .isEqualTo(secondSeeded.sentenceId());
+    }
+
+    /** [AC-1] D7 错题口径：errors=1 只在错题池取最紧急（不看到期），exclude/tag/bankId 显式筛选生效；空池回 null。 */
+    @Test
+    @DisplayName("[AC-1] D7 errors=1 错题口径 + 排除/考点/题库过滤")
+    void ac1_d7ErrorsPoolSemantics() {
+        practiceService.submitAttempt(USER_ID, firstAttempt(wrongAnswer(), 1000));
+        // 第二题也答错：两道都在错题池。
+        practiceService.submitAttempt(
+                USER_ID,
+                new AttemptCommand(
+                        UUID.randomUUID().toString(),
+                        secondSeeded.sentenceId(),
+                        String.valueOf(secondSeeded.sentenceVersionId()),
+                        AttemptCommand.Mode.CLOZE,
+                        AttemptCommand.Kind.FIRST,
+                        null,
+                        wrongAnswer(),
+                        0,
+                        1000,
+                        null));
+        // s_0002（+23h）比 s_0001（+25h）更紧急。
+        jdbcTemplate.update(
+                "UPDATE reviews SET due_at = DATE_ADD(NOW(6), INTERVAL 23 HOUR)"
+                        + " WHERE sentence_id = ?",
+                secondSeeded.sentenceId());
+        jdbcTemplate.update(
+                "UPDATE reviews SET due_at = DATE_ADD(NOW(6), INTERVAL 25 HOUR)"
+                        + " WHERE sentence_id = ?",
+                seeded.sentenceId());
+
+        // 错题池不看到期：两张卡都未到期，errors=1 仍取最紧急的 s_0002（selection 沿用 DUE）。
+        NextPracticeView mostUrgent =
+                practiceService.next(
+                        USER_ID, NextQuery.normalize(null, null, null, "1", null, null));
+        assertThat(mostUrgent.selection()).isEqualTo("DUE");
+        assertThat(mostUrgent.sentence().id()).isEqualTo(secondSeeded.sentenceId());
+
+        // excludeIds 生效：排除 s_0002 后取 s_0001；全部排除 → 空池 data=null。
+        NextPracticeView afterExclude =
+                practiceService.next(
+                        USER_ID,
+                        NextQuery.normalize(
+                                null, null, null, "1", null, secondSeeded.sentenceId()));
+        assertThat(afterExclude.sentence().id()).isEqualTo(seeded.sentenceId());
+        assertThat(
+                        practiceService.next(
+                                USER_ID,
+                                NextQuery.normalize(
+                                        null,
+                                        null,
+                                        null,
+                                        "1",
+                                        null,
+                                        secondSeeded.sentenceId() + "," + seeded.sentenceId())))
+                .isNull();
+
+        // tag 是显式筛选：代词只命中 s_0001。
+        NextPracticeView tagged =
+                practiceService.next(
+                        USER_ID, NextQuery.normalize(null, null, "代词", "1", null, null));
+        assertThat(tagged.sentence().id()).isEqualTo(seeded.sentenceId());
+
+        // bankId 是显式筛选：错题在 9001，9002 视角下错题池为空。
+        assertThat(
+                        practiceService.next(
+                                USER_ID, NextQuery.normalize(9002L, null, null, "1", null, null)))
+                .isNull();
     }
 
     /** [AC-8] dispute 立即 ACCEPTED 并 overlay 排除；appeal 记 PENDING；唯一/批注/归属校验。 */

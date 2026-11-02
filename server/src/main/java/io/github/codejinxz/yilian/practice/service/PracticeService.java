@@ -3,6 +3,7 @@ package io.github.codejinxz.yilian.practice.service;
 import io.github.codejinxz.yilian.common.api.PageResponse;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
 import io.github.codejinxz.yilian.practice.service.dto.GuestUpgradeCommand;
+import io.github.codejinxz.yilian.practice.service.dto.NextQuery;
 import io.github.codejinxz.yilian.practice.service.vo.AccuracyView;
 import io.github.codejinxz.yilian.practice.service.vo.AppealView;
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
@@ -78,15 +79,17 @@ public interface PracticeService {
     AppealView submitDispute(Long userId, String attemptId, String annotationKey, String reason);
 
     /**
-     * 取下一题：优先到期复习，其次新题；无可练题返回 null（客户端显示空状态）。
+     * 取下一题：指定句优先，其次错题（errors=1），再次到期复习与新题；无可练题返回 null（客户端显示空状态）。
+     *
+     * <p>语义与本地引擎 handleLocalRequest 对齐（API §6.1 D7 参数表）：指定句命中且可练直接返回 （selection=MANUAL，卡不存在则
+     * NEW），找不到退回常规取题；errors=1 走错题池（与错题列表同口径， dueAt 升序取最紧急）；tag 与排除集合在到期与新题召回中都生效。
      *
      * @param userId 当前用户 id
-     * @param bankId 题库过滤，可空
-     * @param excludeSentenceId 排除题目，可空
+     * @param query 归一化后的查询参数（bankId/sentenceId/tag/errors/excludeIds）
      * @return 下一题视图；没有可练题时为 null
      */
     @Nullable
-    NextPracticeView next(Long userId, Long bankId, String excludeSentenceId);
+    NextPracticeView next(Long userId, NextQuery query);
 
     /**
      * 错题列表：LEARNING 卡 + 最近判分未全对；disputed 批注按参数过滤。

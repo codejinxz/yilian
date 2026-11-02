@@ -820,21 +820,28 @@
 
 ### 6.1 `GET /api/practice/next`（implemented）
 
-用途：取下一题；优先到期复习，其次新题；返回当前 review 状态。
+用途：取下一题；指定句优先，其次错题（`errors=1`），再次到期复习与新题；返回当前 review 状态。
 
-请求：`bankId`（可选）、`mode`（可选 `CLOZE`/`FREE`）、`excludeSentenceId`（可选）。
+请求：`bankId`（可选）、`mode`（可选 `CLOZE`/`FREE`）、`excludeSentenceId`（可选）、`sentenceId`（可选）、`tag`（可选）、`errors`（可选）、`excludeIds`（可选，逗号分隔）。
 
-D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实标注）：
+D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引擎/mock 的残余差异如实标注）：
 
 | 参数 | 语义 | 服务端 | 本地引擎 / mock |
 |---|---|---|---|
-| `bankId` | 限定题库 | 支持 | 支持 |
+| `bankId` | 限定题库 | 支持（DUE 召回不按题库过滤为既有行为；新题与错题池生效） | 支持（DUE 召回同样过滤） |
 | `mode` | 模式筛选 | 支持（校验 CLOZE/FREE；Q1 一句一卡下不参与选题） | 支持 |
-| `excludeSentenceId` | 单题排除（跳句） | 支持 | 支持（并进 `excludeIds`） |
-| `sentenceId` | 指定句重练（复习页「重练」），优先级最高 | 未实现（M2.1 补齐） | 支持 |
-| `errors=1` | 只在错题里取下一题（今日页「错题」chip） | 未实现（M2.1 补齐） | 支持 |
-| `excludeIds` | 多题排除（热身排除已练） | 未实现（M2.1 补齐） | 支持（逗号分隔） |
-| `tag` | 考点筛选 | 未实现（M2.1 补齐） | 支持 |
+| `excludeSentenceId` | 单题排除（跳句） | 支持（并进 `excludeIds`） | 支持（并进 `excludeIds`） |
+| `sentenceId` | 指定句重练（复习页「重练」），优先级最高；命中且可练直接返回（selection=`MANUAL`，无卡则 `NEW`），忽略 bankId/tag/exclude/errors；已删/不可练静默退回常规取题，不 404 | 支持 | 支持 |
+| `errors=1` | 只在错题里取下一题（今日页「错题」chip）；只认字面量 `1`，其余取值静默按 false | 支持（口径=错题列表 §6.6，`dueAt` 升序取最紧急、不看到期；见下方偏差注） | 支持（口径=错题列表） |
+| `excludeIds` | 多题排除（热身排除已练） | 支持（逗号分隔；trim/去空/去重，与 `excludeSentenceId` 合并） | 支持（逗号分隔） |
+| `tag` | 考点筛选（tags JSON 精确成员匹配） | 支持（到期召回/新题/错题池均生效） | 支持 |
+
+静默归一（与本地引擎一致，非法值不返回 400）：`errors` 只认 `"1"`；空白 `sentenceId`/`tag` 视为未提供；`excludeIds` 内空白段丢弃、重复去重。
+
+服务端与本地引擎/mock 的已知偏差（均按服务端契约优先）：
+
+1. `errors=1` 的错题池与错题列表（§6.6）共用同一口径：看答案（REVEAL）且无错批注的行不进池（本地引擎/mock 会保留该行）。
+2. `mode` 不参与选题（Q1 一句一卡，见 `mode` 行）；`bankId` 不约束到期召回（既有行为，本地引擎/mock 会过滤）。
 
 响应：
 
@@ -1753,7 +1760,7 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 | Account | `POST /api/auth/guest-upgrade` | 游客本机记录批量迁移：≤100 条/批、同 id 同载荷 skip、异载荷 40903 整体回滚；只落 attempts/attempt_gradings，不触发排程 | `AuthGuestUpgradeControllerTest`（切片：匿名 401/信封/限流注解） |
 | Account | `GET /api/me/settings`、`PUT /api/me/settings` | 主题/目标/评分标准/时区/保留率等 | `MeControllerTest`（切片：匿名 401、信封、40000 字段明细、40001、首登 40303）；DTO 注解层另由 `UserSettingsRequestValidationTest` 锁定 |
 | Content | `GET /api/banks`、`GET /api/banks/{bankId}`、`GET /api/banks/{bankId}/sentences` | PUBLIC_OR_USER：匿名仅公开题库；句子为 §5.3 增量游标契约 | `BankControllerTest`（切片：匿名放行与私有隔离、40004/40005/40401、tombstone 信封） |
-| Practice | `GET /api/practice/next`（D7 参数见 §6.1 差异表）、`POST /api/practice/attempts`（幂等 + norm-1/rubric-1 判分 + SRS 排程）、`GET /api/practice/attempts/{attemptId}`、批注 `appeal`/`dispute`（§6.4/§6.5）、`GET /api/practice/wrong-questions`、`GET /api/practice/reviews`、`POST /api/practice/reviews/{reviewId}/reset`、`GET /api/practice/reviews/overload`、`POST /api/practice/reviews/postpone`、`GET /api/practice/today` | 练习主链路（#8 波次三）；幂等口径 §6.2；复习卡一句一卡（DATA-MODEL §5.11 Q1） | `PracticeControllerTest`（切片：全部 10 端点——匿名 401、mode 取值 40000、分页 40004、40903/40403/40404、信封形状、限流注解） |
+| Practice | `GET /api/practice/next`（D7 四参数 2026-11-03 服务端补齐，语义见 §6.1）、`POST /api/practice/attempts`（幂等 + norm-1/rubric-1 判分 + SRS 排程）、`GET /api/practice/attempts/{attemptId}`、批注 `appeal`/`dispute`（§6.4/§6.5）、`GET /api/practice/wrong-questions`、`GET /api/practice/reviews`、`POST /api/practice/reviews/{reviewId}/reset`、`GET /api/practice/reviews/overload`、`POST /api/practice/reviews/postpone`、`GET /api/practice/today` | 练习主链路（#8 波次三）；幂等口径 §6.2；复习卡一句一卡（DATA-MODEL §5.11 Q1）；next 指定句优先（MANUAL）/errors=1 错题池（与 §6.6 同口径）/excludeIds 合并去重/tag JSON 精确匹配，非法参数静默归一 | `PracticeControllerTest`（切片：全部 10 端点——匿名 401、mode 取值 40000、分页 40004、40903/40403/40404、信封形状、限流注解、D7 四参数归一透传）；`PracticeFlowIntegrationTest`（对拍：指定句优先/找不到退回、errors=1 错题口径与 exclude/tag/bankId 过滤） |
 | Analytics | `GET /api/analytics/accuracy`（含 `daily14`/`recent` 扩展）、`GET /api/analytics/error-tags` | 用户时区日界；disputed 批注排除 | `AnalyticsControllerTest`（切片：匿名 401、§7.1/§7.2 信封、参数透传、非法日期 40000、空 items=[]） |
 | Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 | `ImportBatchControllerTest`（切片：匿名 401/非管理员 403、multipart 绑定与缺参 40000、缺请求体 40001、40405/40904、PageResponse 信封） |
 | Admin | `GET /api/admin/overview`、`GET /api/admin/users`、`PATCH /api/admin/users/{id}/status`、`PATCH /api/admin/users/{id}/role`、`POST /api/admin/invites`、`GET /api/admin/invites`（011-a） | 概览聚合（活跃=attempts 当日去重用户，UTC 日界）、用户检索分页、启停/改角色（审计经 `OperationLogContext`）、邀请码生成（明文一次性）/前缀列表 | `AdminOverviewControllerTest`、`AdminUserControllerTest`、`AdminInviteControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse 形状、reason 越界 40000、40001、审计上下文断言）；service 分支另由 `UserAccountServiceImplTest`（自己停自己/自己降自己/邀请码哈希落库）、`AdminOverviewServiceImplTest`（补 0 与活动组装）覆盖 |
@@ -1802,6 +1809,7 @@ D7 参数（契约全量，服务端与前端本地引擎/mock 的差异如实�
 | 2026-10-31 | v0.3.1 | DoD 接口级测试补全：§10.1 新增「接口级测试」列（`AnalyticsControllerTest`、`ImportBatchControllerTest`、`MeControllerTest` 新建；`PracticeControllerTest` 补 next/getAttempt/reviews/reset/overload/postpone；`AuthFlowIntegrationTest` 补 register/password 真实 HTTP），矩阵与测试一一对应 | 测试工程师 |
 | 2026-11-01 | v0.3.2 | 011-a 管理端用户域落地：§8.1–8.3 改 implemented（§8.2 审计 action 修正为 USER_STATUS_CHANGE、refresh 会话语义对齐实现），新增 §8.9 概览与 §8.10 邀请码（GET 列表改回 codePrefix，明文仅 POST 一次性返回）；§10.1 矩阵补 Admin 行（AdminOverview/User/Invite ControllerTest + UserAccountServiceImplTest/AdminOverviewServiceImplTest） | 实现工程师 |
 | 2026-11-02 | v0.6 | 012 管理端收尾波次：§8.4–8.6 改 implemented（检索语义落地：分区表 from/to 缺省兜底近 30 天、size 越界归 100、keyword LIKE 转义、异常列表剥离 stackTrace、详情缺失 40400、原 planned 的 targetType/targetId 查询参数不实现）；新增 §8.11 出题导入（复用 content 导入接缝、指纹去重 40904、不建 upload 批次、审计 GENERATION_IMPORT）与 §8.12 audit-events（动作白名单、返回字符串 id）；§3 矩阵、§10.1/10.3/10.4 同步；题库「空串清空说明」契约随 AC-5 真实生效（§8.8 既有描述落地，前端不再把空说明归一为 null） | 实现工程师 |
+| 2026-11-03 | v0.7 | 014/M2.1 第一步：§6.1 D7 四参数服务端补齐（sentenceId 指定句优先 MANUAL/errors=1 错题池（与 §6.6 同口径，REVEAL 无错批注行不进池为与本地引擎的已登记偏差）/excludeIds 合并去重/tag JSON 精确匹配，非法值静默归一）；§10.1 同步 | 实现工程师 |
 
 ---
 

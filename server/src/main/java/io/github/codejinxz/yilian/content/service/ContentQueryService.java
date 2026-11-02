@@ -78,9 +78,11 @@ public interface ContentQueryService {
      * 练习候选：只返回已发布题库中的已发布题目。
      *
      * @param bankId 题库 id，可为 null
-     * @param excludeSentenceId 排除题目
+     * @param excludeIds 排除题目集合，可空；空集合表示不排除
+     * @param tag 考点筛选（sentence_versions.tags JSON 精确成员匹配），可为 null
      * @param limit 最多条数
      * @return 候选题目
      */
-    List<SentenceDetail> findPracticeCandidates(Long bankId, String excludeSentenceId, int limit);
+    List<SentenceDetail> findPracticeCandidates(
+            Long bankId, Collection<String> excludeIds, String tag, int limit);
 }

@@ -23,6 +23,7 @@ import io.github.codejinxz.yilian.practice.service.PracticeService;
 import io.github.codejinxz.yilian.practice.service.dto.AnswerPayload;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
 import io.github.codejinxz.yilian.practice.service.dto.GuestUpgradeCommand;
+import io.github.codejinxz.yilian.practice.service.dto.NextQuery;
 import io.github.codejinxz.yilian.practice.service.vo.AccuracyView;
 import io.github.codejinxz.yilian.practice.service.vo.AppealView;
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
@@ -723,18 +724,56 @@ public class PracticeServiceImpl implements PracticeService {
     }
 
     @Override
-    public NextPracticeView next(Long userId, Long bankId, String excludeSentenceId) {
-        // 到期复习优先：due_at 升序取第一张可练卡的题目。
+    public NextPracticeView next(Long userId, NextQuery query) {
+        // 指定句优先（复习页「重练」/下一步训练的显式动作）：命中且可练直接返回，
+        // 忽略 bankId/tag/exclude/errors；找不到（已删/不可练）退回常规取题，不 404，
+        // 避免死链把练习页打成空白。有卡即 MANUAL（含重置后的 NEW 卡），无卡是首练按 NEW。
+        if (query.sentenceId() != null) {
+            Optional<SentenceDetail> specified =
+                    contentQueryService
+                            .findSentence(query.sentenceId())
+                            .filter(SentenceDetail::practiceable);
+            if (specified.isPresent()) {
+                Review card =
+                        reviewDao
+                                .findByUserIdAndSentenceId(userId, query.sentenceId())
+                                .orElse(null);
+                return new NextPracticeView(
+                        specified.get(),
+                        card == null ? null : toCardView(card),
+                        card == null ? "NEW" : "MANUAL");
+            }
+        }
+        // 今日页「错题」chip（errors=1）：只在错题池里取，口径与错题列表一致（§6.6），
+        // bankId/tag/exclude 是显式筛选需要尊重；按 dueAt 升序取最紧急；mode 不过滤——
+        // 错题是句子级召回，练习模式由页面当前选择决定。空池返回 null（HTTP 200 空态）。
+        if (query.errors()) {
+            for (WrongPoolRow row : wrongPool(userId, query.bankId(), query.tag(), false)) {
+                if (query.excludes(row.card().getSentenceId())) {
+                    continue;
+                }
+                return new NextPracticeView(row.detail(), toCardView(row.card()), "DUE");
+            }
+            return null;
+        }
+        // 到期复习优先：due_at 升序取第一张可练卡的题目；tag 与排除集合与本地引擎
+        // pickNext 同口径（显式筛选同样约束到期召回）。bankId 不约束 DUE 为既有服务端行为。
         for (Review card : reviewDao.findDue(userId, Instant.now())) {
+            if (query.excludes(card.getSentenceId())) {
+                continue;
+            }
             Optional<SentenceDetail> detail =
                     contentQueryService.findSentence(card.getSentenceId());
-            if (detail.isPresent() && detail.get().practiceable()) {
+            if (detail.isPresent()
+                    && detail.get().practiceable()
+                    && matchTag(detail.get(), query.tag())) {
                 return new NextPracticeView(detail.get(), toCardView(card), "DUE");
             }
         }
-        // 新题：跳过已入队（非 NEW）的句子，与本地引擎 selectNew 同语义。
+        // 新题：跳过已入队（非 NEW）的句子与排除集合，与本地引擎 selectNew 同语义。
         for (SentenceDetail candidate :
-                contentQueryService.findPracticeCandidates(bankId, excludeSentenceId, 20)) {
+                contentQueryService.findPracticeCandidates(
+                        query.bankId(), query.excludeIds(), query.tag(), 20)) {
             Optional<Review> card = reviewDao.findByUserIdAndSentenceId(userId, candidate.id());
             if (card.isPresent() && card.get().getState() != Review.ReviewState.NEW) {
                 continue;
@@ -747,6 +786,70 @@ public class PracticeServiceImpl implements PracticeService {
     @Override
     public PageResponse<WrongQuestionView> wrongQuestions(
             Long userId, int page, int size, boolean includeDisputed, Long bankId, String tag) {
+        List<WrongPoolRow> pool = wrongPool(userId, bankId, tag, includeDisputed);
+        // disputed overlay 一次批量取全池，避免逐行查 appeals（N+1）。
+        List<String> poolSentenceIds =
+                pool.stream().map(row -> row.card().getSentenceId()).toList();
+        Map<String, Set<String>> disputedKeysBySentence =
+                poolSentenceIds.isEmpty()
+                        ? Map.of()
+                        : appealDao.findDisputed(userId, poolSentenceIds).stream()
+                                .collect(
+                                        Collectors.groupingBy(
+                                                Appeal::getSentenceId,
+                                                Collectors.mapping(
+                                                        Appeal::getAnnotationKey,
+                                                        Collectors.toSet())));
+        List<WrongQuestionView> items = new ArrayList<>();
+        for (WrongPoolRow row : pool) {
+            Set<String> disputedKeys =
+                    disputedKeysBySentence.getOrDefault(row.card().getSentenceId(), Set.of());
+            List<WrongQuestionView.WrongAnnotationView> annotations =
+                    row.wrongAnnotations().stream()
+                            .map(
+                                    annotation ->
+                                            new WrongQuestionView.WrongAnnotationView(
+                                                    annotation.key(),
+                                                    annotation.tag(),
+                                                    annotation.message(),
+                                                    disputedKeys.contains(annotation.key())))
+                            // 被排除的批注默认从视图隐藏（includeDisputed=true 才显示）；
+                            // 行级隐藏已在错题池判定，这里只做批注级过滤。
+                            .filter(annotation -> includeDisputed || !annotation.disputed())
+                            .toList();
+            items.add(
+                    new WrongQuestionView(
+                            row.card().getSentenceId(),
+                            row.card().getMode().name(),
+                            row.card().getState().name(),
+                            row.card().getDueAt(),
+                            row.lastScore(),
+                            row.latestAttemptId(),
+                            gradingDao.countWrongByUserAndSentence(
+                                    userId, row.card().getSentenceId()),
+                            row.detail().tags() == null ? List.of() : row.detail().tags(),
+                            row.detail().zh(),
+                            annotations));
+        }
+        return pageOf(items, page, size);
+    }
+
+    /**
+     * 错题池：LEARNING 卡 + 最近判分未全对 + 题库/考点过滤（API §6.6）。
+     *
+     * <p>错题列表（wrongQuestions）与 errors=1 取题（next）共用同一口径，避免「今日页错题 chip
+     * 推的题不在错题列表里」的割裂。行级语义：最近一次判分未全对（REVEAL 的 null 分也算未全对）；
+     * 批注全被「不认同」且无其他错误的题隐藏（includeDisputed=false 时），看答案无批注的行同样 不进池（与既有错题列表行为一致，这里与本地引擎/mock 的唯一偏差，已在
+     * API §6.1 登记）。 顺序沿用 {@code findLearning} 的 dueAt 升序，同 dueAt 保持稳定序。
+     *
+     * @param userId 用户 id
+     * @param bankId 题库过滤，可空
+     * @param tag 考点过滤，可空
+     * @param includeDisputed true 时批注全被排除的行仍入池（错题列表 includeDisputed=true 口径）
+     * @return 错题池行，dueAt 升序
+     */
+    private List<WrongPoolRow> wrongPool(
+            Long userId, Long bankId, String tag, boolean includeDisputed) {
         List<Review> learning = reviewDao.findLearning(userId);
         List<String> sentenceIds = learning.stream().map(Review::getSentenceId).toList();
         Map<String, List<Appeal>> disputesBySentence =
@@ -754,7 +857,7 @@ public class PracticeServiceImpl implements PracticeService {
                         ? Map.of()
                         : appealDao.findDisputed(userId, sentenceIds).stream()
                                 .collect(Collectors.groupingBy(Appeal::getSentenceId));
-        List<WrongQuestionView> items = new ArrayList<>();
+        List<WrongPoolRow> pool = new ArrayList<>();
         for (Review card : learning) {
             SentenceDetail detail =
                     contentQueryService
@@ -790,36 +893,35 @@ public class PracticeServiceImpl implements PracticeService {
                                     .stream()
                                     .filter(annotation -> !annotation.correct())
                                     .toList();
-            List<WrongQuestionView.WrongAnnotationView> annotations =
+            // 批注全部被排除且无其他错误的题不出现在错题列表（API §6.6）；
+            // includeDisputed=true 时被排除批注仍可见，故只要求存在错批注。
+            boolean hasVisibleAnnotation =
                     wrongAnnotations.stream()
-                            .map(
+                            .anyMatch(
                                     annotation ->
-                                            new WrongQuestionView.WrongAnnotationView(
-                                                    annotation.key(),
-                                                    annotation.tag(),
-                                                    annotation.message(),
-                                                    disputedKeys.contains(annotation.key())))
-                            .filter(annotation -> includeDisputed || !annotation.disputed())
-                            .toList();
-            // 批注全部被排除且无其他错误的题不出现在错题列表（API §6.6）。
-            if (annotations.isEmpty()) {
+                                            includeDisputed
+                                                    || !disputedKeys.contains(annotation.key()));
+            if (!hasVisibleAnnotation) {
                 continue;
             }
-            items.add(
-                    new WrongQuestionView(
-                            card.getSentenceId(),
-                            card.getMode().name(),
-                            card.getState().name(),
-                            card.getDueAt(),
+            pool.add(
+                    new WrongPoolRow(
+                            card,
+                            detail,
                             lastScore,
                             latestAttempt.get().getId(),
-                            gradingDao.countWrongByUserAndSentence(userId, card.getSentenceId()),
-                            detail.tags() == null ? List.of() : detail.tags(),
-                            detail.zh(),
-                            annotations));
+                            wrongAnnotations));
         }
-        return pageOf(items, page, size);
+        return pool;
     }
+
+    /** 错题池行：复习卡 + 判分快照，错题列表与 errors=1 取题共用。 */
+    private record WrongPoolRow(
+            Review card,
+            SentenceDetail detail,
+            Integer lastScore,
+            String latestAttemptId,
+            List<GradingAnnotation> wrongAnnotations) {}
 
     @Override
     public PageResponse<ReviewCardView> reviews(

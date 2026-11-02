@@ -11,6 +11,7 @@ import io.github.codejinxz.yilian.practice.service.PracticeService;
 import io.github.codejinxz.yilian.practice.service.dto.AppealRequest;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
 import io.github.codejinxz.yilian.practice.service.dto.DisputeRequest;
+import io.github.codejinxz.yilian.practice.service.dto.NextQuery;
 import io.github.codejinxz.yilian.practice.service.dto.PostponeRequest;
 import io.github.codejinxz.yilian.practice.service.dto.ReviewResetRequest;
 import io.github.codejinxz.yilian.practice.service.vo.AppealView;
@@ -233,26 +234,41 @@ public class PracticeController {
     }
 
     /**
-     * 取下一题：优先到期复习，其次新题；没有可练题时 data=null（HTTP 200，不是 404）。
+     * 取下一题：指定句优先（MANUAL），其次错题（errors=1），再次到期复习与新题；没有可练题时 data=null（HTTP 200，不是 404）。
      *
      * @param bankId 题库过滤，可空
      * @param mode 模式过滤（CLOZE/FREE）；Q1 一句一卡下选题不按模式区分，仅做取值校验
-     * @param excludeSentenceId 排除题目，可空
+     * @param excludeSentenceId 排除题目（旧单题参数），可空
+     * @param sentenceId 指定句重练，可空；命中且可练直接返回，找不到退回常规取题（不 404）
+     * @param tag 考点筛选，可空
+     * @param errors 错题开关；仅字面量 "1" 为 true，其余取值静默归一为 false（与本地引擎一致，不返回 400）
+     * @param excludeIds 逗号分隔的多题排除列表，可空；与 excludeSentenceId 合并去重
      * @param principal 当前用户
      * @return 下一题视图；无题时 data 为 null
      */
     @Operation(
             summary = "取下一题",
             description =
-                    "优先到期复习（selection=DUE），其次新题（selection=NEW）；" + "没有可练题时 data=null，客户端显示空状态。")
+                    "指定句（sentenceId）优先（selection=MANUAL，无卡则 NEW），其次错题（errors=1，"
+                            + "selection=DUE），再次到期复习（DUE）与新题（NEW）；没有可练题时 data=null，"
+                            + "客户端显示空状态。excludeIds 为逗号分隔列表，与 excludeSentenceId 合并去重；"
+                            + "非法参数静默归一（errors 只认 \"1\"，空白 tag/sentenceId 视为未提供）。")
     @GetMapping("/next")
     public ApiResponse<NextPracticeView> next(
             @RequestParam(required = false) Long bankId,
             @RequestParam(required = false) String mode,
             @RequestParam(name = "excludeSentenceId", required = false) String excludeSentenceId,
+            @RequestParam(required = false) String sentenceId,
+            @RequestParam(required = false) String tag,
+            @RequestParam(required = false) String errors,
+            @RequestParam(required = false) String excludeIds,
             @AuthenticationPrincipal YilianUserPrincipal principal) {
         requireValidMode(mode);
-        return ApiResponse.success(practiceService.next(principal.id(), bankId, excludeSentenceId));
+        return ApiResponse.success(
+                practiceService.next(
+                        principal.id(),
+                        NextQuery.normalize(
+                                bankId, sentenceId, tag, errors, excludeSentenceId, excludeIds)));
     }
 
     /**

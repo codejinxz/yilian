@@ -253,16 +253,17 @@ public class ContentQueryServiceImpl implements ContentQueryService {
      * <p>单条 MyBatis JOIN 直出（AGENTS §3.1 复杂查询归 MyBatis）；快照缺失的候选在 JOIN 中天然丢弃：练习不能用残缺数据，宁可少一题也不能崩一次拉题。
      *
      * @param bankId 题库 id，可为 null
-     * @param excludeSentenceId 排除题目
+     * @param excludeIds 排除题目集合，可空
+     * @param tag 考点筛选，可为 null
      * @param limit 最多条数
      * @return 候选题目
      */
     @Override
     @Transactional(readOnly = true)
     public List<SentenceDetail> findPracticeCandidates(
-            Long bankId, String excludeSentenceId, int limit) {
+            Long bankId, Collection<String> excludeIds, String tag, int limit) {
         List<PracticeCandidateRow> rows =
-                practiceCandidateQueryDao.findCandidates(bankId, excludeSentenceId, limit);
+                practiceCandidateQueryDao.findCandidates(bankId, excludeIds, tag, limit);
         return rows.stream().map(this::toDetail).toList();
     }
 

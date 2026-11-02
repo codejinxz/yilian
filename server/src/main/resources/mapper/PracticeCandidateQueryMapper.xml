@@ -9,7 +9,9 @@
       - 题目可见性：status=PUBLISHED 且未软删；
       - INNER JOIN 当前快照：快照缺失（current_version_id 为 NULL 或指向缺失行）的候选天然丢弃；
       - 排序与原实现一致：created_at 升序、id 升序（同秒内按 ULID 稳定）；
-      - 动态条件：bankId / excludeSentenceId 任一可为空。
+      - 动态条件：bankId / excludeIds / tag 任一可为空。
+      - 考点用 JSON_CONTAINS 做「数组精确成员」匹配，与错题列表的内存 matchTag 同口径；
+        不用 LIKE，避免「搭配」误命中「固定搭配」这类包含关系的考点名。
     -->
     <select id="findCandidates"
             resultType="io.github.codejinxz.yilian.content.dao.PracticeCandidateRow">
@@ -36,8 +38,14 @@
         <if test="bankId != null">
             AND s.bank_id = #{bankId}
         </if>
-        <if test="excludeSentenceId != null and excludeSentenceId != ''">
-            AND s.id != #{excludeSentenceId}
+        <if test="excludeIds != null and !excludeIds.isEmpty()">
+            AND s.id NOT IN
+            <foreach collection="excludeIds" item="excludedId" open="(" separator="," close=")">
+                #{excludedId}
+            </foreach>
+        </if>
+        <if test="tag != null and tag != ''">
+            AND JSON_CONTAINS(v.tags, JSON_QUOTE(#{tag}))
         </if>
         ORDER BY s.created_at ASC, s.id ASC
         LIMIT #{limit}

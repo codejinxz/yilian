@@ -28,6 +28,7 @@ import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 import io.github.codejinxz.yilian.practice.grading.GradingResult;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
+import io.github.codejinxz.yilian.practice.service.dto.NextQuery;
 import io.github.codejinxz.yilian.practice.service.vo.AppealView;
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
 import io.github.codejinxz.yilian.practice.service.vo.NextPracticeView;
@@ -294,7 +295,7 @@ class PracticeControllerTest {
     /** next 无可练题：data=null 且 HTTP 200（不是 404）。 */
     @Test
     void nextReturnsNullDataWhenEmpty() throws Exception {
-        when(practiceService.next(eq(7L), isNull(), isNull())).thenReturn(null);
+        when(practiceService.next(eq(7L), any(NextQuery.class))).thenReturn(null);
         mockMvc.perform(
                         get("/api/practice/next")
                                 .with(
@@ -338,11 +339,13 @@ class PracticeControllerTest {
     }
 
     /**
-     * next 成功：bankId/excludeSentenceId 透传，mode 仅做取值校验不参与选题（Q1 一句一卡），信封承载 sentence/review/selection。
+     * next 成功：bankId/excludeSentenceId 透传（归一化为 excludeIds 集合），mode 仅做取值校验不参与选题（Q1 一句一卡），信封承载
+     * sentence/review/selection。
      */
     @Test
     void nextForwardsFiltersAndReturnsSelectionEnvelope() throws Exception {
-        when(practiceService.next(7L, 1L, "01JSENTENCE"))
+        when(practiceService.next(
+                        eq(7L), eq(new NextQuery(1L, null, null, false, List.of("01JSENTENCE")))))
                 .thenReturn(
                         new NextPracticeView(
                                 publishedSentence(), reviewCard(10L, "LEARNING"), "DUE"));
@@ -362,7 +365,65 @@ class PracticeControllerTest {
                 .andExpect(jsonPath("$.data.review.id").value(10))
                 .andExpect(jsonPath("$.data.selection").value("DUE"));
         // mode 通过取值校验但不透传 Service（一句一卡下不参与选题）。
-        verify(practiceService).next(7L, 1L, "01JSENTENCE");
+        verify(practiceService)
+                .next(eq(7L), eq(new NextQuery(1L, null, null, false, List.of("01JSENTENCE"))));
+    }
+
+    /**
+     * [AC-1] D7 四参数透传并静默归一：excludeIds 逗号串 trim/去空/去重并与 excludeSentenceId 合并，errors 只认 "1"，空白 tag
+     * 归一为 null。
+     */
+    @Test
+    void nextNormalizesD7ParamsSilently_ac1() throws Exception {
+        when(practiceService.next(eq(7L), any(NextQuery.class)))
+                .thenReturn(new NextPracticeView(publishedSentence(), null, "NEW"));
+        mockMvc.perform(
+                        get("/api/practice/next")
+                                .queryParam("sentenceId", " 01SPECIFIED ")
+                                .queryParam("tag", " 副词结构 ")
+                                .queryParam("errors", "1")
+                                .queryParam("excludeIds", " 01A , 01B ,,01A ")
+                                .queryParam("excludeSentenceId", "01B")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.selection").value("NEW"));
+        // 归一化结果：sentenceId/tag 去空白；excludeIds=[01B,01A]（excludeSentenceId 先入集、重复与空段丢弃）；
+        // errors=1 → true。与本地引擎 handleLocalRequest 的归一口径一致。
+        verify(practiceService)
+                .next(
+                        eq(7L),
+                        eq(
+                                new NextQuery(
+                                        null, "01SPECIFIED", "副词结构", true, List.of("01B", "01A"))));
+    }
+
+    /** [AC-1] D7 errors 非 "1" 静默归一为 false：不返回 400，与本地引擎 params.get("errors")==="1" 同口径。 */
+    @Test
+    void nextTreatsErrorsOtherThanOneAsFalse_ac1() throws Exception {
+        when(practiceService.next(eq(7L), any(NextQuery.class)))
+                .thenReturn(new NextPracticeView(publishedSentence(), null, "NEW"));
+        mockMvc.perform(
+                        get("/api/practice/next")
+                                .queryParam("errors", "0")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isOk());
+        mockMvc.perform(
+                        get("/api/practice/next")
+                                .queryParam("errors", "true")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isOk());
+        verify(practiceService, org.mockito.Mockito.times(2))
+                .next(eq(7L), eq(new NextQuery(null, null, null, false, List.of())));
     }
 
     /** next 的 mode 非法取值：40000 拦在 Controller，不触达 Service。 */
