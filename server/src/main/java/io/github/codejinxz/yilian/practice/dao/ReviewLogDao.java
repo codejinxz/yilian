@@ -2,6 +2,7 @@ package io.github.codejinxz.yilian.practice.dao;
 
 import io.github.codejinxz.yilian.practice.entity.ReviewLog;
 
+import java.util.List;
 import java.util.Optional;
 
 /** FSRS 排程日志 Dao（append-only）。 */
@@ -22,4 +23,12 @@ public interface ReviewLogDao {
      * @return 日志
      */
     Optional<ReviewLog> findByAttemptId(String attemptId);
+
+    /**
+     * 用户的全部排程日志（FSRS 优化器训练集），按 id 升序（插入序即时间序）。
+     *
+     * @param userId 用户 id
+     * @return 日志列表
+     */
+    List<ReviewLog> findByUserId(Long userId);
 }

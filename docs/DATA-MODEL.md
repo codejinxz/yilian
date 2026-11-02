@@ -641,7 +641,8 @@ UI 三档映射（确定性投影）：
 - 每个 owner 最多一个 `ACTIVE`；新版本先 `CANDIDATE`，管理员启用后旧的置 `RETIRED`。
 - `weights` 不可变；改参数 = 新行。
 - 全局默认权重由启动引导幂等写入（无则插入），不走 Flyway 数据文件。
-- 完整 FSRS 优化器写入 `CANDIDATE`；没有真实复习数据前不产生候选，不伪造优化结果。
+- 口径澄清（2026-11-03，014/M2.1）：当前仓库以 V9 Flyway 种子行充当这一行（GLOBAL 原型占位权重，迁移随 V9 一次性落库）——「启动引导写入」的最终形态以优化器/种子链路落地时为准，两者幂等语义一致：有 ACTIVE 则不覆盖。
+- 完整 FSRS 优化器写入 `CANDIDATE`；没有真实复习数据前不产生候选，不伪造优化结果。M2.1 已落地：优化器读指定用户 `review_logs`，BCE 损失全批 Adam（确定性、无随机种子），产出 21 维候选（§8.5）；样本 <50 拒绝。
 
 ### 5.14 `admin_audit_log`
 
@@ -947,12 +948,12 @@ UI 三档映射（确定性投影）：
 ### 6.8 `fsrs_parameter_versions.weights`
 
 ```json
-[0.2172, 1.1177, 3.2602, 16.1507, 7.0114, 0.57, 2.0966, 0.0069,
+[0.2172, 1.1771, 3.2602, 16.1507, 7.0114, 0.57, 2.0966, 0.0069,
  1.5261, 0.112, 1.0178, 1.849, 0.1133, 0.3127, 2.2934, 0.2191,
  3.0004, 0.7536, 0.3332, 0.1437, 0.2]
 ```
 
-- 21 个 double，FSRS-6 默认权重顺序；长度必须为 21。
+- 21 个 double，FSRS-6 默认权重顺序（与 java-fsrs 1.0.0 `Scheduler.DEFAULT_PARAMETERS` 一致，2026-11-03 勘误原第二个值 1.1177→1.1771）；长度必须为 21。
 - 只允许追加新版本，不改旧行；`java-fsrs` 的 `Scheduler.parameters(double[])` 接受该数组。
 - 参数版本与 `algorithm` 绑定；换算法必须新版本。
 
@@ -1106,11 +1107,12 @@ RELEARNING --rating>=GOOD--> REVIEW
 ### 8.5 参数优化
 
 - 数据源：`review_logs`（rating、时间、S/E/D 前后值、间隔）。
-- 触发：管理员手动触发或每日低峰任务；样本数 < 500 不运行，避免过拟合。
+- 触发：管理员手动触发（`POST /api/admin/fsrs/optimize`，body 指定训练数据所属用户）；样本数 < 50 不运行（014/M2.1 收紧自原 500：单人产品日志量级下 500 永远不触发），避免过拟合。
+- 实现：M2.1 内置 `java-sgd-m2.1`（practice/optimizer，FSRS-6 可召回模型 BCE 损失 + 全批 Adam，确定性无随机种子；训练读数直接调用 fsrs 库对象与 FSRS-6 公式对拍）。原计划的「离线 py-fsrs」不采用，无需 sidecar。
 - 输出：`fsrs_parameter_versions` 新 `CANDIDATE`，`metrics` 记录 logLoss/RMSE；不自动 ACTIVE。
 - 启用：管理员确认后 ACTIVE；旧 ACTIVE RETIRED；写 `admin_audit_log`。
 - 回滚：把旧版本重新 ACTIVE，新版本 RETIRED；不删除版本。
-- 实现位置：M2.1 独立切片；M2 不承诺优化器上线，只承诺表和调度。
+- 实现位置：M2.1 已落地（014 切片）：`practice/optimizer`（SGD 核心）+ `practice/scheduler`（权重解码）+ `practice/controller/AdminFsrsController`（三端点）；调度消费 ACTIVE 权重走同一四分支公式换参，GLOBAL 原型种子下与本地引擎常量逐值一致。
 
 ---
 

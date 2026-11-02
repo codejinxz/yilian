@@ -252,4 +252,22 @@ public class ReviewLog {
     public short getRating() {
         return rating;
     }
+
+    /**
+     * 复习发生时间（优化器训练集的时间轴）。
+     *
+     * @return UTC
+     */
+    public Instant getReviewAt() {
+        return reviewAt;
+    }
+
+    /**
+     * 复习卡 id（优化器按卡分组重放）。
+     *
+     * @return reviews.id
+     */
+    public Long getReviewId() {
+        return reviewId;
+    }
 }

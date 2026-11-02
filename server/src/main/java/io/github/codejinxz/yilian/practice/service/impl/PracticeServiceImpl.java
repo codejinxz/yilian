@@ -8,7 +8,6 @@ import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 import io.github.codejinxz.yilian.practice.dao.AppealDao;
 import io.github.codejinxz.yilian.practice.dao.AttemptDao;
 import io.github.codejinxz.yilian.practice.dao.AttemptGradingDao;
-import io.github.codejinxz.yilian.practice.dao.FsrsParameterVersionDao;
 import io.github.codejinxz.yilian.practice.dao.ReviewDao;
 import io.github.codejinxz.yilian.practice.dao.ReviewLogDao;
 import io.github.codejinxz.yilian.practice.entity.Appeal;
@@ -19,6 +18,8 @@ import io.github.codejinxz.yilian.practice.entity.ReviewLog;
 import io.github.codejinxz.yilian.practice.grading.Grader;
 import io.github.codejinxz.yilian.practice.grading.GradingAnnotation;
 import io.github.codejinxz.yilian.practice.grading.GradingResult;
+import io.github.codejinxz.yilian.practice.scheduler.FsrsScheduleParams;
+import io.github.codejinxz.yilian.practice.scheduler.FsrsScheduler;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
 import io.github.codejinxz.yilian.practice.service.dto.AnswerPayload;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
@@ -94,7 +95,7 @@ public class PracticeServiceImpl implements PracticeService {
 
     private final AppealDao appealDao;
 
-    private final FsrsParameterVersionDao fsrsParameterVersionDao;
+    private final FsrsScheduler fsrsScheduler;
 
     private final ContentQueryService contentQueryService;
 
@@ -110,7 +111,7 @@ public class PracticeServiceImpl implements PracticeService {
      * @param reviewDao 复习卡 Dao
      * @param reviewLogDao 排程日志 Dao
      * @param appealDao 申诉/不认同 Dao（disputed overlay）
-     * @param fsrsParameterVersionDao 权重版本 Dao
+     * @param fsrsScheduler FSRS 排程参数装配（ACTIVE 权重解码）
      * @param contentQueryService 题目内容只读查询（content 模块）
      * @param userAccountService 用户设置查询（system 模块）
      * @param objectMapper JSON 序列化（答案载荷与判分结果落库）
@@ -121,7 +122,7 @@ public class PracticeServiceImpl implements PracticeService {
             ReviewDao reviewDao,
             ReviewLogDao reviewLogDao,
             AppealDao appealDao,
-            FsrsParameterVersionDao fsrsParameterVersionDao,
+            FsrsScheduler fsrsScheduler,
             ContentQueryService contentQueryService,
             UserAccountService userAccountService,
             ObjectMapper objectMapper) {
@@ -130,7 +131,7 @@ public class PracticeServiceImpl implements PracticeService {
         this.reviewDao = reviewDao;
         this.reviewLogDao = reviewLogDao;
         this.appealDao = appealDao;
-        this.fsrsParameterVersionDao = fsrsParameterVersionDao;
+        this.fsrsScheduler = fsrsScheduler;
         this.contentQueryService = contentQueryService;
         this.userAccountService = userAccountService;
         this.objectMapper = objectMapper;
@@ -554,14 +555,11 @@ public class PracticeServiceImpl implements PracticeService {
                 reviewDao
                         .findByUserIdAndSentenceId(attempt.getUserId(), attempt.getSentenceId())
                         .orElse(null);
-        Long weightsVersionId =
-                fsrsParameterVersionDao
-                        .findActiveGlobalId()
-                        .orElseThrow(
-                                () ->
-                                        new BusinessException(
-                                                ApiCode.INTERNAL_ERROR,
-                                                "缺少 GLOBAL ACTIVE 的 FSRS 权重版本"));
+        // 调度消费 ACTIVE 权重：四分支公式形状不变，五个常数来自权重版本（GLOBAL 原型种子
+        // 解码后即本地引擎常量 2.4/5.3/3.2/5.1/40.0，golden 逐值不变；启用优化器候选后同公式换参）。
+        FsrsScheduler.ActiveSchedule active = fsrsScheduler.activeGlobal();
+        long weightsVersionId = active.versionId();
+        FsrsScheduleParams params = active.params();
 
         if (failed) {
             if (card == null) {
@@ -572,6 +570,8 @@ public class PracticeServiceImpl implements PracticeService {
                                 attempt.getMode(),
                                 attempt.getId(),
                                 rating,
+                                params.failStability(),
+                                params.failDifficulty(),
                                 now);
                 reviewDao.save(created);
                 reviewLogDao.save(
@@ -585,7 +585,8 @@ public class PracticeServiceImpl implements PracticeService {
                 return created;
             }
             Review.Snapshot snapshot = Review.Snapshot.of(card, now);
-            card.applyFailed(attempt.getId(), rating, now);
+            card.applyFailed(
+                    attempt.getId(), rating, params.failStability(), params.failDifficulty(), now);
             card.touchMode(attempt.getMode());
             reviewDao.save(card);
             reviewLogDao.save(
@@ -599,7 +600,13 @@ public class PracticeServiceImpl implements PracticeService {
         }
         Review.Snapshot snapshot = Review.Snapshot.of(card, now);
         if (card.getState() == Review.ReviewState.LEARNING) {
-            card.applyLearningGraduated(attempt.getId(), rating, now);
+            card.applyLearningGraduated(
+                    attempt.getId(),
+                    rating,
+                    params.learningStability(),
+                    params.learningDifficulty(),
+                    params.masteredStability(),
+                    now);
             card.touchMode(attempt.getMode());
         } else {
             card.applyMasteredReview(attempt.getId(), rating, now);

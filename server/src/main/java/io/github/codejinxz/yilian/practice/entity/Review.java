@@ -113,13 +113,17 @@ public class Review {
     }
 
     /**
-     * 创建失败入队的复习卡（LEARNING、明天到期、原型初值）。
+     * 创建失败入队的复习卡（LEARNING、明天到期）。
+     *
+     * <p>稳定度/难度由 ACTIVE 权重版本的排程参数给出（原型权重下即 2.4/5.3，与本地引擎逐值一致）； 实体不解析权重 JSON，保持纯状态机。
      *
      * @param userId 用户 id
      * @param sentenceId 题目 ULID
      * @param mode 最近练习模式
      * @param attemptId 触发提交 id
      * @param rating 本轮评分
+     * @param failStability 失败分支稳定度（排程参数）
+     * @param failDifficulty 失败分支难度（排程参数）
      * @param now 服务端时钟
      * @return 未持久化的复习卡
      */
@@ -129,10 +133,12 @@ public class Review {
             Attempt.AttemptMode mode,
             String attemptId,
             int rating,
+            double failStability,
+            double failDifficulty,
             Instant now) {
         Review review = new Review(userId, sentenceId, mode, now);
-        review.stability = 2.4;
-        review.difficulty = 5.3;
+        review.stability = failStability;
+        review.difficulty = failDifficulty;
         review.reps = 1;
         review.lapses = 1;
         review.elapsedDays = 0;
@@ -190,18 +196,30 @@ public class Review {
     /**
      * 全对学习分支：interval=min(7, scheduled+2)；≥5 归档。
      *
+     * <p>间隔机制（+2 步进、封顶 7、≥5 归档）是产品节奏决策（D-006「两全对归档」），不随权重变化； 稳定度/难度由 ACTIVE 权重版本的排程参数给出（原型权重下即
+     * 3.2/5.1 与归档 40.0）。
+     *
      * @param attemptId 触发提交 id
      * @param rating 本轮评分
+     * @param learningStability 学习分支稳定度（排程参数）
+     * @param learningDifficulty 学习分支难度（排程参数）
+     * @param masteredStability 归档分支稳定度（排程参数）
      * @param now 服务端时钟
      */
-    public void applyLearningGraduated(String attemptId, int rating, Instant now) {
+    public void applyLearningGraduated(
+            String attemptId,
+            int rating,
+            double learningStability,
+            double learningDifficulty,
+            double masteredStability,
+            Instant now) {
         int interval = Math.min(7, this.scheduledDays + 2);
         boolean mastered = interval >= 5;
         this.state = mastered ? ReviewState.MASTERED : ReviewState.LEARNING;
         this.fsrsState = mastered ? FsrsState.REVIEW : FsrsState.LEARNING;
         this.dueAt = now.plusSeconds(interval * 86_400L);
-        this.stability = mastered ? 40 : 3.2;
-        this.difficulty = 5.1;
+        this.stability = mastered ? masteredStability : learningStability;
+        this.difficulty = learningDifficulty;
         this.reps = this.reps + 1;
         this.scheduledDays = interval;
         this.lastRating = (short) rating;
@@ -209,13 +227,28 @@ public class Review {
         this.lastAttemptId = attemptId;
     }
 
-    /** 失败分支：回炉 LEARNING、明天到期。 */
-    public void applyFailed(String attemptId, int rating, Instant now) {
+    /**
+     * 失败分支：回炉 LEARNING、明天到期。
+     *
+     * <p>稳定度/难度由 ACTIVE 权重版本的排程参数给出（原型权重下即 2.4/5.3）。
+     *
+     * @param attemptId 触发提交 id
+     * @param rating 本轮评分
+     * @param failStability 失败分支稳定度（排程参数）
+     * @param failDifficulty 失败分支难度（排程参数）
+     * @param now 服务端时钟
+     */
+    public void applyFailed(
+            String attemptId,
+            int rating,
+            double failStability,
+            double failDifficulty,
+            Instant now) {
         this.state = ReviewState.LEARNING;
         this.fsrsState = FsrsState.LEARNING;
         this.dueAt = now.plusSeconds(86_400L);
-        this.stability = 2.4;
-        this.difficulty = 5.3;
+        this.stability = failStability;
+        this.difficulty = failDifficulty;
         this.reps = this.reps + 1;
         this.lapses = this.lapses + 1;
         this.elapsedDays = 0;

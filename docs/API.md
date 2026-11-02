@@ -1628,6 +1628,66 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 
 字段回溯：`admin_audit_log.*`。
 
+### 8.13 `/api/admin/fsrs`（implemented，014/M2.1）
+
+FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启用状态机。fsrs 属 practice 域，控制器在 practice 模块；权限由 `/api/admin/**` 的服务端 `ROLE_ADMIN` 规则统一把关。
+
+### 8.13.1 `POST /api/admin/fsrs/optimize`
+
+用途：读指定用户的 `review_logs` 训练 21 维候选权重，写 `fsrs_parameter_versions` 的 GLOBAL CANDIDATE 行（单人产品语境：训练数据归属必须显式指定，不做「默认优化自己」的隐式绑定）。
+
+请求：`{ "userId": 7 }`（`userId` 必填；缺失 40000，无 Content-Type 41500）。
+
+- 样本 < 50 条 → `40000`（「复习样本不足 50 条」），不写任何行、不伪造已优化。
+- 训练口径：FSRS-6 可召回模型 BCE 损失，全批 Adam（确定性，无随机种子），迭代/学习率固定并落 `metrics`；训练读数（可提取率/记忆状态模拟）直接调用 fsrs 库对象，与 FSRS-6 公式逐值对拍（`FsrsOptimizerTest`）。
+- `metrics` 形状见 DATA-MODEL §6.9：`sampleCount`/`lossEvents`/`logLoss`/`rmse`/`optimizer`（`java-sgd-m2.1`）/`optimizerVersion`/`iterations`/`learningRate`/`initialLoss`。
+- 审计：`@OperationLog(module=practice, action=FSRS_OPTIMIZE)`。
+
+响应 `data`：`FsrsParameterVersionView`（见 8.13.3）。
+
+错误：`40000`、`40001`、`40100`、`40300`、`41500`、`50000`。
+
+### 8.13.2 `GET /api/admin/fsrs/parameters`
+
+用途：全部版本行，创建时间倒序、id 倒序；含 weights（21 维数组）与 metrics。读接口，不标操作日志。
+
+响应 `data`：`FsrsParameterVersionView[]`。
+
+错误：`40100`、`40300`。
+
+### 8.13.3 `POST /api/admin/fsrs/parameters/{id}/enable`
+
+用途：启用候选版本。仅 `CANDIDATE` 可启用（其余状态 `40000`）；未知 id `40400`。同一事务内：旧 GLOBAL ACTIVE 即时置 RETIRED（bulk UPDATE 先落库，避免 `uk_fsrs_active_owner` 函数索引看到双 ACTIVE）、候选置 ACTIVE。调度自下一次排程起消费新权重（四分支公式形状不变，参数换源——GLOBAL 原型种子下与本地引擎常量逐值一致，golden 不变）。
+
+响应 `data`：启用后的 `FsrsParameterVersionView`。
+
+审计：`@OperationLog(module=practice, action=FSRS_ENABLE)`，targetId 由 `OperationLogContext` 动态写入。
+
+`FsrsParameterVersionView` 形状：
+
+```json
+{
+  "id": 33,
+  "algorithm": "FSRS-6",
+  "ownerType": "GLOBAL",
+  "status": "CANDIDATE",
+  "weights": [0.2172, 1.1771, 3.2602, 16.1507, 7.0114, 0.57, 2.0966, 0.0069, 1.5261, 0.112,
+               1.0178, 1.849, 0.1133, 0.3127, 2.2934, 0.2191, 3.0004, 0.7536, 0.3332, 0.1437, 0.2],
+  "sampleCount": 1200,
+  "metrics": {"schemaVersion": 1, "sampleCount": 1200, "lossEvents": 1050, "logLoss": 0.2279,
+               "rmse": 0.2544, "optimizer": "java-sgd-m2.1", "optimizerVersion": "1.0",
+               "iterations": 300, "learningRate": 0.05, "initialLoss": 0.2557},
+  "optimizedAt": "2026-11-03T00:00:00Z",
+  "createdAt": "2026-11-03T00:00:00Z",
+  "reason": "SGD 优化目标用户 7 的复习日志"
+}
+```
+
+- `metrics` 为 null（V9 种子行）时响应中缺省。
+- 状态机：`CANDIDATE → ACTIVE → RETIRED`；不提供「回滚到旧版本」端点（把旧候选重新训练/走管理流程，M2.1 不做状态回跳）。
+
+字段回溯：`fsrs_parameter_versions.*`。
+
 ## 9. 字段回溯对照
 
 > 规则：每个字段必须能落到 `DATA-MODEL.md` 的表列；找不到的标“派生”，并写来源。嵌套对象按 `parent.child` 列。
@@ -1766,6 +1826,7 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 | Admin | `GET /api/admin/overview`、`GET /api/admin/users`、`PATCH /api/admin/users/{id}/status`、`PATCH /api/admin/users/{id}/role`、`POST /api/admin/invites`、`GET /api/admin/invites`（011-a） | 概览聚合（活跃=attempts 当日去重用户，UTC 日界）、用户检索分页、启停/改角色（审计经 `OperationLogContext`）、邀请码生成（明文一次性）/前缀列表 | `AdminOverviewControllerTest`、`AdminUserControllerTest`、`AdminInviteControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse 形状、reason 越界 40000、40001、审计上下文断言）；service 分支另由 `UserAccountServiceImplTest`（自己停自己/自己降自己/邀请码哈希落库）、`AdminOverviewServiceImplTest`（补 0 与活动组装）覆盖 |
 | Admin | `GET/POST /api/admin/banks`、`GET/PATCH/DELETE /api/admin/banks/{bankId}`、`GET /api/admin/banks/{bankId}/sentences`、`GET /api/admin/sentences`、`POST /api/admin/sentences/bulk-status`、`POST /api/admin/sentences/bulk-move`、`PATCH /api/admin/sentences/{sentenceId}/status`、`PATCH /api/admin/sentences/{sentenceId}`（011-b） | 题库检索/新建/详情/部分更新/软删（状态流转 RECYCLED，恢复清 `deleted_at`）、题库内与跨题库题目检索（跨题库缺省隐藏回收站）、批量状态/移动（单事务；不存在的 id 与无变化 id 跳过、计数如实返回；每题递增银行修订号；移动预检指纹冲突 40000）、单题状态流转（幂等不推进）、行内编辑（zh/level/tags/note 走新版本行并回填指纹/content_hash，bankId/status 走元字段；编辑先于移动，预检用新指纹） | `AdminBankControllerTest`、`AdminSentenceControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse/SentenceView 形状、reason/ids/zh 校验 40000、缺体 40001、40401/40402、审计上下文断言）；批量与列表/编辑语义另由 `ContentAdminServiceImplTest`（每题递增版本、悲观锁按题库 id 升序、跳过语义、恢复清软删、版本字段新版本行、非法枚举 40000/分页 40004）覆盖 |
 | Admin | `GET /api/admin/audit-logs`、`GET /api/admin/error-logs`、`GET /api/admin/error-logs/{id}`、`POST /api/admin/generation/import`、`POST /api/admin/audit-events`（012） | 操作日志/异常日志检索（分区表强制时间兜底：from/to 缺省近 30 天；size 上限 100 越界归 100；keyword LIKE 转义纯 contains；异常列表剥离 stackTrace、详情含堆栈缺失 40400）、出题导入（复用 content 导入接缝，指纹去重 40904 整批回滚，行校验与文件导入同口径、拼接比对按前端 normLoose 宽松归一，不建 upload 批次）、审计事件（动作白名单防污染，返回字符串 id） | `AdminAuditLogControllerTest`、`AdminErrorLogControllerTest`、`AdminGenerationControllerTest`、`AdminAuditEventControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse/批次视图形状、stackTrace 剥离与详情、审计上下文/字符串 id 断言）；服务层分支另由 `AdminLogServiceImplTest`（时间兜底/转义/size 归一/40000/40400）、`AdminGenerationServiceImplTest`（行校验 fail-fast/接缝透传/40904 上抛）、`AdminAuditEventServiceImplTest`（白名单/行形状）覆盖；题库「空串清空说明」契约由 `ContentAdminServiceImplTest` 补测（012 AC-5） |
+| Admin/Practice | `POST /api/admin/fsrs/optimize`、`GET /api/admin/fsrs/parameters`、`POST /api/admin/fsrs/parameters/{id}/enable`（014/M2.1） | FSRS 参数版本管理：SGD 优化读指定用户 review_logs 产 GLOBAL CANDIDATE（样本 <50 40000 拒绝、metrics 携训练摘要）、版本列表、启用状态机（仅 CANDIDATE；旧 ACTIVE bulk UPDATE 即时退役防 uk 撞键；审计 FSRS_OPTIMIZE/FSRS_ENABLE）；启用后调度消费新权重（§6.1 四分支参数换源，原型种子逐值不变） | `AdminFsrsControllerTest`（切片：匿名 401/非管理员 403、40000/40001/41500、信封与视图形状、审计注解口径）；`FsrsAdminIntegrationTest`（真实 MySQL：真实日志训练产 CANDIDATE、样本不足不落行、启用状态机/40000/40400、启用后失败排程 stability=w[0]/difficulty=w[4] 且 weights_version_id 绑新版本）；优化器数学另由 `FsrsOptimizerTest`（FSRS-6 闭式/BCE 手算对拍、合成数据收敛）覆盖 |
 | 运维 | `/actuator/health` | 非业务 | `AuthFlowIntegrationTest`（healthIsPublicAndUp） |
 
 ### 10.2 过渡实现（不纳入冻结契约）
@@ -1810,6 +1871,7 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 | 2026-11-01 | v0.3.2 | 011-a 管理端用户域落地：§8.1–8.3 改 implemented（§8.2 审计 action 修正为 USER_STATUS_CHANGE、refresh 会话语义对齐实现），新增 §8.9 概览与 §8.10 邀请码（GET 列表改回 codePrefix，明文仅 POST 一次性返回）；§10.1 矩阵补 Admin 行（AdminOverview/User/Invite ControllerTest + UserAccountServiceImplTest/AdminOverviewServiceImplTest） | 实现工程师 |
 | 2026-11-02 | v0.6 | 012 管理端收尾波次：§8.4–8.6 改 implemented（检索语义落地：分区表 from/to 缺省兜底近 30 天、size 越界归 100、keyword LIKE 转义、异常列表剥离 stackTrace、详情缺失 40400、原 planned 的 targetType/targetId 查询参数不实现）；新增 §8.11 出题导入（复用 content 导入接缝、指纹去重 40904、不建 upload 批次、审计 GENERATION_IMPORT）与 §8.12 audit-events（动作白名单、返回字符串 id）；§3 矩阵、§10.1/10.3/10.4 同步；题库「空串清空说明」契约随 AC-5 真实生效（§8.8 既有描述落地，前端不再把空说明归一为 null） | 实现工程师 |
 | 2026-11-03 | v0.7 | 014/M2.1 第一步：§6.1 D7 四参数服务端补齐（sentenceId 指定句优先 MANUAL/errors=1 错题池（与 §6.6 同口径，REVEAL 无错批注行不进池为与本地引擎的已登记偏差）/excludeIds 合并去重/tag JSON 精确匹配，非法值静默归一）；§10.1 同步 | 实现工程师 |
+| 2026-11-03 | v0.8 | 014/M2.1 第二步：新增 §8.13 admin/fsrs 三端点（SGD 优化产出 GLOBAL CANDIDATE、版本列表、启用状态机）；§10.1 同步 | 实现工程师 |
 
 ---
 

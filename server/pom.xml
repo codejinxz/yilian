@@ -52,6 +52,19 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-aspectj</artifactId>
     </dependency>
+    <!--
+      FSRS-6 调度与记忆状态公式（Scheduler/Card/Rating/可提取率）：官方 Java 实现（open-spaced-repetition），
+      MIT，单 jar 约 21KB，运行时仅 Jackson 2 序列化辅助依赖（toJson/fromJson 本项目不使用）。
+      白名单外依赖说明（AGENTS §3.3）：FSRS-6 公式（初始稳定度/难度、遗忘曲线、可提取率）自研约数百行
+      数学代码且易与社区最优拟合参数漂移，Python sidecar 增加部署面，均劣于直接复用；
+      优化器不随库提供（本仓库 practice/optimizer 自研 SGD），仅消费公式与常量；
+      D-017 已裁决（DATA-MODEL 决策索引），014 计划批准引入（2026-11-03）。
+    -->
+    <dependency>
+      <groupId>io.github.open-spaced-repetition</groupId>
+      <artifactId>fsrs</artifactId>
+      <version>1.0.0</version>
+    </dependency>
 
     <!-- 安全 / 服务端会话 -->
     <dependency>

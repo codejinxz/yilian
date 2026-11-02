@@ -69,6 +69,7 @@
 - Spring Data JPA、MyBatis 官方 starter
 - Spring Security OAuth2 JOSE（仅用于 JWT 签发/校验，不引入资源服务器）
 - easy-captcha（图形验证码图片生成；零传递依赖纯渲染，2026-10-29 项目主人批准）
+- io.github.open-spaced-repetition:fsrs:1.0.0（FSRS-6 调度公式与记忆状态常量；MIT，官方 Java 实现，单 jar 约 21KB、运行时仅 Jackson 2 序列化辅助依赖，优化器不随库提供、由 practice/optimizer 自研 SGD；解决自研 FSRS-6 公式数百行数学代码的漂移风险，替代方案=自研公式/Python sidecar 均否；D-017 已裁决，2026-11-03 014 计划批准）
 
 白名单外新增依赖，必须说明：解决什么问题、替代方案、维护状态、体积与漏洞影响。
 
