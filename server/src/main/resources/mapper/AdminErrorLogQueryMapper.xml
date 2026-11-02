@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="io.github.codejinxz.yilian.admin.dao.mybatis.AdminErrorLogQueryMapper">
+
+    <!--
+      异常日志检索（API §8.5，只读）：error_log 是 V5 起的按月分区表（主键含 created_at），
+      from/to 是分区键条件，服务层保证缺省兜底近 30 天、永不为空；
+      列表刻意不 SELECT stack_trace（最长 16KB），堆栈只在详情语句出现；
+      keyword 由服务层转义后对 exception_class/message/trace_id/operator 拼串 contains。
+    -->
+    <select id="search" resultType="io.github.codejinxz.yilian.admin.service.vo.AdminErrorLogView">
+        SELECT id,
+               trace_id      AS traceId,
+               module,
+               exception_class AS exceptionClass,
+               message,
+               request_method AS requestMethod,
+               request_path   AS requestPath,
+               user_id        AS userId,
+               operator,
+               client_ip      AS clientIp,
+               created_at     AS createdAt
+        FROM error_log
+        WHERE created_at &gt;= #{from}
+          AND created_at &lt; #{to}
+        <if test="module != null">
+            AND module = #{module}
+        </if>
+        <if test="keyword != null">
+            AND CONCAT_WS(' ', exception_class, message, trace_id, operator)
+                LIKE CONCAT('%', #{keyword}, '%') ESCAPE '\\'
+        </if>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- 与 search 同条件的计数；共享 WHERE 形状，分页元数据用。 -->
+    <select id="countSearch" resultType="long">
+        SELECT COUNT(*)
+        FROM error_log
+        WHERE created_at &gt;= #{from}
+          AND created_at &lt; #{to}
+        <if test="module != null">
+            AND module = #{module}
+        </if>
+        <if test="keyword != null">
+            AND CONCAT_WS(' ', exception_class, message, trace_id, operator)
+                LIKE CONCAT('%', #{keyword}, '%') ESCAPE '\\'
+        </if>
+    </select>
+
+    <!-- 异常详情：堆栈只在这里出现（API §8.6）；不存在返回 null，服务层转 40400。 -->
+    <select id="findById" resultType="io.github.codejinxz.yilian.admin.service.vo.AdminErrorLogDetailView">
+        SELECT id,
+               trace_id      AS traceId,
+               module,
+               exception_class AS exceptionClass,
+               message,
+               request_method AS requestMethod,
+               request_path   AS requestPath,
+               user_id        AS userId,
+               operator,
+               client_ip      AS clientIp,
+               created_at     AS createdAt,
+               stack_trace    AS stackTrace
+        FROM error_log
+        WHERE id = #{id}
+    </select>
+</mapper>

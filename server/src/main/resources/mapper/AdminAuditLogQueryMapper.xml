@@ -17,4 +17,64 @@
         ORDER BY created_at DESC, id DESC
         LIMIT #{limit}
     </select>
+
+    <!--
+      操作日志检索（API §8.4，只读）：from/to 是分区键条件，服务层保证缺省兜底近 30 天、永不为空；
+      全部占位符走 #{}，keyword 由服务层转义 %/_/反斜杠后整串 contains（与 mock 契约一致），
+      排序与 findRecent 同款（created_at DESC, id DESC）保证分页稳定。
+    -->
+    <select id="search" resultType="io.github.codejinxz.yilian.admin.service.vo.AdminAuditLogView">
+        SELECT id,
+               module,
+               actor_id       AS actorId,
+               actor_name     AS actorName,
+               actor_role     AS actorRole,
+               client_ip      AS clientIp,
+               action,
+               target_type    AS targetType,
+               target_id      AS targetId,
+               reason,
+               outcome,
+               duration_ms    AS durationMs,
+               created_at     AS createdAt
+        FROM admin_audit_log
+        WHERE created_at &gt;= #{from}
+          AND created_at &lt; #{to}
+        <if test="module != null">
+            AND module = #{module}
+        </if>
+        <if test="action != null">
+            AND action = #{action}
+        </if>
+        <if test="actorId != null">
+            AND actor_id = #{actorId}
+        </if>
+        <if test="keyword != null">
+            AND CONCAT_WS(' ', action, actor_name, target_type, target_id, reason)
+                LIKE CONCAT('%', #{keyword}, '%') ESCAPE '\\'
+        </if>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- 与 search 同条件的计数；共享 WHERE 形状，分页元数据用。 -->
+    <select id="countSearch" resultType="long">
+        SELECT COUNT(*)
+        FROM admin_audit_log
+        WHERE created_at &gt;= #{from}
+          AND created_at &lt; #{to}
+        <if test="module != null">
+            AND module = #{module}
+        </if>
+        <if test="action != null">
+            AND action = #{action}
+        </if>
+        <if test="actorId != null">
+            AND actor_id = #{actorId}
+        </if>
+        <if test="keyword != null">
+            AND CONCAT_WS(' ', action, actor_name, target_type, target_id, reason)
+                LIKE CONCAT('%', #{keyword}, '%') ESCAPE '\\'
+        </if>
+    </select>
 </mapper>
