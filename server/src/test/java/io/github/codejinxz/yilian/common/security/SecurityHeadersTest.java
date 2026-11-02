@@ -1,6 +1,7 @@
 package io.github.codejinxz.yilian.common.security;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.equalTo;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
@@ -58,24 +59,14 @@ class SecurityHeadersTest {
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
                 .andExpect(header().string("X-Frame-Options", "DENY"))
                 .andExpect(header().string("Referrer-Policy", "strict-origin-when-cross-origin"))
+                // prod CSP 整段相等断言（以 SecurityConfig.CSP_PROD 常量为期望值逐字对齐）：
+                // containsString("script-src 'self'") 区分不出 prod 从紧与 local 放宽——
+                // 后者的 script-src 'self' 'unsafe-inline' 同样包含该前缀，「不含内联脚本来源」
+                // 的从紧约束只有整段相等才真正被测到（字体来源白名单也随之覆盖）。
                 .andExpect(
                         header().string(
                                         "Content-Security-Policy",
-                                        containsString("default-src 'self'")))
-                // 字体来源白名单：样式 fonts.googleapis.com，字体文件 fonts.gstatic.com。
-                .andExpect(
-                        header().string(
-                                        "Content-Security-Policy",
-                                        containsString("https://fonts.googleapis.com")))
-                .andExpect(
-                        header().string(
-                                        "Content-Security-Policy",
-                                        containsString("https://fonts.gstatic.com")))
-                // prod 从紧：不含 swagger 需要的内联脚本来源。
-                .andExpect(
-                        header().string(
-                                        "Content-Security-Policy",
-                                        containsString("script-src 'self'")));
+                                        equalTo(SecurityConfig.CSP_PROD)));
     }
 
     /** [AC-4] frame-ancestors 'none' 与 X-Frame-Options:DENY 双保险在位；未启用 HTTPS 时不写 HSTS。 */
