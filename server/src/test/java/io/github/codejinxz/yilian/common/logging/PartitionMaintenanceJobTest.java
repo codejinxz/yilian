@@ -10,6 +10,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.codejinxz.yilian.common.storage.ObjectStorage;
+
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -17,6 +19,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 
 import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
 
 /**
  * {@link PartitionMaintenanceJob} 的幂等清理分支单测：Mock JdbcTemplate，不启动 Spring 容器。
@@ -28,7 +32,10 @@ class PartitionMaintenanceJobTest {
 
     private final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
 
-    private final PartitionMaintenanceJob job = new PartitionMaintenanceJob(jdbcTemplate, 365, 30);
+    private final ObjectStorage objectStorage = mock(ObjectStorage.class);
+
+    private final PartitionMaintenanceJob job =
+            new PartitionMaintenanceJob(jdbcTemplate, objectStorage, 365, 30);
 
     /** [AC-1] 清理使用「expires_at <= 截止时间」的含边界语义，截止时间取执行时刻（正好过期即删）。 */
     @Test
@@ -97,16 +104,45 @@ class PartitionMaintenanceJobTest {
         verify(jdbcTemplate, times(1)).update(anyString(), any(Timestamp.class));
     }
 
-    /** [AC-1] 调度注册断言：两个 @Scheduled 方法在位，幂等清理为半小时级 fixedDelay。 */
+    /** [AC-1] 调度注册断言：三个 @Scheduled 方法在位，幂等清理为半小时级 fixedDelay。 */
     @Test
     void scheduledMethodsAreRegistered_ac1() throws Exception {
         var maintain = PartitionMaintenanceJob.class.getMethod("maintain");
         var purge = PartitionMaintenanceJob.class.getMethod("purgeExpiredIdempotencyRecords");
+        var cleanup = PartitionMaintenanceJob.class.getMethod("cleanupExpiredMultipartSessions");
 
         assertThat(maintain.isAnnotationPresent(Scheduled.class)).isTrue();
         Scheduled purgeSchedule = purge.getAnnotation(Scheduled.class);
         assertThat(purgeSchedule).isNotNull();
         // fixedDelay 30 分钟：串行调度不与自身重叠，是可重入的一部分。
         assertThat(purgeSchedule.fixedDelay()).isEqualTo(30 * 60 * 1000L);
+        // [AC-5] 分片会话清扫同样在位，小时级 fixedDelay。
+        Scheduled cleanupSchedule = cleanup.getAnnotation(Scheduled.class);
+        assertThat(cleanupSchedule).isNotNull();
+        assertThat(cleanupSchedule.fixedDelay()).isEqualTo(60 * 60 * 1000L);
+    }
+
+    /** [AC-5] 分片会话清扫委托给对象存储，截止时刻 = 执行时刻 - 24h 保鲜期。 */
+    @Test
+    void cleanupDelegatesToStorageWithTtlCutoff_ac5() {
+        long before = System.currentTimeMillis();
+        when(objectStorage.cleanupExpiredMultipartSessions(any(Instant.class))).thenReturn(2);
+
+        job.cleanupExpiredMultipartSessions();
+
+        ArgumentCaptor<Instant> captor = ArgumentCaptor.forClass(Instant.class);
+        verify(objectStorage).cleanupExpiredMultipartSessions(captor.capture());
+        long cutoffEpoch = captor.getValue().toEpochMilli();
+        long expectedCutoff = before - Duration.ofHours(24).toMillis();
+        assertThat(cutoffEpoch).isBetween(expectedCutoff - 1_000, expectedCutoff + 1_000);
+    }
+
+    /** [AC-5] 存储清理失败只记日志不上抛：清扫失败不影响同实例的其他调度职责。 */
+    @Test
+    void cleanupSwallowsStorageFailure_ac5() {
+        when(objectStorage.cleanupExpiredMultipartSessions(any(Instant.class)))
+                .thenThrow(new DataAccessResourceFailureException("storage down"));
+
+        assertThatCode(() -> job.cleanupExpiredMultipartSessions()).doesNotThrowAnyException();
     }
 }

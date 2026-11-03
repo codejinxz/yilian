@@ -19,6 +19,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -341,5 +342,71 @@ class LocalObjectStorageTest {
             offset += chunk.length;
         }
         return result;
+    }
+
+    /** [AC-5] 过期分片会话回收：超时会话清内存映射与磁盘分片目录；未过期会话原样保留可用。 */
+    @Test
+    void cleanupRemovesExpiredSessionsAndKeepsFreshOnes_ac5() throws IOException {
+        MultipartUpload upload =
+                storage.initiateMultipart("exercises/a.bin", "application/octet-stream");
+        storage.uploadPart(
+                upload.uploadId(),
+                1,
+                new ByteArrayInputStream("part".getBytes(StandardCharsets.UTF_8)),
+                4);
+        Path sessionDir =
+                root.resolve(".multipart").resolve("multipart").resolve(upload.uploadId());
+        assertThat(sessionDir).exists();
+
+        // 截止时刻晚于会话创建时刻：会话整体过期。
+        int removed = storage.cleanupExpiredMultipartSessions(Instant.now().plusSeconds(60));
+        assertThat(removed).isEqualTo(1);
+        assertThat(sessionDir).doesNotExist();
+        // 内存映射同步移除：迟到请求得到「会话不存在」业务错误。
+        assertThatThrownBy(
+                        () ->
+                                storage.uploadPart(
+                                        upload.uploadId(),
+                                        2,
+                                        new ByteArrayInputStream(
+                                                "x".getBytes(StandardCharsets.UTF_8)),
+                                        1))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // 未过期会话保留：截止时刻早于创建时刻，清扫是空操作且会话仍可继续上传。
+        MultipartUpload fresh = storage.initiateMultipart("exercises/b.bin", null);
+        int removedFresh =
+                storage.cleanupExpiredMultipartSessions(Instant.now().minus(Duration.ofHours(1)));
+        assertThat(removedFresh).isZero();
+        storage.uploadPart(
+                fresh.uploadId(),
+                1,
+                new ByteArrayInputStream("fresh".getBytes(StandardCharsets.UTF_8)),
+                5);
+    }
+
+    /** [AC-5] 孤儿会话目录回收：进程重启后内存映射丢失、磁盘分片残留，按目录 mtime 过期清理。 */
+    @Test
+    void cleanupSweepsOrphanSessionDirectoriesByMtime_ac5() throws IOException {
+        Path multipartDir = root.resolve(".multipart").resolve("multipart");
+        Files.createDirectories(multipartDir);
+        Path orphan = multipartDir.resolve("orphansession1234567890");
+        Files.createDirectories(orphan);
+        Files.writeString(orphan.resolve("part-1.bin"), "stale", StandardCharsets.UTF_8);
+        // java.io.File API 设旧 mtime（避免点名 FileTime：本机裁剪版 JDK 缺该符号）。
+        assertThat(
+                        orphan.toFile()
+                                .setLastModified(
+                                        Instant.now().minus(Duration.ofHours(48)).toEpochMilli()))
+                .isTrue();
+        Path fresh = multipartDir.resolve("freshsession1234567890");
+        Files.createDirectories(fresh);
+
+        int removed =
+                storage.cleanupExpiredMultipartSessions(Instant.now().minus(Duration.ofHours(24)));
+
+        assertThat(removed).isEqualTo(1);
+        assertThat(orphan).doesNotExist();
+        assertThat(fresh).exists();
     }
 }

@@ -356,13 +356,13 @@ public class PracticeController {
     }
 
     /**
-     * 顺延：把推送上限之外的到期卡整体推迟一天；用户动作，不写 review_logs。
+     * 顺延：把推送上限之外的到期卡整体顺延 3 天（018 AC-6d 对齐原型）；用户动作，不写 review_logs。
      *
      * @param request 顺延理由，可空
      * @param principal 当前用户
      * @return 顺延结果
      */
-    @Operation(summary = "顺延到期卡", description = "保留最早到期的 5 道，其余推迟一天；所有顺延可见、可撤销（重练即恢复）、有理由。")
+    @Operation(summary = "顺延到期卡", description = "保留最早到期的 5 道，其余顺延 3 天；所有顺延可见、可撤销（重练即恢复）、有理由。")
     @PostMapping("/reviews/postpone")
     public ApiResponse<PostponeView> postpone(
             @Valid @RequestBody(required = false) PostponeRequest request,

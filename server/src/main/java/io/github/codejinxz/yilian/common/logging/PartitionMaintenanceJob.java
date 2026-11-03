@@ -1,5 +1,7 @@
 package io.github.codejinxz.yilian.common.logging;
 
+import io.github.codejinxz.yilian.common.storage.ObjectStorage;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -8,6 +10,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -24,6 +27,9 @@ import java.util.Map;
  * 单表失败只记日志，不阻塞调度。保留期按“整月粒度”执行：只有分区上界早于截止日才删除。
  *
  * <p>过期幂等占位记录的清理也并入本类（013 AC-1）：{@code idempotency_record} 未分区， 只能行级 DELETE；复用同一调度入口避免另起炉灶。
+ *
+ * <p>分片上传会话的过期回收同样并入（018 AC-5，review-verify-2 04#02）： 本地存储的会话映射在内存、分片在临时目录，废弃后无人回收会持续泄漏；
+ * 云实现的默认方法是无操作，由其生命周期规则管理。
  */
 @Component
 public class PartitionMaintenanceJob {
@@ -46,22 +52,29 @@ public class PartitionMaintenanceJob {
             "DELETE FROM idempotency_record WHERE expires_at <= ? LIMIT "
                     + IDEMPOTENCY_PURGE_BATCH_SIZE;
 
+    /** 分片会话保鲜期：超过 24 小时未完成的会话视为废弃（018 AC-5 口径）。 */
+    static final Duration MULTIPART_SESSION_TTL = Duration.ofHours(24);
+
     private final JdbcTemplate jdbcTemplate;
+    private final ObjectStorage objectStorage;
     private final int auditRetentionDays;
     private final int errorRetentionDays;
 
     /**
-     * 注入数据源与保留期配置。
+     * 注入数据源、对象存储与保留期配置。
      *
      * @param jdbcTemplate Spring JDBC 模板
+     * @param objectStorage 对象存储（分片会话清理委托给实现，云实现默认无操作）
      * @param auditRetentionDays 操作日志保留天数，默认 365
      * @param errorRetentionDays 异常日志保留天数，默认 30
      */
     public PartitionMaintenanceJob(
             JdbcTemplate jdbcTemplate,
+            ObjectStorage objectStorage,
             @Value("${yilian.log.operation-retention-days:365}") int auditRetentionDays,
             @Value("${yilian.log.error-retention-days:30}") int errorRetentionDays) {
         this.jdbcTemplate = jdbcTemplate;
+        this.objectStorage = objectStorage;
         this.auditRetentionDays = auditRetentionDays;
         this.errorRetentionDays = errorRetentionDays;
     }
@@ -105,6 +118,25 @@ public class PartitionMaintenanceJob {
             }
         } catch (RuntimeException exception) {
             log.error("failed to purge expired idempotency records", exception);
+        }
+    }
+
+    /**
+     * 每小时回收一次超过 24h 的分片上传会话（018 AC-5）：内存映射与磁盘临时分片一并清理。
+     *
+     * <p>可重入：清理本身幂等（移除映射/删目录对已消失资源是空操作）；fixedDelay 串行调度不自我叠加； 失败只记日志，下个周期重试。
+     */
+    @Scheduled(fixedDelay = 60 * 60 * 1000L, initialDelay = 20 * 60 * 1000L)
+    public void cleanupExpiredMultipartSessions() {
+        try {
+            int removed =
+                    objectStorage.cleanupExpiredMultipartSessions(
+                            Instant.now().minus(MULTIPART_SESSION_TTL));
+            if (removed > 0) {
+                log.info("cleaned up {} expired multipart upload sessions", removed);
+            }
+        } catch (RuntimeException exception) {
+            log.error("failed to cleanup expired multipart upload sessions", exception);
         }
     }
 

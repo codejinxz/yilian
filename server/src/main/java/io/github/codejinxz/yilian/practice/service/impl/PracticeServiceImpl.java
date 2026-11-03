@@ -66,6 +66,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -88,6 +89,12 @@ public class PracticeServiceImpl implements PracticeService {
 
     /** 降载推送上限：降载时一次只推最早到期的 5 道。 */
     private static final int PUSH_LIMIT = 5;
+
+    /**
+     * 顺延天数（018 AC-6d）：统一为 3 天。本地引擎是 golden 基准——{@code engine.ts postponeOverdue(days)} 参数化且调用方传
+     * 3（与原型一致），登录态服务端此前固定 1 天是与原型审计登记的偏差，此处对齐。
+     */
+    private static final int POSTPONE_DAYS = 3;
 
     /** analytics from/to 闭区间上限（本地日数）：全量内存聚合的量级保护，超长按 40000 拒绝。 */
     private static final int MAX_RANGE_DAYS = 92;
@@ -714,37 +721,112 @@ public class PracticeServiceImpl implements PracticeService {
                                 now));
                 return created;
             }
-            Review.Snapshot snapshot = Review.Snapshot.of(card, now);
-            card.applyFailed(
-                    attempt.getId(), rating, params.failStability(), params.failDifficulty(), now);
-            card.touchMode(attempt.getMode());
-            reviewDao.save(card);
+            CardUpdate update =
+                    persistExistingCardUpdate(
+                            card,
+                            attempt.getUserId(),
+                            attempt.getSentenceId(),
+                            now,
+                            target -> {
+                                target.applyFailed(
+                                        attempt.getId(),
+                                        rating,
+                                        params.failStability(),
+                                        params.failDifficulty(),
+                                        now);
+                                target.touchMode(attempt.getMode());
+                            });
             reviewLogDao.save(
-                    logForExisting(snapshot, card, attempt, rating, weightsVersionId, now));
-            return card;
+                    logForExisting(
+                            update.snapshot(),
+                            update.card(),
+                            attempt,
+                            rating,
+                            weightsVersionId,
+                            now));
+            return update.card();
         }
 
         // 全对：新题不入队；学习中推进间隔；已归档只刷新痕迹；重置后的 NEW 卡不动。
         if (card == null || card.getState() == Review.ReviewState.NEW) {
             return null;
         }
-        Review.Snapshot snapshot = Review.Snapshot.of(card, now);
-        if (card.getState() == Review.ReviewState.LEARNING) {
-            card.applyLearningGraduated(
-                    attempt.getId(),
-                    rating,
-                    params.learningStability(),
-                    params.learningDifficulty(),
-                    params.masteredStability(),
-                    now);
-            card.touchMode(attempt.getMode());
-        } else {
-            card.applyMasteredReview(attempt.getId(), rating, now);
-        }
-        reviewDao.save(card);
-        reviewLogDao.save(logForExisting(snapshot, card, attempt, rating, weightsVersionId, now));
-        return card;
+        CardUpdate update =
+                persistExistingCardUpdate(
+                        card,
+                        attempt.getUserId(),
+                        attempt.getSentenceId(),
+                        now,
+                        target -> {
+                            // 分支在变更时按卡当前状态重判：乐观锁重试重读到新状态时，分支随之收敛。
+                            if (target.getState() == Review.ReviewState.LEARNING) {
+                                target.applyLearningGraduated(
+                                        attempt.getId(),
+                                        rating,
+                                        params.learningStability(),
+                                        params.learningDifficulty(),
+                                        params.masteredStability(),
+                                        now);
+                                target.touchMode(attempt.getMode());
+                            } else {
+                                target.applyMasteredReview(attempt.getId(), rating, now);
+                            }
+                        });
+        reviewLogDao.save(
+                logForExisting(
+                        update.snapshot(), update.card(), attempt, rating, weightsVersionId, now));
+        return update.card();
     }
+
+    /**
+     * 既有卡排程更新的持久化（018 AC-4，review-verify-2 01#02）：条件 UPDATE 以更新前的 {@code last_review_at}
+     * 为乐观锁令牌，并发双端同时更新同一张学习卡时只有一方落库。
+     *
+     * <p><strong>选型裁决</strong>：不用 JPA {@code @Version}——那需要新列（V11 迁移属保护路径待批）， 而排程路径上卡必有非空 {@code
+     * last_review_at}（建卡与每次排程都写它，NEW 卡在上游被排除）， 是现成的天然令牌。影响行数为 0 时重试一档 （重读卡、以新令牌重放同一排程动因）而非直接
+     * 409：双端并发的语义是「两次提交先后生效」， 重试即收敛，不把良性竞态变成用户可见失败； 重试后仍过期（极少见的持续争用）才按 40900 冲突拒绝，客户端重提交即可。
+     * 重放会以最新卡状态重算 elapsedDays 并重写 review_logs 的 before 值，日志与卡保持一致。
+     *
+     * <p>实体必须在条件更新前 detach：托管实体留在会话里，提交期脏检查会再发一条无条件 UPDATE， 绕过令牌守卫（lost update 防线形同虚设）。
+     *
+     * @param card 读到的既有卡（未变更，令牌来源）
+     * @param userId 用户 id（重试重读用）
+     * @param sentenceId 题目 ULID（重试重读用）
+     * @param now 服务端时钟
+     * @param mutation 排程变更（快照之后、条件更新之前应用到卡上；重试时对重读卡重放）
+     * @return 落库成功的卡与其变更前快照
+     */
+    private CardUpdate persistExistingCardUpdate(
+            Review card, Long userId, String sentenceId, Instant now, Consumer<Review> mutation) {
+        Review target = card;
+        for (int round = 0; round < 2; round++) {
+            // 快照先于变更：before 值与乐观锁令牌都必须来自变更前的卡。
+            Review.Snapshot snapshot = Review.Snapshot.of(target, now);
+            mutation.accept(target);
+            reviewDao.detach(target);
+            if (reviewDao.updateSchedulingState(target, snapshot.lastReviewAt()) == 1) {
+                return new CardUpdate(target, snapshot);
+            }
+            if (round == 0) {
+                // 重读必须用 REQUIRES_NEW：外层事务在 REPEATABLE READ 下同事务重读仍见旧快照，
+                // 重试必败；只有独立新事务才能读到赢家已提交的行（016 建卡竞态的同款结论）。
+                // 内层只读不写，条件更新仍在外层事务执行，保住本次提交的原子性。
+                target =
+                        freshTxTemplate.execute(
+                                status ->
+                                        reviewDao
+                                                .findByUserIdAndSentenceId(userId, sentenceId)
+                                                .orElseThrow(
+                                                        () ->
+                                                                new BusinessException(
+                                                                        ApiCode.REVIEW_NOT_FOUND)));
+            }
+        }
+        throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "复习状态刚被其他设备更新，请重新提交");
+    }
+
+    /** 一次既有卡更新的结果：落库成功的卡与它对应的变更前快照（review_logs 数据源）。 */
+    private record CardUpdate(Review card, Review.Snapshot snapshot) {}
 
     /**
      * 构造既有卡的排程日志（before 取自快照，after 取自更新后的卡）。
@@ -1118,10 +1200,10 @@ public class PracticeServiceImpl implements PracticeService {
     public PostponeView postpone(Long userId, String reason) {
         List<Review> due = reviewDao.findDue(userId, Instant.now());
         long postponed = 0;
-        // 推送上限内的最早卡保留今日，其余整体顺延一天（GAP P0 降载口径）。
+        // 推送上限内的最早卡保留今日，其余整体顺延（GAP P0 降载口径；天数对齐原型 3 天，见 POSTPONE_DAYS）。
         for (int index = PUSH_LIMIT; index < due.size(); index++) {
             Review card = due.get(index);
-            card.postponeOneDay();
+            card.postponeDays(POSTPONE_DAYS);
             reviewDao.save(card);
             postponed++;
         }

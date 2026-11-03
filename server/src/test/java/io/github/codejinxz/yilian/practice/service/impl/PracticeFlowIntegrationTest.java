@@ -12,6 +12,8 @@ import io.github.codejinxz.yilian.content.service.dto.ImportedSentence;
 import io.github.codejinxz.yilian.content.service.dto.SentenceContent;
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
 import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
+import io.github.codejinxz.yilian.practice.dao.ReviewDao;
+import io.github.codejinxz.yilian.practice.entity.Review;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
 import io.github.codejinxz.yilian.practice.service.dto.AnswerPayload;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
@@ -35,6 +37,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import tools.jackson.databind.ObjectMapper;
 
@@ -75,6 +79,10 @@ class PracticeFlowIntegrationTest {
     private static final String SECOND_REF = "The meeting was held as scheduled.";
 
     @Autowired private PracticeService practiceService;
+
+    @Autowired private ReviewDao reviewDao;
+
+    @Autowired private PlatformTransactionManager transactionManager;
 
     @Autowired private ContentImportService contentImportService;
 
@@ -1179,6 +1187,117 @@ class PracticeFlowIntegrationTest {
         }
         // 每轮只落一行提交，无重复插入。
         assertThat(count("attempts")).isEqualTo(rounds);
+    }
+
+    /**
+     * [AC-4] 乐观锁令牌（018，review-verify-2 01#02）：两个「同时读到同一张卡」的写者， 同一 last_review_at 令牌只允许一个条件 UPDATE
+     * 生效；持新令牌的后续更新正常通过。
+     */
+    @Test
+    @DisplayName("[AC-4] 既有卡条件更新：陈旧令牌恰一成功")
+    void ac4_staleConditionalUpdateExactlyOneWinner() {
+        practiceService.submitAttempt(USER_ID, firstAttempt(wrongAnswer(), 1000));
+        String sentenceId = seeded.sentenceId();
+        Review firstReader = reviewDao.findByUserIdAndSentenceId(USER_ID, sentenceId).orElseThrow();
+        reviewDao.detach(firstReader);
+        Review secondReader =
+                reviewDao.findByUserIdAndSentenceId(USER_ID, sentenceId).orElseThrow();
+        reviewDao.detach(secondReader);
+        // 双方持有同一令牌（读取时刻的 last_review_at）。
+        Instant staleToken = firstReader.getLastReviewAt();
+        assertThat(secondReader.getLastReviewAt()).isEqualTo(staleToken);
+
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        Integer firstWrite =
+                tx.execute(
+                        status -> {
+                            firstReader.applyFailed("attempt-lock-a", 2, 2.4, 5.3, Instant.now());
+                            return reviewDao.updateSchedulingState(firstReader, staleToken);
+                        });
+        Integer secondWrite =
+                tx.execute(
+                        status -> {
+                            secondReader.applyFailed("attempt-lock-b", 2, 2.4, 5.3, Instant.now());
+                            return reviewDao.updateSchedulingState(secondReader, staleToken);
+                        });
+        assertThat(firstWrite).as("先到者持有效令牌").isEqualTo(1);
+        assertThat(secondWrite).as("后到者令牌过期，lost update 被拒").isZero();
+
+        // 新令牌（重读后的 last_review_at）可继续更新——重试路径的前提。
+        Review freshReader = reviewDao.findByUserIdAndSentenceId(USER_ID, sentenceId).orElseThrow();
+        Instant freshToken = freshReader.getLastReviewAt();
+        assertThat(freshToken).isNotEqualTo(staleToken);
+        Integer thirdWrite =
+                tx.execute(
+                        status -> {
+                            freshReader.applyFailed("attempt-lock-c", 2, 2.4, 5.3, Instant.now());
+                            return reviewDao.updateSchedulingState(freshReader, freshToken);
+                        });
+        assertThat(thirdWrite).isEqualTo(1);
+    }
+
+    /**
+     * [AC-4] 双端并发更新既有卡经服务层收敛（018）：两笔失败提交同时打到同一张学习卡， 乐观锁输家重试一档后落库——两张 review_logs、reps 累加到
+     * 3，无异常无丢更新。
+     */
+    @Test
+    @DisplayName("[AC-4] 双端并发既有卡更新收敛")
+    void ac4_concurrentExistingCardUpdatesConverge() throws Exception {
+        // 先建一张既有卡（第一笔失败提交入队）。
+        practiceService.submitAttempt(USER_ID, firstAttempt(wrongAnswer(), 1000));
+        long baseReps =
+                ((Number)
+                                jdbcTemplate
+                                        .queryForMap(
+                                                "SELECT reps FROM reviews WHERE user_id = ? AND sentence_id = ?",
+                                                USER_ID,
+                                                seeded.sentenceId())
+                                        .get("reps"))
+                        .longValue();
+        assertThat(baseReps).isEqualTo(1L);
+
+        java.util.concurrent.ExecutorService pool =
+                java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.CountDownLatch startGate =
+                    new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.Callable<AttemptView> senderA =
+                    () -> {
+                        startGate.await();
+                        return practiceService.submitAttempt(
+                                USER_ID, firstAttempt(wrongAnswer(), 900));
+                    };
+            java.util.concurrent.Callable<AttemptView> senderB =
+                    () -> {
+                        startGate.await();
+                        return practiceService.submitAttempt(
+                                USER_ID, firstAttempt(wrongAnswer(), 900));
+                    };
+            var futureA = pool.submit(senderA);
+            var futureB = pool.submit(senderB);
+            startGate.countDown();
+            try {
+                AttemptView first = futureA.get();
+                AttemptView second = futureB.get();
+                assertThat(first.attemptId()).isNotEqualTo(second.attemptId());
+                // 乐观锁重试保证两笔提交都成功落库，而不是一方 500。
+                assertThat(first.review()).isNotNull();
+                assertThat(second.review()).isNotNull();
+            } catch (java.util.concurrent.ExecutionException exception) {
+                throw new AssertionError("并发既有卡更新出现异常（应为重试收敛）", exception.getCause());
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        // 收敛：两张卡日志（含建卡那笔共 3 行）、reps = 建卡 1 + 并发 2。
+        assertThat(count("review_logs")).isEqualTo(3L);
+        Long reps =
+                jdbcTemplate.queryForObject(
+                        "SELECT reps FROM reviews WHERE user_id = ? AND sentence_id = ?",
+                        Long.class,
+                        USER_ID,
+                        seeded.sentenceId());
+        assertThat(reps).isEqualTo(3L);
     }
 
     /** [AC-8] dispute 立即 ACCEPTED 并 overlay 排除；appeal 记 PENDING；唯一/批注/归属校验。 */

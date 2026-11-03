@@ -138,7 +138,7 @@ public interface PracticeService {
     OverloadView overload(Long userId);
 
     /**
-     * 顺延：把推送上限之外的到期卡整体推迟一天；用户动作，不写 review_logs。
+     * 顺延：把推送上限之外的到期卡整体顺延 3 天（POSTPONE_DAYS，018 AC-6d）；用户动作，不写 review_logs。
      *
      * @param userId 当前用户 id
      * @param reason 用户填写的理由，可空，仅进结构化日志

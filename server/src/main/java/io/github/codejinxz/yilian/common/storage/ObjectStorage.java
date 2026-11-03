@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -116,6 +117,19 @@ public interface ObjectStorage {
      * @param uploadId 上传会话标识
      */
     void abortMultipart(String uploadId);
+
+    /**
+     * 清理过期分片会话（018 AC-5，review-verify-2 04#02）：创建时间早于截止时刻的会话
+     * 释放内存状态并删除磁盘临时分片；孤儿临时目录（如重启后内存会话已丢失）一并回收。
+     *
+     * <p>默认无操作：云对象存储的分片生命周期应交给其生命周期规则管理，不由应用层定时扫。
+     *
+     * @param cutoff 截止时刻；创建于该刻之前（不含）的会话视为过期
+     * @return 回收的会话与孤儿目录总数
+     */
+    default int cleanupExpiredMultipartSessions(Instant cutoff) {
+        return 0;
+    }
 
     /**
      * 读取对象元数据，不读取内容。

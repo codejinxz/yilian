@@ -385,6 +385,76 @@ public final class LocalObjectStorage implements ObjectStorage {
     }
 
     /**
+     * 清理过期分片会话（018 AC-5）：内存会话按 {@code initiatedAt（即 createdAt）}判定，
+     * 孤儿会话目录（进程重启后内存映射已丢失、磁盘分片残留）按目录最后修改时间判定。
+     *
+     * <p>回收语义与 {@link #abortMultipart} 相同：移除映射→持写锁标记关闭→删目录，迟到请求 得到「会话不存在」的业务错误。时间阀保护活跃会话：正在写入的分片目录
+     * mtime 持续刷新， 远新于截止时刻，不会被误删；清理与正在完成的 complete 交叉的最坏窗口是让对方拿到 「分片文件缺失」可重试的 IOException，而 24h
+     * 超时的会话本就不再有效。
+     *
+     * @param cutoff 截止时刻；创建于该刻之前（不含）的会话/目录视为过期
+     * @return 回收的会话与孤儿目录总数
+     */
+    @Override
+    public int cleanupExpiredMultipartSessions(Instant cutoff) {
+        int removed = 0;
+        for (UploadSession session : uploads.values()) {
+            if (!session.initiatedAt.isBefore(cutoff)) {
+                continue;
+            }
+            if (uploads.remove(session.uploadId, session)) {
+                Lock lifecycle = session.lifecycleLock.writeLock();
+                lifecycle.lock();
+                try {
+                    session.closed = true;
+                    deleteRecursively(session.directory);
+                } finally {
+                    lifecycle.unlock();
+                }
+                removed++;
+            }
+        }
+        removed += cleanupOrphanSessionDirectories(cutoff);
+        return removed;
+    }
+
+    /**
+     * 回收磁盘上无主的过期会话目录：不在内存映射中且 mtime 早于截止时刻。
+     *
+     * @param cutoff 截止时刻
+     * @return 回收的目录数
+     */
+    private int cleanupOrphanSessionDirectories(Instant cutoff) {
+        if (!Files.isDirectory(multipartDir)) {
+            return 0;
+        }
+        int removed = 0;
+        try (Stream<Path> sessions = Files.list(multipartDir)) {
+            for (Path directory : sessions.toList()) {
+                if (!Files.isDirectory(directory)) {
+                    continue;
+                }
+                String name = directory.getFileName().toString();
+                if (uploads.containsKey(name)) {
+                    continue;
+                }
+                try {
+                    // 不点名 FileTime：内联取 mtime（本机裁剪版 JDK 缺该符号，见 018 实现注记）。
+                    if (Files.getLastModifiedTime(directory).toInstant().isBefore(cutoff)) {
+                        deleteRecursively(directory);
+                        removed++;
+                    }
+                } catch (IOException e) {
+                    log.warn("failed to inspect multipart session directory {}", directory, e);
+                }
+            }
+        } catch (IOException e) {
+            log.warn("failed to sweep multipart session directories", e);
+        }
+        return removed;
+    }
+
+    /**
      * 中止上传并删除临时分片；会话不存在时幂等返回。
      *
      * <p>删除临时目录前取会话写锁并标记关闭，避免与仍在写入的分片或正在合并的 complete 交叉删除文件。
