@@ -7,9 +7,10 @@ import java.time.Duration;
 /**
  * LLM 接入配置（017 题目答疑），前缀 {@code yilian.llm}，值来自 {@code YILIAN_LLM_*} 环境变量。
  *
- * <p>三态判定的部署侧依据：{@link #hasCredentials()} 为 false 时功能不存在（答疑端点 40400、前端无入口）。 API Key 是密钥，按 AGENTS
- * §3.4 只进环境变量，不落库、不进配置文件；baseUrl/model 是普通运营参数， 管理员可在后台覆盖（存 {@code app_settings} 键 {@code
- * llm.tutor}），此处值是缺省回退。
+ * <p>三态判定的部署侧依据：{@link #hasCredentials()} 为 false 时功能不存在（答疑端点 40400、前端无入口）。 本记录是三项配置的
+ * <strong>唯一生效来源</strong>，全部只经 {@code YILIAN_LLM_*} 环境变量注入：API Key 是密钥，按 AGENTS §3.4 不落库、不进配置文件；
+ * baseUrl/model 同样后台不可改——后台配置接口（PUT /api/admin/llm/config）对三者传非空值一律 40000 拒绝，{@code app_settings} 键
+ * {@code llm.tutor} 只存答疑 enabled 开关，不存任何覆盖值（017 R1 实态，019 复核修正旧注记）。
  *
  * @param baseUrl OpenAI 兼容端点，例如智谱 bigmodel 的 {@code https://open.bigmodel.cn/api/paas/v4}
  * @param apiKey 模型服务密钥；只从环境变量注入

@@ -1790,6 +1790,8 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 
 字段回溯：`app_settings.value`（JSON）+ 环境变量；无独立表（`llm_providers` 全量模型配置域为 M3，DATA-MODEL §5.18）。
 
+前端消费（019）：ModelsPage「统一模型配置」状态卡读 GET 回显 hasKey/enabled/model/baseUrl，未配 key 时展示 `YILIAN_LLM_BASE_URL` / `YILIAN_LLM_API_KEY` 环境变量两件套指引（注明密钥只经环境变量不入库，密钥不做 UI）；启停只传 `{ "enabled": bool }` 走 PUT，成功失效本地缓存并以 GET 回读为准；「题目答疑」行与 AI 功能清单按 hasKey && enabled 联动展示启用中/未开放。
+
 ## 9. 字段回溯对照
 
 > 规则：每个字段必须能落到 `DATA-MODEL.md` 的表列；找不到的标“派生”，并写来源。嵌套对象按 `parent.child` 列。
