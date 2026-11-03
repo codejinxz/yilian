@@ -47,6 +47,20 @@ import java.time.Instant;
 @Service
 public class AuthServiceImpl implements AuthService {
 
+    /**
+     * 时序对齐用的固定填充口令与对应 BCrypt 假哈希（成本 10，与生产编码器一致）。
+     *
+     * <p>防的是<strong>登录时序侧信道</strong>（review-verify-2 03#01，P1）：用户名不存在/已停用/已软删时若跳过 BCrypt
+     * 直接失败，响应耗时比「存在但密码错」少一次 ~100ms 的 BCrypt 运算，攻击者据此离线枚举有效账号。 三个失败分支统一先对本常量执行一次 {@code matches} 再抛
+     * 40101，使存在与否的响应耗时对齐； 哈希是预先算好的固定值， 永不匹配任何真实口令，只承担耗时。
+     */
+    private static final String TIMING_PADDING_PASSWORD = "yilian-timing-padding-4f8a2c91e7d3b605";
+
+    /** {@link #TIMING_PADDING_PASSWORD} 的 BCrypt 哈希（成本 10）；固定常量保证每次耗时稳定。 */
+    @SuppressWarnings("java:S2068") // 不是凭据：密文固定且对应口令无意义，仅用于时序对齐
+    private static final String TIMING_PADDING_HASH =
+            "$2a$10$eRMlRPfhaLqguHHHIFhyQuKqtNp4ScBstCepsVwf0G20u1qsR.UIq";
+
     private final UserAccountService userAccountService;
     private final PasswordEncoder passwordEncoder;
     private final CsrfTokenRepository csrfTokenRepository;
@@ -104,7 +118,13 @@ public class AuthServiceImpl implements AuthService {
                 userAccountService
                         .findByLogin(request.username())
                         .filter(candidate -> candidate.enabled() && !candidate.deleted())
-                        .orElseThrow(() -> new BusinessException(ApiCode.AUTH_INVALID_CREDENTIALS));
+                        .orElse(null);
+
+        if (user == null) {
+            // 不存在/停用/软删三个分支统一走假 BCrypt：耗时与「存在但密码错」对齐，账号存在性不可由响应延迟观测。
+            passwordEncoder.matches(TIMING_PADDING_PASSWORD, TIMING_PADDING_HASH);
+            throw new BusinessException(ApiCode.AUTH_INVALID_CREDENTIALS);
+        }
 
         if (!passwordEncoder.matches(request.password(), user.passwordHash())) {
             throw new BusinessException(ApiCode.AUTH_INVALID_CREDENTIALS);

@@ -1,5 +1,6 @@
 package io.github.codejinxz.yilian.system.service.impl;
 
+import io.github.codejinxz.yilian.common.config.DeploymentMode;
 import io.github.codejinxz.yilian.common.session.RefreshSessionGuard;
 import io.github.codejinxz.yilian.common.util.PasswordUtils;
 import io.github.codejinxz.yilian.common.util.StringUtils;
@@ -13,13 +14,18 @@ import io.github.codejinxz.yilian.system.service.BootstrapAdminService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.env.Environment;
-import org.springframework.core.env.Profiles;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -80,7 +86,7 @@ public class BootstrapAdminServiceImpl implements BootstrapAdminService {
             return;
         }
 
-        boolean prod = environment.acceptsProfiles(Profiles.of("prod"));
+        boolean prod = DeploymentMode.isProd(environment);
         String username = properties.username();
         String password = properties.password();
 
@@ -91,15 +97,21 @@ public class BootstrapAdminServiceImpl implements BootstrapAdminService {
             AppUser admin =
                     AppUser.newAdmin(username, passwordEncoder.encode(password), Instant.now());
             appUserDao.save(admin);
+            if (properties.resetPasswordOnStartup()) {
+                // 创建即「该配置口令已生效」：标记一并落盘，保证第二次重启不会被误判为未应用。
+                writeResetMarker(password);
+            }
             log.info("bootstrap admin created username={} prod={}", username, prod);
         } else {
             AppUser admin = existing.get();
             boolean changed = false;
             if (properties.resetPasswordOnStartup()) {
-                if (passwordEncoder.matches(password, admin.getPasswordHash())) {
-                    // 一次性开关的「用后自动失效」（016 P2·03#09）：管理员当前口令已等于配置口令，
-                    // 说明重置早已生效；开关忘关时重启不再静默覆盖口令、也不再重复吊销会话。
-                    // 如需再次重置，换一个配置口令值（或改完口令后关闭开关）。
+                // 一次性开关的「用后持久化失效」（018 AC-3，review-verify-2 03#05）：标记文件记录
+                // 上次生效配置口令的 BCrypt 哈希，重启时配置值未变即跳过——管理员改密后忘关开关，
+                // 也不会把口令静默重置回配置值、更不会重复吊销会话。016 的「同值幂等」只兜住
+                // 「配置值 == 当前口令」，管理员改密后（当前口令 ≠ 配置值）仍会被覆盖，这里补上。
+                // 如需再次重置，把配置口令换成新值（新哈希 ≠ 标记值即执行一次并更新标记）。
+                if (isResetAlreadyApplied(password)) {
                     log.warn(
                             "bootstrap admin reset-password-on-startup skipped:"
                                     + " configured password already applied username={}",
@@ -107,6 +119,7 @@ public class BootstrapAdminServiceImpl implements BootstrapAdminService {
                 } else {
                     admin.resetPassword(passwordEncoder.encode(password), Instant.now());
                     refreshSessionGuard.revoke(username, () -> revokeRefreshSessions(username));
+                    writeResetMarker(password);
                     changed = true;
                     log.warn("bootstrap admin password reset username={}", username);
                 }
@@ -130,6 +143,80 @@ public class BootstrapAdminServiceImpl implements BootstrapAdminService {
         if (!prod && BootstrapAdminProperties.DEFAULT_PASSWORD.equals(password)) {
             log.warn(
                     "bootstrap admin is using the local default password; change it before sharing this database");
+        }
+    }
+
+    /**
+     * 判断配置口令是否已经通过一次性开关生效过：标记文件存在且其记录的 BCrypt 哈希与配置值匹配。
+     *
+     * <p>选型裁决（AC-3）：标记存 BCrypt 哈希而非 SHA-256——配置恢复口令可能是弱值， BCrypt 使标记文件泄漏后也无法低成本反推；
+     * 存哈希而非明文，与「密钥不落盘」的口径一致。 文件读取失败按「未应用」处理会退回 016 行为（可能覆盖口令），因此读取异常时 保守地视为已应用（跳过重置），
+     * 宁可不恢复也不能覆盖管理员已改的口令——两害取其轻。
+     *
+     * @param configuredPassword 配置的一次性恢复口令
+     * @return true 表示该配置值已生效过，本次重启跳过重置
+     */
+    private boolean isResetAlreadyApplied(String configuredPassword) {
+        Path marker = Path.of(properties.resetMarkerFile());
+        if (!Files.isRegularFile(marker)) {
+            return false;
+        }
+        try {
+            String storedHash = Files.readString(marker).trim();
+            return passwordEncoder.matches(configuredPassword, storedHash);
+        } catch (IOException | RuntimeException exception) {
+            log.error(
+                    "failed to read bootstrap reset marker {}; skipping reset to avoid overwriting admin password",
+                    marker,
+                    exception);
+            return true;
+        }
+    }
+
+    /**
+     * 把本次生效的配置口令哈希写入标记文件（临时文件 + 原子替换，避免半写状态）。
+     *
+     * <p>本类是 {@code @Transactional}：标记若在提交前落盘，事务回滚（如后续修复语句失败）会留下 「库里没生效、标记却说已生效」的反向漂移，
+     * 下次启动会跳过本应执行的重置。因此活动事务中注册 afterCommit 回调， 无事务（单测直调）时立即写。
+     *
+     * <p>写入失败只记 ERROR 不阻断启动：标记丢失的后果是退回 016 的「同值幂等」行为， 比阻断管理员恢复流程更可接受；数据目录与数据库同机， 磁盘不可写时数据库同样无法工作。
+     *
+     * @param configuredPassword 本次已生效的配置口令
+     */
+    private void writeResetMarker(String configuredPassword) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            doWriteResetMarker(configuredPassword);
+                        }
+                    });
+            return;
+        }
+        doWriteResetMarker(configuredPassword);
+    }
+
+    /**
+     * 实际写标记文件；只在事务提交后或无事务时调用。
+     *
+     * @param configuredPassword 本次已生效的配置口令
+     */
+    private void doWriteResetMarker(String configuredPassword) {
+        Path marker = Path.of(properties.resetMarkerFile());
+        try {
+            if (marker.getParent() != null) {
+                Files.createDirectories(marker.getParent());
+            }
+            Path staged = marker.resolveSibling(marker.getFileName() + ".tmp");
+            Files.writeString(staged, passwordEncoder.encode(configuredPassword));
+            Files.move(
+                    staged,
+                    marker,
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException exception) {
+            log.error("failed to write bootstrap reset marker {}", marker, exception);
         }
     }
 
