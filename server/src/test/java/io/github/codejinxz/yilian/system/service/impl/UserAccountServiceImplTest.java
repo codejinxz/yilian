@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -17,6 +19,7 @@ import io.github.codejinxz.yilian.system.dao.InviteCodeDao;
 import io.github.codejinxz.yilian.system.entity.AppUser;
 import io.github.codejinxz.yilian.system.entity.InviteCode;
 import io.github.codejinxz.yilian.system.entity.UserRole;
+import io.github.codejinxz.yilian.system.service.vo.AdminPasswordResetView;
 import io.github.codejinxz.yilian.system.service.vo.InviteCodeAdminView;
 
 import org.junit.jupiter.api.Test;
@@ -293,6 +296,139 @@ class UserAccountServiceImplTest {
         service.adminSetRole(1L, 3L, "ADMIN", "接手运营");
 
         verify(appUserDao, never()).countActiveAdminsForUpdate();
+    }
+
+    /** [AC-6a] 重置成功：临时口令 12 位去混淆字母表、只落 BCrypt、强制改密标记复位、会话全吊销。 */
+    @Test
+    void adminResetPasswordIssuesOneTimePasswordAndForcesChange_ac6a() {
+        AppUser target = user(3L, "learner");
+        when(appUserDao.findById(3L)).thenReturn(Optional.of(target));
+        when(appUserDao.save(any(AppUser.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        AdminPasswordResetView view = service.adminResetPassword(1L, 3L, "用户忘记密码");
+
+        assertThat(view.userId()).isEqualTo("3");
+        assertThat(view.username()).isEqualTo("learner");
+        // 与邀请码同风格：去混淆大写字母表（无 I/L/O/0/1），12 位。
+        assertThat(view.temporaryPassword()).matches("[A-HJ-NP-Z2-9]{12}");
+        // 临时口令可登录（哈希落库），且目标回到「首次登录需改密」（40303 拦截业务接口）。
+        assertThat(target.isPasswordChanged()).isFalse();
+        assertThat(target.getPasswordHash()).isNotEqualTo(view.temporaryPassword());
+        verify(refreshSessions).findByPrincipalName("learner");
+    }
+
+    /** [AC-6a] 自己重置自己被拒（40300，权限边界），不落库不吊销。 */
+    @Test
+    void adminResetPasswordRejectsSelf_ac6a() {
+        when(appUserDao.findById(1L)).thenReturn(Optional.of(adminUser(1L, "admin")));
+
+        assertThatThrownBy(() -> service.adminResetPassword(1L, 1L, "手滑"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不能重置自己的密码")
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.ACCESS_DENIED);
+
+        verify(appUserDao, never()).save(any());
+        verify(refreshSessions, never()).findByPrincipalName(any());
+    }
+
+    /** [AC-6a] 目标已软删：40400（与启停/改角色的「用户已删除」口径一致）。 */
+    @Test
+    void adminResetPasswordRejectsDeletedUser_ac6a() {
+        AppUser target = user(3L, "learner");
+        target.softDelete(1L, Instant.now());
+        when(appUserDao.findById(3L)).thenReturn(Optional.of(target));
+
+        assertThatThrownBy(() -> service.adminResetPassword(1L, 3L, "误操作"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("用户已删除")
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.NOT_FOUND);
+    }
+
+    /** [AC-6a] 原因必填（审计硬条款）：空白原因 40000，不触达目标读取。 */
+    @Test
+    void adminResetPasswordRequiresReason_ac6a() {
+        assertThatThrownBy(() -> service.adminResetPassword(1L, 3L, " "))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.VALIDATION_FAILED);
+
+        verify(appUserDao, never()).findById(anyLong());
+    }
+
+    /** [AC-6b] 删除成功：软删置位（操作者记录）、停用、会话全吊销；响应为删除后视图。 */
+    @Test
+    void adminDeleteUserSoftDeletesAndRevokesSessions_ac6b() {
+        AppUser target = user(3L, "learner");
+        when(appUserDao.findById(3L)).thenReturn(Optional.of(target));
+        when(appUserDao.save(any(AppUser.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        var view = service.adminDeleteUser(1L, 3L, "用户申请注销");
+
+        assertThat(view.deleted()).isTrue();
+        assertThat(target.getDeletedAt()).isNotNull();
+        assertThat(target.getDeletedBy()).isEqualTo(1L);
+        assertThat(target.isEnabled()).isFalse();
+        verify(refreshSessions).findByPrincipalName("learner");
+    }
+
+    /** [AC-6b] 已删账号再删：40400（软删惯例裁决，见实现注释），不再重复吊销。 */
+    @Test
+    void adminDeleteUserIsIdempotentBy404OnDeletedTarget_ac6b() {
+        AppUser target = user(3L, "learner");
+        target.softDelete(1L, Instant.now());
+        when(appUserDao.findById(3L)).thenReturn(Optional.of(target));
+
+        assertThatThrownBy(() -> service.adminDeleteUser(1L, 3L, "重复提交"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("用户已删除")
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.NOT_FOUND);
+
+        verify(refreshSessions, times(0)).findByPrincipalName(any());
+    }
+
+    /** [AC-6b] 自己删自己被拒（40300）。 */
+    @Test
+    void adminDeleteUserRejectsSelf_ac6b() {
+        when(appUserDao.findById(1L)).thenReturn(Optional.of(adminUser(1L, "admin")));
+
+        assertThatThrownBy(() -> service.adminDeleteUser(1L, 1L, "手滑"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不能删除自己的账号")
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.ACCESS_DENIED);
+
+        verify(appUserDao, never()).save(any());
+    }
+
+    /** [AC-6b] 最后一个管理员不可删（与停用同款行锁护栏）。 */
+    @Test
+    void adminDeleteUserRejectsLastAdmin_ac6b() {
+        when(appUserDao.findById(3L)).thenReturn(Optional.of(adminUser(3L, "deputy")));
+        when(appUserDao.countActiveAdminsForUpdate()).thenReturn(1L);
+
+        assertThatThrownBy(() -> service.adminDeleteUser(1L, 3L, "团队调整"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不能删除最后一个管理员")
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.IDEMPOTENT_CONFLICT);
+
+        verify(appUserDao, never()).save(any());
+    }
+
+    /** [AC-6b] 原因必填：空白原因 40000。 */
+    @Test
+    void adminDeleteUserRequiresReason_ac6b() {
+        assertThatThrownBy(() -> service.adminDeleteUser(1L, 3L, ""))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.VALIDATION_FAILED);
+
+        verify(appUserDao, never()).findById(anyLong());
     }
 
     /**

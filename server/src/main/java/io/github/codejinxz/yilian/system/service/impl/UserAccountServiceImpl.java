@@ -17,6 +17,7 @@ import io.github.codejinxz.yilian.system.service.dto.RegisterCommand;
 import io.github.codejinxz.yilian.system.service.dto.UserCredentials;
 import io.github.codejinxz.yilian.system.service.dto.UserSettings;
 import io.github.codejinxz.yilian.system.service.dto.UserSettingsPatch;
+import io.github.codejinxz.yilian.system.service.vo.AdminPasswordResetView;
 import io.github.codejinxz.yilian.system.service.vo.AdminUserView;
 import io.github.codejinxz.yilian.system.service.vo.InviteCodeAdminView;
 import io.github.codejinxz.yilian.system.service.vo.InviteCodeCreatedView;
@@ -70,6 +71,9 @@ public class UserAccountServiceImpl implements UserAccountService {
     private static final String INVITE_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
     private static final int INVITE_CODE_RANDOM_LENGTH = 8;
+
+    /** 管理员重置的临时口令长度：12 位 × 31 字母表 ≈ 61 bits，只显示一次、首次登录强制改密。 */
+    private static final int TEMPORARY_PASSWORD_LENGTH = 12;
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
@@ -256,6 +260,73 @@ public class UserAccountServiceImpl implements UserAccountService {
             target.enable();
         }
         return AdminUserView.from(appUserDao.save(target));
+    }
+
+    @Override
+    @Transactional
+    public AdminPasswordResetView adminResetPassword(long actorId, long targetId, String reason) {
+        if (StringUtils.isBlank(reason)) {
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, "重置密码必须填写原因");
+        }
+        AppUser target = requireUser(targetId);
+        if (target.getDeletedAt() != null) {
+            throw new BusinessException(ApiCode.NOT_FOUND, "用户已删除");
+        }
+        if (targetId == actorId) {
+            // 自己重置自己被拒（018 AC-6a）：管理员有自助改密端点，走 /me/password；
+            // 40300 与「自己删自己」同口径——这是权限边界而非状态冲突。
+            throw new BusinessException(ApiCode.ACCESS_DENIED, "不能重置自己的密码，请走自助改密");
+        }
+        String temporaryPassword = generateTemporaryPassword();
+        target.adminResetPassword(passwordEncoder.encode(temporaryPassword), Instant.now());
+        appUserDao.save(target);
+        // 改密即吊销全部 refresh 会话（契约「改密吊销全部」）：旧会话拿到的 access token 过期后
+        // 无法续期，新登录必须用临时口令并被 40303 引导改密。
+        revokeRefreshSessions(target.getUsername());
+        return new AdminPasswordResetView(
+                temporaryPassword, Long.toString(target.getId()), target.getUsername());
+    }
+
+    @Override
+    @Transactional
+    public AdminUserView adminDeleteUser(long actorId, long targetId, String reason) {
+        if (StringUtils.isBlank(reason)) {
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, "删除账号必须填写原因");
+        }
+        AppUser target = requireUser(targetId);
+        if (target.getDeletedAt() != null) {
+            // 已删按 40400 收敛（018 AC-6b 裁决）：与 adminSetStatus/adminSetRole 的软删口径一致；
+            // 幂等 200 会把「目标不存在」伪装成成功，审计行也会失真，故显式报「用户已删除」。
+            throw new BusinessException(ApiCode.NOT_FOUND, "用户已删除");
+        }
+        if (targetId == actorId) {
+            throw new BusinessException(ApiCode.ACCESS_DENIED, "不能删除自己的账号");
+        }
+        // 与「停用最后一个管理员」同款护栏（013 AC-5 行锁先例）：删除即失去登录能力，
+        // 两个管理员并发互删时行锁串行化，任何时刻不出现 0 活跃管理员。
+        if (target.getRole() == UserRole.ADMIN && appUserDao.countActiveAdminsForUpdate() <= 1) {
+            throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "不能删除最后一个管理员");
+        }
+        target.softDelete(actorId, Instant.now());
+        appUserDao.save(target);
+        // 软删即吊销全部 refresh 会话：deleted=true 的账号 refresh 校验拒绝，无需等 access token 过期。
+        revokeRefreshSessions(target.getUsername());
+        return AdminUserView.from(target);
+    }
+
+    /**
+     * 生成一次性临时口令：与邀请码同风格——去混淆字母表的 SecureRandom，12 位约 61 bits， 满足最低 8 位长度要求且不会命中「与用户名/邮箱相同」的弱口令校验。
+     *
+     * @return 12 位随机口令
+     */
+    private static String generateTemporaryPassword() {
+        StringBuilder random = new StringBuilder(TEMPORARY_PASSWORD_LENGTH);
+        for (int i = 0; i < TEMPORARY_PASSWORD_LENGTH; i++) {
+            random.append(
+                    INVITE_CODE_ALPHABET.charAt(
+                            SECURE_RANDOM.nextInt(INVITE_CODE_ALPHABET.length())));
+        }
+        return random.toString();
     }
 
     /**

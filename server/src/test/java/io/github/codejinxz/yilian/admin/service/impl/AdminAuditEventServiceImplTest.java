@@ -42,7 +42,7 @@ class AdminAuditEventServiceImplTest {
     void recordEventAcceptsAllFrontendActions_ac4() {
         List<String> frontendActions =
                 List.of(
-                        "RESET_PASSWORD",
+                        // RESET_PASSWORD 已迁移到真端点（018 AC-6a），从演示白名单移除。
                         "EXPORT_USER_DATA",
                         "SESSION_REVOKE",
                         "MODEL_CONFIG_UPDATE",
@@ -52,8 +52,32 @@ class AdminAuditEventServiceImplTest {
             service.recordEvent(
                     1L, "admin", "ADMIN", new AdminAuditEventRequest(action, "USER", "7", "原因"));
         }
-        // 每个动作各写一行，共 6 行。
+        // 每个动作各写一行。
         verify(adminAuditEventDao, org.mockito.Mockito.times(frontendActions.size())).insert(any());
+    }
+
+    /**
+     * [AC-6a] RESET_PASSWORD 从演示白名单移除：动作已由真端点 POST /api/admin/users/{id}/reset-password
+     * 的 @OperationLog 落审计，演示入口关闭以防同动作双入口污染只增不改的审计表。
+     */
+    @Test
+    void recordEventRejectsMigratedResetPasswordAction_ac6a() {
+        assertThatThrownBy(
+                        () ->
+                                service.recordEvent(
+                                        1L,
+                                        "admin",
+                                        "ADMIN",
+                                        new AdminAuditEventRequest(
+                                                "RESET_PASSWORD", "USER", "7", "用户忘记密码")))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> {
+                            assertThat(exception.apiCode()).isEqualTo(ApiCode.VALIDATION_FAILED);
+                            assertThat(exception.getMessage()).contains("不支持的审计动作");
+                        });
+
+        verify(adminAuditEventDao, never()).insert(any());
     }
 
     /** [AC-4] 未知动作与空 action 回 40000，不落库。 */
@@ -95,17 +119,17 @@ class AdminAuditEventServiceImplTest {
                 1L,
                 "admin",
                 "ADMIN",
-                new AdminAuditEventRequest(" RESET_PASSWORD ", "USER", "7", "用户忘记密码"));
+                new AdminAuditEventRequest(" EXPORT_USER_DATA ", "USER", "7", "用户申请导出"));
 
         ArgumentCaptor<AdminAuditEventRow> row = ArgumentCaptor.forClass(AdminAuditEventRow.class);
         verify(adminAuditEventDao).insert(row.capture());
-        assertThat(row.getValue().action()).isEqualTo("RESET_PASSWORD");
+        assertThat(row.getValue().action()).isEqualTo("EXPORT_USER_DATA");
         assertThat(row.getValue().actorId()).isEqualTo(1L);
         assertThat(row.getValue().actorName()).isEqualTo("admin");
         assertThat(row.getValue().actorRole()).isEqualTo("ADMIN");
         assertThat(row.getValue().targetType()).isEqualTo("USER");
         assertThat(row.getValue().targetId()).isEqualTo("7");
-        assertThat(row.getValue().reason()).isEqualTo("用户忘记密码");
+        assertThat(row.getValue().reason()).isEqualTo("用户申请导出");
         assertThat(row.getValue().traceId()).isNotBlank();
     }
 }

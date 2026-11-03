@@ -1,5 +1,7 @@
 package io.github.codejinxz.yilian.admin.controller;
 
+import io.github.codejinxz.yilian.admin.service.dto.AdminUserDeleteRequest;
+import io.github.codejinxz.yilian.admin.service.dto.AdminUserResetPasswordRequest;
 import io.github.codejinxz.yilian.admin.service.dto.AdminUserRoleRequest;
 import io.github.codejinxz.yilian.admin.service.dto.AdminUserStatusRequest;
 import io.github.codejinxz.yilian.common.api.ApiResponse;
@@ -8,6 +10,7 @@ import io.github.codejinxz.yilian.common.logging.OperationLog;
 import io.github.codejinxz.yilian.common.logging.OperationLogContext;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
 import io.github.codejinxz.yilian.system.service.UserAccountService;
+import io.github.codejinxz.yilian.system.service.vo.AdminPasswordResetView;
 import io.github.codejinxz.yilian.system.service.vo.AdminUserView;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -15,16 +18,18 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 管理端用户域三端点（/api/admin/users，API §8.1）：检索分页、启停账号、变更角色。
+ * 管理端用户域端点（/api/admin/users，API §8.1–8.2）：检索分页、启停账号、变更角色、 重置密码与删除账号（018 AC-6a/6b）。
  *
  * <p>用户读写全部走 system 模块 {@link UserAccountService} 接口；admin 模块不接触 system 的 dao/entity。 启停与改角色的
  * reason 经 {@link OperationLogContext} 传入审计（注解只放静态元数据）。
@@ -106,5 +111,48 @@ public class AdminUserController {
         return ApiResponse.success(
                 userAccountService.adminSetRole(
                         actor.id(), userId, request.role(), request.reason()));
+    }
+
+    /**
+     * 重置用户密码（018 AC-6a）：生成一次性临时口令随响应返回一次，目标用户回到强制改密态并全部下线。
+     *
+     * <p>审计用真实动作 {@code RESET_PASSWORD}（此前经 /api/admin/audit-events 演示入口，本端点上线后 从白名单移除），原因随 {@link
+     * OperationLogContext} 落库。明文口令不进日志：切面不读参数与请求体， 响应体也只回给当前管理员。
+     *
+     * @param userId 目标用户 id
+     * @param request 审计原因
+     * @param actor 当前管理员
+     * @return 一次性临时口令回执
+     */
+    @Operation(summary = "重置用户密码")
+    @OperationLog(module = "admin", action = "RESET_PASSWORD", targetType = "user")
+    @PostMapping("/{userId}/reset-password")
+    public ApiResponse<AdminPasswordResetView> resetPassword(
+            @PathVariable long userId,
+            @Valid @RequestBody AdminUserResetPasswordRequest request,
+            @AuthenticationPrincipal YilianUserPrincipal actor) {
+        OperationLogContext.set("user", Long.toString(userId), request.reason());
+        return ApiResponse.success(
+                userAccountService.adminResetPassword(actor.id(), userId, request.reason()));
+    }
+
+    /**
+     * 删除账号（018 AC-6b）：软删置位（30 天冷静期）并吊销全部会话；自己不能删自己，已删返回 40400。
+     *
+     * @param userId 目标用户 id
+     * @param request 审计原因
+     * @param actor 当前管理员
+     * @return 软删后的用户视图
+     */
+    @Operation(summary = "删除账号（软删）")
+    @OperationLog(module = "admin", action = "USER_DELETE", targetType = "user")
+    @DeleteMapping("/{userId}")
+    public ApiResponse<AdminUserView> deleteUser(
+            @PathVariable long userId,
+            @Valid @RequestBody AdminUserDeleteRequest request,
+            @AuthenticationPrincipal YilianUserPrincipal actor) {
+        OperationLogContext.set("user", Long.toString(userId), request.reason());
+        return ApiResponse.success(
+                userAccountService.adminDeleteUser(actor.id(), userId, request.reason()));
     }
 }

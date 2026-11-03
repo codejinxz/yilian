@@ -12,6 +12,7 @@ import {
   getInvites,
   getRawAttempt,
   getUserAttempts,
+  resetAdminUserPassword,
   updateUserRole,
   updateUserStatus,
 } from "@/lib/api/admin";
@@ -408,7 +409,7 @@ function UserDrawer({
     onSuccess: () => {
       onSettled();
       onClose();
-      toast("已进入 30 天冷静期（演示）");
+      toast("已进入 30 天冷静期，期间可恢复");
     },
     onError: (error) => toast(error instanceof Error ? error.message : "操作失败"),
   });
@@ -417,6 +418,15 @@ function UserDrawer({
       appendAuditEvent(input),
     onSuccess: () => onSettled(),
     onError: (error) => toast(error instanceof Error ? error.message : "操作失败"),
+  });
+  // 018 AC-6a：重置密码接真端点——服务端生成一次性临时口令，明文只在本次 toast 显示。
+  const resetPasswordMutation = useMutation({
+    mutationFn: (reason: string) => resetAdminUserPassword(user.id, reason),
+    onSuccess: (view) => {
+      onSettled();
+      toast(`临时口令 ${view.temporaryPassword}（仅显示一次，用户下次登录须改密）`);
+    },
+    onError: (error) => toast(error instanceof Error ? error.message : "重置失败"),
   });
   const rawMutation = useMutation({
     mutationFn: (input: { attemptId: string; reason: string; zh: string; ref: string | null }) =>
@@ -553,20 +563,14 @@ function UserDrawer({
         <button
           type="button"
           className="linkish"
-          disabled={demoAuditMutation.isPending}
+          disabled={resetPasswordMutation.isPending}
           onClick={() =>
             requestReason({
               title: "重置密码",
-              description: "将生成 30 分钟有效的一次性重置链接，用户设置新密码后全部会话被吊销。",
+              description:
+                "将生成一次性临时口令，仅显示一次；用户下次登录用它进入并强制改密，全部会话被吊销。",
               options: ["用户忘记密码", "安全原因", "其他"],
-              onConfirm: (reason) => {
-                demoAuditMutation.mutate({
-                  action: "RESET_PASSWORD",
-                  targetId: user.id,
-                  reason,
-                });
-                toast("已发送 30 分钟有效的一次性链接（演示）");
-              },
+              onConfirm: (reason) => resetPasswordMutation.mutate(reason),
             })
           }
         >

@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { BankPeekDrawer } from "@/features/practice/bank-peek-drawer";
 import {
+  freeModeChips,
   gradeCloze,
   gradeFree,
   normalizeAnswer,
@@ -1240,6 +1241,12 @@ export function PracticePage() {
   }
 
   const isReveal = attempt?.kind === "REVEAL";
+  // 整句批改要点 chips（018 AC-6c，原型 L535/L1688）：语块×译文逐块 hasPhrase；
+  // 看答案不展示，填空模式不展示（原型仅整句提交路径渲染 #chips）。
+  const freeChips =
+    displayMode === "FREE" && !isReveal && displaySentence
+      ? freeModeChips(displaySentence.chunks, submittedFree)
+      : [];
   const score = attempt?.score ?? null;
   const missedCount = attempt
     ? attempt.result.annotations.filter((item) => !item.correct).length
@@ -1705,6 +1712,25 @@ export function PracticePage() {
                   </span>
                 ) : null}
               </div>
+
+              {freeChips.length > 0 ? (
+                // 原型 .chips 行：命中苔绿、未中朱红（.chip.hit/.chip.miss 同值），一眼看出哪里中了。
+                <div className="mt-[22px] flex flex-wrap gap-2">
+                  {freeChips.map((chip) => (
+                    <span
+                      key={chip.index}
+                      className={cn(
+                        "rounded-[2px] border px-[9px] py-1 font-sans text-xs tracking-[0.02em]",
+                        chip.hit
+                          ? "border-moss/50 text-moss"
+                          : "border-vermilion/50 text-vermilion",
+                      )}
+                    >
+                      {chip.zh}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
 
               <div className="mt-[26px]">
                 <p className="label">参考译文</p>

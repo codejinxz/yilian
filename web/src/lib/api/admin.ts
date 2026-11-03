@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { apiRequest } from "@/lib/api";
 import {
+  type AdminPasswordReset,
   type AdminUser,
+  adminPasswordResetSchema,
   adminUserPageSchema,
   adminUserSchema,
   auditLogPageSchema,
@@ -84,6 +86,25 @@ export async function updateUserRole(
     input,
   );
   return parseData(adminUserSchema, data);
+}
+
+/**
+ * 管理员重置用户密码（018 AC-6a）：服务端生成一次性临时口令，目标用户回到强制改密态并全部下线。
+ * 明文只随本响应返回一次，前端须提示管理员立即转交。
+ * @param userId 用户 id
+ * @param reason 审计原因
+ * @returns 一次性临时口令与目标用户
+ */
+export async function resetAdminUserPassword(
+  userId: string,
+  reason: string,
+): Promise<AdminPasswordReset> {
+  const data = await jsonRequest<unknown>(
+    `/admin/users/${encodeURIComponent(userId)}/reset-password`,
+    "POST",
+    { reason },
+  );
+  return parseData(adminPasswordResetSchema, data);
 }
 
 /**

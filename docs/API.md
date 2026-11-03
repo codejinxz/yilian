@@ -1217,7 +1217,7 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 
 ### 6.11 `POST /api/practice/reviews/postpone`（implemented）
 
-用途：顺延到期卡——保留最早到期的 `pushLimit` 道，其余整体推迟一天；用户手动动作，不写 `review_logs`，理由进结构化日志。
+用途：顺延到期卡——保留最早到期的 `pushLimit` 道，其余整体顺延 3 天（2026-11-04 018 AC-6d：与本地引擎 `postponeOverdue(3)` 与原型口径统一，此前登录态固定 1 天属偏差）；用户手动动作，不写 `review_logs`，理由进结构化日志。
 
 请求：`{ "reason": "今天没时间" }`（可选；无请求体时用缺省理由）。
 
@@ -1360,6 +1360,40 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 响应：`AdminUserView`；错误 `40000`、`40100`、`40300`、`40400`、`40900`、`50000`。
 
 字段回溯：`users.role`；`admin_audit_log.*`。
+
+### 8.2b `POST /api/admin/users/{id}/reset-password`（implemented，018）
+
+用途：管理员重置用户密码——PRD §13 指定的唯一找回密码路径；替代此前经 `/api/admin/audit-events` 的演示审计（该动作已从白名单移除，防同动作双入口）。
+
+请求：`{ "reason": "用户忘记密码" }`（必填，随审计落库）。
+
+行为：服务端生成 12 位一次性临时口令（去混淆字母表 SecureRandom，与邀请码同风格），BCrypt 落库；`password_changed` 复位为 false——目标用户下次登录走 40303 强制改密（机制复用，无新增状态位）；吊销目标用户全部 refresh 会话。
+
+响应（明文只随本响应返回一次，不落日志不进缓存）：
+
+```json
+{ "temporaryPassword": "AbC23456MNPQ", "userId": "3", "username": "learner" }
+```
+
+审计：`admin_audit_log` action=`RESET_PASSWORD`（`@OperationLog`，reason/target 随上下文）。
+
+错误：`40000`（reason 缺失）、`40100`、`40300`（自己重置自己——自助改密走 `/api/me/password`）、`40400`（用户不存在/已删）、`50000`。
+
+字段回溯：`users.password_hash/password_changed/password_updated_at`；`admin_audit_log.*`；Spring Session 删除。
+
+### 8.2c `DELETE /api/admin/users/{id}`（implemented，018）
+
+用途：管理员删除账号（软删 30 天冷静期，与原型用户抽屉「删除」对齐；前端此前已按本端点发送请求）。
+
+请求：`{ "reason": "用户申请注销" }`（必填）。
+
+行为：`deleted_at/deleted_by` 置位且 `enabled=false`（软删，不删答题与审计，append-only）；吊销目标用户全部 refresh 会话；最后一个活跃 ADMIN 不可删（与「停用最后一个管理员」同款行锁护栏）。
+
+响应：软删后的 `AdminUserView`（`deleted=true`、`enabled=false`）；错误 `40000`、`40100`、`40300`（自己删自己）、`40400`（用户不存在/**已删再删同码**——软删惯例裁决：与 §8.2「用户已删除」口径一致，幂等 200 会把「目标不存在」伪装成成功并让审计失真）、`40900`（最后一个管理员）、`50000`。
+
+审计：action=`USER_DELETE`。
+
+字段回溯：`users.deleted_at/deleted_by/enabled`；`admin_audit_log.*`；Spring Session 删除。
 
 ### 8.4 `GET /api/admin/audit-logs`（implemented，012）
 
@@ -1836,7 +1870,7 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 | Practice | `GET /api/practice/next`（D7 四参数 2026-11-03 服务端补齐，语义见 §6.1）、`POST /api/practice/attempts`（幂等 + norm-1/rubric-1 判分 + SRS 排程）、`GET /api/practice/attempts/{attemptId}`、批注 `appeal`/`dispute`（§6.4/§6.5）、`GET /api/practice/wrong-questions`、`GET /api/practice/reviews`、`POST /api/practice/reviews/{reviewId}/reset`、`GET /api/practice/reviews/overload`、`POST /api/practice/reviews/postpone`、`GET /api/practice/today` | 练习主链路（#8 波次三）；幂等口径 §6.2；复习卡一句一卡（DATA-MODEL §5.11 Q1）；next 指定句优先（MANUAL）/errors=1 错题池（与 §6.6 同口径）/excludeIds 合并去重/tag JSON 精确匹配，非法参数静默归一 | `PracticeControllerTest`（切片：全部 10 端点——匿名 401、mode 取值 40000、分页 40004、40903/40403/40404、信封形状、限流注解、D7 四参数归一透传）；`PracticeFlowIntegrationTest`（对拍：指定句优先/找不到退回、errors=1 错题口径与 exclude/tag/bankId 过滤、next 显式 bankId 40401/空态、并发同 attemptId 双发幂等收敛零 500） |
 | Analytics | `GET /api/analytics/accuracy`（含 `daily14`/`recent` 扩展）、`GET /api/analytics/error-tags` | 用户时区日界；disputed 批注排除 | `AnalyticsControllerTest`（切片：匿名 401、§7.1/§7.2 信封、参数透传、非法日期 40000、空 items=[]）；`AnalyticsIntegrationTest`（真实 MySQL：聚合对拍、dispute 排除、from/to 闭区间上限 92 天） |
 | Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 | `ImportBatchControllerTest`（切片：匿名 401/非管理员 403、multipart 绑定与缺参 40000、缺请求体 40001、40405/40904、PageResponse 信封）；`ImportBatchServiceIntegrationTest`（真实 MySQL：五端点语义、commit 原子性（回写失败整体回滚可恢复）、COMMITTING 残留对账收敛、重复 commit 幂等、回滚 tombstone） |
-| Admin | `GET /api/admin/overview`、`GET /api/admin/users`、`PATCH /api/admin/users/{id}/status`、`PATCH /api/admin/users/{id}/role`、`POST /api/admin/invites`、`GET /api/admin/invites`（011-a） | 概览聚合（活跃=attempts 当日去重用户，UTC 日界）、用户检索分页、启停/改角色（审计经 `OperationLogContext`）、邀请码生成（明文一次性）/前缀列表 | `AdminOverviewControllerTest`、`AdminUserControllerTest`、`AdminInviteControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse 形状、reason 越界 40000、40001、审计上下文断言）；service 分支另由 `UserAccountServiceImplTest`（自己停自己/自己降自己/邀请码哈希落库）、`AdminOverviewServiceImplTest`（补 0 与活动组装）覆盖 |
+| Admin | `GET /api/admin/overview`、`GET /api/admin/users`、`PATCH /api/admin/users/{id}/status`、`PATCH /api/admin/users/{id}/role`、`POST /api/admin/invites`、`GET /api/admin/invites`（011-a）、`POST /api/admin/users/{id}/reset-password`、`DELETE /api/admin/users/{id}`（018） | 概览聚合（活跃=attempts 当日去重用户，UTC 日界）、用户检索分页、启停/改角色（审计经 `OperationLogContext`）、邀请码生成（明文一次性）/前缀列表、重置密码（一次性临时口令+40303 强制改密+吊销全部会话，§8.2b）、删除账号（软删+吊销会话+40400 幂等口径，§8.2c） | `AdminOverviewControllerTest`、`AdminUserControllerTest`、`AdminInviteControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse 形状、reason 越界 40000、40001、审计上下文断言；018 补 reset-password/delete 绑定校验与 403/401 矩阵）；service 分支另由 `UserAccountServiceImplTest`（自己停自己/自己降自己/邀请码哈希落库；018 补重置成功与自重置/已删/原因必填、删除成功与自删/已删/最后管理员）、`AdminOverviewServiceImplTest`（补 0 与活动组装）覆盖 |
 | Admin | `GET/POST /api/admin/banks`、`GET/PATCH/DELETE /api/admin/banks/{bankId}`、`GET /api/admin/banks/{bankId}/sentences`、`GET /api/admin/sentences`、`POST /api/admin/sentences/bulk-status`、`POST /api/admin/sentences/bulk-move`、`PATCH /api/admin/sentences/{sentenceId}/status`、`PATCH /api/admin/sentences/{sentenceId}`（011-b） | 题库检索/新建/详情/部分更新/软删（状态流转 RECYCLED，恢复清 `deleted_at`）、题库内与跨题库题目检索（跨题库缺省隐藏回收站）、批量状态/移动（单事务；不存在的 id 与无变化 id 跳过、计数如实返回；每题递增银行修订号；移动预检指纹冲突 40000）、单题状态流转（幂等不推进）、行内编辑（zh/level/tags/note 走新版本行并回填指纹/content_hash，bankId/status 走元字段；编辑先于移动，预检用新指纹） | `AdminBankControllerTest`、`AdminSentenceControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse/SentenceView 形状、reason/ids/zh 校验 40000、缺体 40001、40401/40402、审计上下文断言）；批量与列表/编辑语义另由 `ContentAdminServiceImplTest`（每题递增版本、悲观锁按题库 id 升序、跳过语义、恢复清软删、版本字段新版本行、非法枚举 40000/分页 40004）覆盖 |
 | Admin | `GET /api/admin/audit-logs`、`GET /api/admin/error-logs`、`GET /api/admin/error-logs/{id}`、`POST /api/admin/generation/import`、`POST /api/admin/audit-events`（012） | 操作日志/异常日志检索（分区表强制时间兜底：from/to 缺省近 30 天；size 上限 100 越界归 100；keyword LIKE 转义纯 contains；异常列表剥离 stackTrace、详情含堆栈缺失 40400）、出题导入（复用 content 导入接缝，指纹去重 40904 整批回滚，行校验与文件导入同口径、拼接比对按前端 normLoose 宽松归一，不建 upload 批次）、审计事件（动作白名单防污染，返回字符串 id） | `AdminAuditLogControllerTest`、`AdminErrorLogControllerTest`、`AdminGenerationControllerTest`、`AdminAuditEventControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse/批次视图形状、stackTrace 剥离与详情、审计上下文/字符串 id 断言）；服务层分支另由 `AdminLogServiceImplTest`（时间兜底/转义/size 归一/40000/40400）、`AdminGenerationServiceImplTest`（行校验 fail-fast/接缝透传/40904 上抛）、`AdminAuditEventServiceImplTest`（白名单/行形状）覆盖；题库「空串清空说明」契约由 `ContentAdminServiceImplTest` 补测（012 AC-5） |
 | Admin/Practice | `POST /api/admin/fsrs/optimize`、`GET /api/admin/fsrs/parameters`、`POST /api/admin/fsrs/parameters/{id}/enable`（014/M2.1） | FSRS 参数版本管理：SGD 优化读指定用户 review_logs 产 GLOBAL CANDIDATE（样本 <50 40000 拒绝、metrics 携训练摘要）、版本列表、启用状态机（仅 CANDIDATE；旧 ACTIVE bulk UPDATE 即时退役防 uk 撞键；审计 FSRS_OPTIMIZE/FSRS_ENABLE）；启用后调度消费新权重（§6.1 四分支参数换源，原型种子逐值不变） | `AdminFsrsControllerTest`（切片：匿名 401/非管理员 403、40000/40001/41500、信封与视图形状、审计注解口径）；`FsrsAdminIntegrationTest`（真实 MySQL：真实日志训练产 CANDIDATE、样本不足不落行、启用状态机/40000/40400、启用后失败排程 stability=w[0]/difficulty=w[4] 且 weights_version_id 绑新版本）；`AdminFsrsControllerTest` 补 optimize 限流注解契约（ACCOUNT 5/60s）；优化器数学另由 `FsrsOptimizerTest`（FSRS-6 闭式/BCE 手算对拍、合成数据收敛）覆盖 |
@@ -1886,6 +1920,7 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 | 2026-11-04 | v0.7 | 015 修复轮（后端）：§5 限流口径（banks 读 IP 120/60s）、§4.2 login 限流勘误 10/min(IP+账号)、§4.8 guest-upgrade 并发竞态 40900/40903、§6.1 bankId 前置校验 40401 与 excludeIds ≤100、§6.2 并发同 attemptId 幂等收敛、§7.1/§7.2 区间上限 92 天与用户时区日界口径、§8.4/§8.5 from/to 改按管理员本地日界（yilian.admin.day-zone，默认 Asia/Shanghai）、§5.5 commit 单事务原子化与 COMMITTING 对账恢复、§8.13 fsrs/optimize 限流 5/min 与样本上限 5000；§10.1 矩阵补 `LikeEscapeIntegrationTest`/`PracticeDtoContractTest` 与各集成测试新增断言 | 实现工程师 |
 | 2026-11-03 | v0.7 | 014/M2.1 第一步：§6.1 D7 四参数服务端补齐（sentenceId 指定句优先 MANUAL/errors=1 错题池（与 §6.6 同口径，REVEAL 无错批注行不进池为与本地引擎的已登记偏差）/excludeIds 合并去重/tag JSON 精确匹配，非法值静默归一）；§10.1 同步 | 实现工程师 |
 | 2026-11-03 | v0.8 | 014/M2.1 第二步：新增 §8.13 admin/fsrs 三端点（SGD 优化产出 GLOBAL CANDIDATE、版本列表、启用状态机）；§10.1 同步 | 实现工程师 |
+| 2026-11-04 | v0.9 | 018 二轮评审修复+原型小项：新增 §8.2b reset-password（一次性临时口令+40303 强制改密+吊销会话，audit-events 白名单移除 RESET_PASSWORD 改真端点）与 §8.2c DELETE users/{id}（软删+吊销会话+已删 40400 幂等口径）；§6.11 顺延口径统一 3 天（对齐原型与本地引擎）；登录 40101 三分支补齐假 BCrypt 时序对齐（响应形状不变）；§10.1 矩阵同步 | 实现工程师 |
 
 ---
 

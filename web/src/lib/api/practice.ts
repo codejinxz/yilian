@@ -258,7 +258,7 @@ export async function getReviewOverload(signal?: AbortSignal): Promise<OverloadV
 }
 
 /**
- * 顺延到期卡；服务端保留最早到期的 5 道，其余推迟一天（所有顺延可见、重练即恢复）。
+ * 顺延到期卡；服务端保留最早到期的 5 道，其余顺延 3 天（018 AC-6d 对齐原型；所有顺延可见、重练即恢复）。
  * 游客模式由页面直连本地引擎，本函数只在登录态调用。
  * @param reason 顺延理由，可空；结构化日志记录
  * @returns 顺延张数与保留张数

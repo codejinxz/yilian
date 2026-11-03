@@ -5,6 +5,7 @@ import io.github.codejinxz.yilian.system.service.dto.RegisterCommand;
 import io.github.codejinxz.yilian.system.service.dto.UserCredentials;
 import io.github.codejinxz.yilian.system.service.dto.UserSettings;
 import io.github.codejinxz.yilian.system.service.dto.UserSettingsPatch;
+import io.github.codejinxz.yilian.system.service.vo.AdminPasswordResetView;
 import io.github.codejinxz.yilian.system.service.vo.AdminUserView;
 import io.github.codejinxz.yilian.system.service.vo.InviteCodeAdminView;
 import io.github.codejinxz.yilian.system.service.vo.InviteCodeCreatedView;
@@ -124,4 +125,26 @@ public interface UserAccountService {
      * @return 列表项视图
      */
     List<InviteCodeAdminView> adminListInvites();
+
+    /**
+     * 管理员重置目标用户密码（018 AC-6a）：生成一次性临时口令、回到强制改密态并吊销全部会话。
+     *
+     * <p>临时口令只在本次响应返回一次；审计由控制器 {@code @OperationLog(action=RESET_PASSWORD)} 落库。
+     *
+     * @param actorId 操作管理员 id
+     * @param targetId 目标用户 id
+     * @param reason 审计原因，必填
+     * @return 含一次性明文临时口令的回执
+     */
+    AdminPasswordResetView adminResetPassword(long actorId, long targetId, String reason);
+
+    /**
+     * 管理员删除账号（018 AC-6b）：软删置位并吊销全部会话；自己不能删自己，已删返回 40400。
+     *
+     * @param actorId 操作管理员 id
+     * @param targetId 目标用户 id
+     * @param reason 审计原因，必填
+     * @return 软删后的视图
+     */
+    AdminUserView adminDeleteUser(long actorId, long targetId, String reason);
 }

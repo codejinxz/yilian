@@ -205,7 +205,7 @@ export const overloadViewSchema = z.object({
 
 export type OverloadView = z.infer<typeof overloadViewSchema>;
 
-/** 顺延结果（API §3.6）：服务端把推送上限之外的到期卡推迟一天。 */
+/** 顺延结果（API §3.6）：服务端把推送上限之外的到期卡顺延 3 天（018 AC-6d）。 */
 export const postponeViewSchema = z.object({
   postponed: z.number().int().nonnegative(),
   kept: z.number().int().nonnegative(),

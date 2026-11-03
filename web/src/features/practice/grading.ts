@@ -249,3 +249,54 @@ export function retypedMatchesReference(reference: string, retyped: string): boo
     normalizeAnswer(reference) !== "" && normalizeAnswer(reference) === normalizeAnswer(retyped)
   );
 }
+
+/**
+ * 词边界短语匹配；整句批改「要点命中」chips 的判定核心（018 AC-6c）。
+ *
+ * <p>与原型 submitFree/hasPhrase（prototype/index.html L1237）同语义：命中答案的每个语块打一枚
+ * 绿勾 chip。归一差异：原型只归一短语、对原始全文匹配，多重空格或全角标点会导致漏判；
+ * 这里把全文一并归一（NFKC/弯引号/全角/空白压缩/去句末标点）后再匹配，严格优于原型。
+ *
+ * @param text 用户整句译文
+ * @param phrase 语块可接受答案
+ * @returns 是否以独立词的形式出现在译文中
+ */
+export function hasPhrase(text: string, phrase: string): boolean {
+  const normalizedPhrase = normalizeAnswer(phrase);
+  if (normalizedPhrase === "") {
+    return false;
+  }
+  const escaped = normalizedPhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, "i").test(normalizeAnswer(text));
+}
+
+/** 一枚要点 chip：语块中文 + 是否命中。 */
+export interface FreeChunkChip {
+  index: number;
+  zh: string;
+  hit: boolean;
+}
+
+/**
+ * 整句模式的「要点命中」chips 数据：句子全部语块逐一比对整句译文，命中任一可接受答案即命中。
+ *
+ * <p>数据源裁决（018 AC-6c）：chips 是展示层派生数据，句子 chunks 与提交文本页面本就有，
+ * 原型也是客户端现算——批改响应保持紧凑，不为此新增字段；服务端批注（free:0 聚合一条）形状不变。
+ *
+ * @param chunks 句子语块（含可接受答案）
+ * @param text 用户提交的整句译文；空串或未提交时返回空数组（整行不渲染）
+ * @returns 逐语块命中结果，顺序与语块下标一致
+ */
+export function freeModeChips(
+  chunks: GradingChunk[],
+  text: string | null | undefined,
+): FreeChunkChip[] {
+  if (!text || text.trim() === "") {
+    return [];
+  }
+  return chunks.map((chunk) => ({
+    index: chunk.index,
+    zh: chunk.zh,
+    hit: chunk.answers.some((answer) => hasPhrase(text, answer)),
+  }));
+}

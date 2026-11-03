@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  freeModeChips,
   gradeCloze,
   gradeFree,
+  hasPhrase,
   normalizeAnswer,
   retypedMatchesReference,
   tokenizeAnswer,
@@ -161,5 +163,47 @@ describe("retypedMatchesReference", () => {
       ),
     ).toBe(true);
     expect(retypedMatchesReference("He is paying attention.", "He pays attention.")).toBe(false);
+  });
+});
+
+describe("hasPhrase", () => {
+  it("[AC-6c] 词边界命中：独立成词才中，子串不算（paying 不算命中 pay，与原型同语义）", () => {
+    expect(hasPhrase("You must pay attention to this.", "pay attention to")).toBe(true);
+    expect(hasPhrase("He is repaying attention to it.", "pay attention to")).toBe(false);
+    expect(hasPhrase("this matters", "this")).toBe(true);
+    expect(hasPhrase("these matters", "this")).toBe(false);
+  });
+
+  it("[AC-6c] 归一后匹配：大小写/多余空格/全角标点不漏判（优于原型的全文不归一）", () => {
+    expect(hasPhrase("You MUST  PAY ATTENTION TO it！", "Pay Attention To")).toBe(true);
+    expect(hasPhrase("this matters.", "this")).toBe(true);
+  });
+
+  it("[AC-6c] 空短语与空译文一律不命中", () => {
+    expect(hasPhrase("anything", "  ")).toBe(false);
+    expect(hasPhrase("", "word")).toBe(false);
+  });
+});
+
+describe("freeModeChips", () => {
+  const freeChunks = [
+    { index: 0, zh: "他", answers: ["He"] },
+    { index: 1, zh: "越来越", answers: ["more and more", "increasingly"] },
+    { index: 2, zh: "重视", answers: ["pay attention to", "attach importance to"] },
+  ];
+
+  it("[AC-6c] 逐语块命中：命中任一可接受答案即绿勾", () => {
+    const chips = freeModeChips(freeChunks, "He will increasingly pay attention to this.");
+    expect(chips.map((chip) => chip.hit)).toEqual([true, true, true]);
+  });
+
+  it("[AC-6c] 部分命中：未中的语块标灰（miss）", () => {
+    const chips = freeModeChips(freeChunks, "He noticed the change quietly.");
+    expect(chips.map((chip) => chip.hit)).toEqual([true, false, false]);
+  });
+
+  it("[AC-6c] 未提交或空串：返回空数组（整行不渲染）", () => {
+    expect(freeModeChips(freeChunks, null)).toEqual([]);
+    expect(freeModeChips(freeChunks, "   ")).toEqual([]);
   });
 });

@@ -26,6 +26,15 @@ export type AdminUser = z.infer<typeof adminUserSchema>;
 
 export const adminUserPageSchema = pageResponseSchema(adminUserSchema);
 
+/** 管理员重置密码回执（018 AC-6a）：临时口令明文只随本次响应返回一次。 */
+export const adminPasswordResetSchema = z.object({
+  temporaryPassword: z.string().min(1),
+  userId: idSchema,
+  username: z.string(),
+});
+
+export type AdminPasswordReset = z.infer<typeof adminPasswordResetSchema>;
+
 export const userStatusRequestSchema = z.object({
   enabled: z.boolean(),
   reason: z.string().trim().min(1, "请填写原因").max(255),

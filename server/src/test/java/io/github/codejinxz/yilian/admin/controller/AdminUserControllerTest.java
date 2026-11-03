@@ -8,8 +8,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -24,6 +26,7 @@ import io.github.codejinxz.yilian.common.security.RestAuthenticationEntryPoint;
 import io.github.codejinxz.yilian.common.security.SecurityConfig;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
 import io.github.codejinxz.yilian.system.service.UserAccountService;
+import io.github.codejinxz.yilian.system.service.vo.AdminPasswordResetView;
 import io.github.codejinxz.yilian.system.service.vo.AdminUserView;
 
 import org.junit.jupiter.api.AfterEach;
@@ -192,6 +195,153 @@ class AdminUserControllerTest {
                             assertThat(override.targetId()).isEqualTo("3");
                             assertThat(override.reason()).isEqualTo("违规发内容");
                         });
+    }
+
+    /** [AC-6a] 重置密码端点：reason 必填透传，200 信封回一次性临时口令回执，审计上下文写入目标与原因。 */
+    @Test
+    void resetPasswordForwardsReasonAndReturnsOneTimeView_ac6a() throws Exception {
+        when(userAccountService.adminResetPassword(1L, 3L, "用户忘记密码"))
+                .thenReturn(new AdminPasswordResetView("AbC23456MNPQ", "3", "learner"));
+
+        mockMvc.perform(
+                        post("/api/admin/users/{userId}/reset-password", 3)
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\":\"用户忘记密码\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ApiCode.SUCCESS.code()))
+                .andExpect(jsonPath("$.data.temporaryPassword").value("AbC23456MNPQ"))
+                .andExpect(jsonPath("$.data.userId").value("3"))
+                .andExpect(jsonPath("$.data.username").value("learner"));
+
+        verify(userAccountService).adminResetPassword(1L, 3L, "用户忘记密码");
+        assertThat(OperationLogContext.current())
+                .hasValueSatisfying(
+                        override -> {
+                            assertThat(override.targetType()).isEqualTo("user");
+                            assertThat(override.targetId()).isEqualTo("3");
+                            assertThat(override.reason()).isEqualTo("用户忘记密码");
+                        });
+    }
+
+    /** [AC-6a] 重置密码：缺失原因 40000（Bean Validation），不触达 Service。 */
+    @Test
+    void resetPasswordRejectsBlankReason_ac6a() throws Exception {
+        mockMvc.perform(
+                        post("/api/admin/users/{userId}/reset-password", 3)
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\":\"\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ApiCode.VALIDATION_FAILED.code()));
+
+        verifyNoInteractions(userAccountService);
+    }
+
+    /** [AC-6a] 自己重置自己：Service 抛 40300 原样透传。 */
+    @Test
+    void resetPasswordMapsSelfResetDenied_ac6a() throws Exception {
+        when(userAccountService.adminResetPassword(1L, 1L, "测试"))
+                .thenThrow(new BusinessException(ApiCode.ACCESS_DENIED, "不能重置自己的密码，请走自助改密"));
+
+        mockMvc.perform(
+                        post("/api/admin/users/{userId}/reset-password", 1)
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\":\"测试\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(ApiCode.ACCESS_DENIED.code()))
+                .andExpect(jsonPath("$.message").value("不能重置自己的密码，请走自助改密"));
+    }
+
+    /** [AC-6b] 删除账号端点：DELETE + reason 透传，200 回软删后的视图，审计上下文写入。 */
+    @Test
+    void deleteUserForwardsReasonAndReturnsDeletedView_ac6b() throws Exception {
+        AdminUserView deleted =
+                new AdminUserView(
+                        "3", "learner", null, "USER", false, true, Instant.EPOCH, null, null);
+        when(userAccountService.adminDeleteUser(1L, 3L, "用户申请注销")).thenReturn(deleted);
+
+        mockMvc.perform(
+                        delete("/api/admin/users/{userId}", 3)
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\":\"用户申请注销\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ApiCode.SUCCESS.code()))
+                .andExpect(jsonPath("$.data.deleted").value(true))
+                .andExpect(jsonPath("$.data.enabled").value(false));
+
+        verify(userAccountService).adminDeleteUser(1L, 3L, "用户申请注销");
+        assertThat(OperationLogContext.current())
+                .hasValueSatisfying(
+                        override -> {
+                            assertThat(override.targetType()).isEqualTo("user");
+                            assertThat(override.targetId()).isEqualTo("3");
+                            assertThat(override.reason()).isEqualTo("用户申请注销");
+                        });
+    }
+
+    /** [AC-6b] 删除账号：缺失原因 40000；已删目标由 Service 抛 40400（软删惯例，见实现注释）。 */
+    @Test
+    void deleteUserRejectsBlankReason_ac6b() throws Exception {
+        mockMvc.perform(
+                        delete("/api/admin/users/{userId}", 3)
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\":\"\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ApiCode.VALIDATION_FAILED.code()));
+
+        verifyNoInteractions(userAccountService);
+    }
+
+    /** [AC-6b] 匿名/非管理员访问两个新端点沿用鉴权矩阵（这里补非 ADMIN 的 403）。 */
+    @Test
+    void newUserEndpointsRejectNonAdminWith403_ac6b() throws Exception {
+        mockMvc.perform(
+                        post("/api/admin/users/{userId}/reset-password", 3)
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\":\"x\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(ApiCode.ACCESS_DENIED.code()));
+        mockMvc.perform(
+                        delete("/api/admin/users/{userId}", 3)
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\":\"x\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(ApiCode.ACCESS_DENIED.code()));
+        verifyNoInteractions(userAccountService);
     }
 
     /** [AC-3] 自己停自己：Service 抛业务失败 → 4xx 信封原样透传（40900「不能停用自己」）。 */

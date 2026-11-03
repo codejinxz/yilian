@@ -64,7 +64,7 @@ interface OverloadVM {
   pushLimit: number;
 }
 
-/** 顺延结果视图：postponed 为顺延张数，days 为顺延天数（引擎 3 天 / 服务端 1 天）。 */
+/** 顺延结果视图：postponed 为顺延张数，days 为顺延天数（018 AC-6d：两端统一 3 天）。 */
 interface PostponeVM {
   postponed: number;
   days: number;
@@ -237,14 +237,14 @@ export function ReviewPage() {
     },
   });
 
-  /** 顺延：mock/游客沿用引擎（3 天）；登录态走契约端点（服务端固定推迟 1 天）。 */
+  /** 顺延：本地引擎 golden 基准 3 天（原型口径），服务端已对齐 POSTPONE_DAYS=3（018 AC-6d）。 */
   const postponeMutation = useMutation({
     mutationFn: async (): Promise<PostponeVM> => {
       if (mock || guest) {
         return { postponed: await postponeOverdue(3), days: 3 };
       }
       const view = await postponeReviews();
-      return { postponed: view.postponed, days: 1 };
+      return { postponed: view.postponed, days: 3 };
     },
     onSuccess: ({ postponed, days }) => {
       showToast(`已帮你减负 ${postponed} 句，顺延 ${days} 天`);
@@ -341,7 +341,7 @@ export function ReviewPage() {
           <div className="min-w-0">
             <p className="font-medium text-ink">到期 {overload.dueCount} 句，已进入降载模式</p>
             <p className="mt-[5px] font-mono text-[10px] tracking-[0.1em] text-ink-faint">
-              只推 {overload.pushLimit} 句最紧急的，其余可以顺延 {guest ? 3 : 1} 天。
+              只推 {overload.pushLimit} 句最紧急的，其余可以顺延 3 天。
             </p>
           </div>
           <div className="flex shrink-0 gap-3.5">
