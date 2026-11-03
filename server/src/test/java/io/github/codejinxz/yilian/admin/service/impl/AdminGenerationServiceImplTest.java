@@ -47,7 +47,7 @@ class AdminGenerationServiceImplTest {
         service = new AdminGenerationServiceImpl(contentImportService);
     }
 
-    /** [AC-3] 合法行经 content 导入接缝入库；externalKey 按行号、响应为 COMMITTED 批次视图。 */
+    /** [AC-3] 合法行经 content 导入接缝入库；externalKey 带批次前缀（016 P1·02#01）、响应为 COMMITTED 批次视图。 */
     @Test
     void importGeneratedSendsContentsThroughImportSeam_ac3() {
         when(contentImportService.importSentences(anyLong(), anyString(), anyList(), any(), any()))
@@ -67,7 +67,10 @@ class AdminGenerationServiceImplTest {
         assertThat(batchId.getValue()).matches(BATCH_ID_PATTERN);
         assertThat(now.getValue()).isNotNull();
         SentenceContent content = contents.getValue().getFirst();
-        assertThat(content.externalKey()).isEqualTo("gen_0001");
+        // external_key = gen_<批次前 8 位十六进制>_<行号>：行号每请求重排，命名空间必须按批次
+        // 隔离，否则同库第二次 AI 导入撞 uk_sentence_bank_external（016 P1·02#01）。
+        assertThat(content.externalKey())
+                .isEqualTo("gen_" + batchId.getValue().replace("-", "").substring(0, 8) + "_0001");
         assertThat(content.zh()).isEqualTo("他越来越胖。");
         assertThat(content.ref()).isEqualTo("He is getting fatter and fatter.");
         assertThat(content.chunks()).hasSize(2);

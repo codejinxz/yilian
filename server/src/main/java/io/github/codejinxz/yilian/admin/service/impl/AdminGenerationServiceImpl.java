@@ -21,8 +21,9 @@ import java.util.UUID;
 /**
  * 出题导入实现：行校验（与 upload 导入校验器同口径）→ content 导入接缝入库 → 批次视图。
  *
- * <p>「批次 id」是随机 UUID，只写入 {@code sentence_versions.import_batch_id} 供溯源， upload 侧不建批次记录（012 计划：出题导入走
- * content 接缝的最小入库路径）。指纹去重语义 与文件导入完全一致——批内或库内重复整批 40904 回滚，与「不自动合并近似重复」的约束相容。
+ * <p>「批次 id」是随机 UUID，写入 {@code sentence_versions.import_batch_id} 供溯源， 同时为 {@code external_key}
+ * 提供按批次隔离的命名空间前缀 （同库反复 AI 导入不再互相撞唯一键，016 P1·02#01）； upload 侧不建批次记录（012 计划：出题导入走 content
+ * 接缝的最小入库路径）。指纹去重语义 与文件导入完全一致——批内或库内重复整批 40904 回滚，与「不自动合并近似重复」的约束相容。
  */
 @Service
 public class AdminGenerationServiceImpl implements AdminGenerationService {
@@ -49,12 +50,13 @@ public class AdminGenerationServiceImpl implements AdminGenerationService {
         if (items.size() > MAX_ITEMS) {
             throw new BusinessException(ApiCode.VALIDATION_FAILED, "单批最多 " + MAX_ITEMS + " 行");
         }
+        // 批次 id 先生成再组行：external_key 需要按批次命名空间（016 P1·02#01）。
+        String batchId = UUID.randomUUID().toString();
         List<SentenceContent> contents = new ArrayList<>(items.size());
         for (int index = 0; index < items.size(); index++) {
             validateRow(index + 1, items.get(index));
-            contents.add(toSentenceContent(items.get(index), index + 1));
+            contents.add(toSentenceContent(items.get(index), index + 1, batchId));
         }
-        String batchId = UUID.randomUUID().toString();
         Instant now = Instant.now();
         contentImportService.importSentences(bank, batchId, contents, actorId, now);
         return new ImportBatchViewResponse(
@@ -159,13 +161,20 @@ public class AdminGenerationServiceImpl implements AdminGenerationService {
     }
 
     /**
-     * 请求行转落库内容；externalKey 用 gen_ 前缀行号（与 mock 契约一致），index 缺省按位置补齐。
+     * 请求行转落库内容；index 缺省按位置补齐。
+     *
+     * <p>externalKey 用 {@code gen_<批次前缀>_<行号>}（016 P1·02#01）：曾固定为 {@code gen_%04d} 行号，行号每请求都从 1
+     * 重排，同题库第二次 AI 导入必复用同一批 key，撞 {@code uk_sentence_bank_external} 唯一键后整批 500 且不可重试。批次前缀让命名空间按请求
+     * 隔离：内容不同则各次导入都成功；内容相同（指纹相同）由 {@code importSentences} 的指纹预检 统一收敛为 40904。批次 id 去连字符取前 8
+     * 位十六进制，加前缀总长 17，远小于列宽 64。
      *
      * @param item 请求行
      * @param rowNo 行号（1 基）
+     * @param batchId 本批次 UUID（含连字符）
      * @return 落库内容
      */
-    private static SentenceContent toSentenceContent(AdminGenerationImportItem item, int rowNo) {
+    private static SentenceContent toSentenceContent(
+            AdminGenerationImportItem item, int rowNo, String batchId) {
         List<SentenceChunk> chunks = new ArrayList<>(item.chunks().size());
         for (int index = 0; index < item.chunks().size(); index++) {
             AdminGenerationImportItem.Chunk chunk = item.chunks().get(index);
@@ -180,7 +189,10 @@ public class AdminGenerationServiceImpl implements AdminGenerationService {
                             chunk.note()));
         }
         return new SentenceContent(
-                "gen_" + String.format("%04d", rowNo),
+                "gen_"
+                        + batchId.replace("-", "").substring(0, 8)
+                        + "_"
+                        + String.format("%04d", rowNo),
                 item.zh().trim(),
                 item.ref().trim(),
                 item.note().trim(),

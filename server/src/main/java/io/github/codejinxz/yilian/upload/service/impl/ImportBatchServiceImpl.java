@@ -32,6 +32,7 @@ import io.github.codejinxz.yilian.upload.validation.ImportRowParser;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,8 +62,9 @@ import java.util.UUID;
  *
  * <p>事务边界：preview 的「批次 + 行」单事务落库（对象存储写入在事务窗口内但非事务资源，落库失败清孤儿文件补偿）； commit 是**一个**原子事务—— 「锁批次行 → 复检状态
  * → 内容快照/题目落库（{@code ContentImportService} 同事务加入）→ 行回写 → COMMITTED」， 任一步失败整体回滚并补记 FAILED，
- * 不再出现「题目已入库而批次停在 COMMITTING」的死锁状态（015 缺陷 #3）； rollback 同理为单事务。历史上残留的 COMMITTING 批次由 {@link
- * #reconcileCommittingBatches()} 按行数据对账收敛。
+ * 不再出现「题目已入库而批次停在 COMMITTING」的死锁状态（015 缺陷 #3）； rollback 同理为单事务（016 P1·05#02 补齐：锁批次行 + 锁内复检 +
+ * recycle 同事务， 015 轮只改造了 commit 侧）。历史上残留的 COMMITTING 批次由 {@link #reconcileCommittingBatches()}
+ * 按行数据对账收敛。
  */
 @Service
 public class ImportBatchServiceImpl implements ImportBatchService {
@@ -275,16 +277,23 @@ public class ImportBatchServiceImpl implements ImportBatchService {
                     transactionTemplate.execute(status -> commitAtomically(batchId, actor));
             return toView(committed);
         } catch (RuntimeException exception) {
+            // DB 唯一键兜底冲突（并发批次提交同指纹/同 external_key，预检已放行）不是代码缺陷，
+            // 翻译成 40904 业务语义（016 P2·05#08），不让唯一索引冲突冒成 500。
+            RuntimeException toRethrow = exception;
+            if (causedByDataIntegrityViolation(exception)) {
+                toRethrow =
+                        new BusinessException(ApiCode.IMPORT_NOT_COMMITTABLE, "题库已存在相同题目（唯一键冲突）");
+            }
             // 事务已整体回滚：题目与行回写均未生效。批次仍在 PREVIEWED 时补记 FAILED（终态，
             // 已知取舍：原文件留在对象存储，storage_key 仍挂在批次行上可审计，不构成孤儿）；
             // 状态已被他人改写（对账/并发收敛）则原样上抛，不覆盖别人的状态。
             ImportBatch failed = requireBatch(batchId);
             if (failed.getStatus()
                     == io.github.codejinxz.yilian.upload.entity.ImportBatchStatus.PREVIEWED) {
-                failed.markFailed(writeJson(failureSummary(exception)), Instant.now());
+                failed.markFailed(writeJson(failureSummary(toRethrow)), Instant.now());
                 importBatchDao.save(failed);
             }
-            throw exception;
+            throw toRethrow;
         }
     }
 
@@ -408,10 +417,34 @@ public class ImportBatchServiceImpl implements ImportBatchService {
     @Override
     public ImportBatchViewResponse rollback(
             String batchId, String reason, YilianUserPrincipal actor) {
-        ImportBatch batch = requireBatch(batchId);
+        // 与 commit 同构的单原子事务（016 P1·05#02）：此前 recycle（content 侧自带事务独立提交）
+        // 与批次状态写入是两个事务，中途失败会出现「题目已回收、批次仍 COMMITTED」的撕裂态，
+        // 再次回滚会对同一批题二次推进银行修订号；并发双击回滚也各自 recycle 一遍。
+        ImportBatch rolled =
+                transactionTemplate.execute(status -> rollbackAtomically(batchId, reason, actor));
+        return toView(rolled);
+    }
+
+    /**
+     * rollback 的原子事务体：锁批次行 → 锁内复检状态 → 回收题目 → markRolledBack。
+     *
+     * <p>先锁批次行再复检状态，并发重复回滚在行锁上串行化：等锁后看到 ROLLED_BACK 直接幂等 返回，看到非 COMMITTED 拒绝。{@code
+     * recycleImportedSentences} 的 REQUIRED 事务加入本 事务，题目回收与批次状态同生共死。
+     *
+     * @param batchId 批次 id
+     * @param reason 回滚原因
+     * @param actor 当前管理员
+     * @return 回滚完成（或幂等命中）的批次
+     */
+    private ImportBatch rollbackAtomically(
+            String batchId, String reason, YilianUserPrincipal actor) {
+        ImportBatch batch =
+                importBatchDao
+                        .lockById(batchId)
+                        .orElseThrow(() -> new BusinessException(ApiCode.IMPORT_BATCH_NOT_FOUND));
         if (batch.getStatus()
                 == io.github.codejinxz.yilian.upload.entity.ImportBatchStatus.ROLLED_BACK) {
-            return toView(batch); // 重复回滚幂等返回
+            return batch; // 并发重复 rollback：等锁后复检，幂等返回
         }
         if (batch.getStatus()
                 != io.github.codejinxz.yilian.upload.entity.ImportBatchStatus.COMMITTED) {
@@ -426,8 +459,7 @@ public class ImportBatchServiceImpl implements ImportBatchService {
         contentImportService.recycleImportedSentences(
                 batch.getBankId(), sentenceIds, actor.id(), Instant.now());
         batch.markRolledBack(actor.id(), reason, Instant.now());
-        importBatchDao.save(batch);
-        return toView(batch);
+        return importBatchDao.save(batch);
     }
 
     @Override
@@ -694,6 +726,26 @@ public class ImportBatchServiceImpl implements ImportBatchService {
                 level,
                 source,
                 license);
+    }
+
+    /**
+     * 判断异常链上是否存在数据完整性冲突（唯一键/外键的 DB 兜底层）。
+     *
+     * <p>约束冲突可能由仓储直接抛出，也可能在事务提交阶段被包装为 {@code TransactionSystemException}，所以沿 cause
+     * 链整条检查；防循环引用只在链上走一遍。
+     *
+     * @param exception 捕获到的异常
+     * @return 链上任一层为 {@link DataIntegrityViolationException} 时为 true
+     */
+    private static boolean causedByDataIntegrityViolation(Throwable exception) {
+        Throwable current = exception;
+        while (current != null) {
+            if (current instanceof DataIntegrityViolationException) {
+                return true;
+            }
+            current = current.getCause() == current ? null : current.getCause();
+        }
+        return false;
     }
 
     /**
