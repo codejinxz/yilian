@@ -110,8 +110,10 @@ public class PracticeServiceImpl implements PracticeService {
 
     private final ObjectMapper objectMapper;
 
-    /** 并发同 id 竞态后的独立读事务（REQUIRES_NEW）：绕开失败会话与本事务的过期快照。 */
-    private final TransactionTemplate freshReadTemplate;
+    /**
+     * 竞态隔离用的独立新事务（REQUIRES_NEW）：并发同 id/同句冲突后的读回（绕开本事务的失败会话与过期快照）， 以及复习卡建卡的隔离落库（冲突留在内层干净回滚，不污染外层会话）。
+     */
+    private final TransactionTemplate freshTxTemplate;
 
     /**
      * 只依赖 Dao 接口与跨模块 service 接口，不触碰实体映射之外的具体实现。
@@ -125,7 +127,7 @@ public class PracticeServiceImpl implements PracticeService {
      * @param contentQueryService 题目内容只读查询（content 模块）
      * @param userAccountService 用户设置查询（system 模块）
      * @param objectMapper JSON 序列化（答案载荷与判分结果落库）
-     * @param transactionManager 事务管理器（装配竞态读回用的 REQUIRES_NEW 模板）
+     * @param transactionManager 事务管理器（装配竞态隔离用的 REQUIRES_NEW 模板）
      */
     public PracticeServiceImpl(
             AttemptDao attemptDao,
@@ -147,9 +149,8 @@ public class PracticeServiceImpl implements PracticeService {
         this.contentQueryService = contentQueryService;
         this.userAccountService = userAccountService;
         this.objectMapper = objectMapper;
-        this.freshReadTemplate = new TransactionTemplate(transactionManager);
-        this.freshReadTemplate.setPropagationBehavior(
-                TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.freshTxTemplate = new TransactionTemplate(transactionManager);
+        this.freshTxTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Override
@@ -170,8 +171,8 @@ public class PracticeServiceImpl implements PracticeService {
         String answerJson = objectMapper.writeValueAsString(command.answer());
         String answerHash = payloadHash(command);
 
-        // 校验链：题目存在且可练 → 版本一致 → RETRY 链合法。
-        SentenceDetail detail = requirePracticeableSentence(command);
+        // 校验链：题目存在且可练 → 库可见 → 版本一致 → RETRY 链合法。
+        SentenceDetail detail = requirePracticeableSentence(userId, command);
         validateRetryChain(userId, command);
 
         Attempt attempt =
@@ -242,7 +243,7 @@ public class PracticeServiceImpl implements PracticeService {
      */
     private AttemptView replayAfterDuplicateInsert(
             Long userId, AttemptCommand command, String answerHash) {
-        return freshReadTemplate.execute(
+        return freshTxTemplate.execute(
                 status -> {
                     Attempt winner = attemptDao.findById(command.attemptId()).orElse(null);
                     if (winner == null
@@ -474,17 +475,25 @@ public class PracticeServiceImpl implements PracticeService {
     }
 
     /**
-     * 题目校验：存在、可练（已发布未删）、版本一致，否则 40402。
+     * 题目校验：存在、可练（已发布未删）、所属库对当前用户可见、版本一致。
      *
+     * <p>可见性在版本校验之前判定（016 P0-1c）：库不可见（私有库非本人、匿名访问私有库、库未发布/已软删） 统一回 40300，不区分不可见原因、不回显句子内容——
+     * 「原文默认不可见」红线；题库所有者对自己私有库的题目提交不受影响。 40300 而非 40402 的取舍：交卷请求已携带具体题目，不可见属访问控制失败而非资源缺失， 统一码避免用
+     * 40401/40402 的区分反推库的存在性与发布状态。
+     *
+     * @param userId 当前用户 id
      * @param command 提交命令
      * @return 题目详情
      */
-    private SentenceDetail requirePracticeableSentence(AttemptCommand command) {
+    private SentenceDetail requirePracticeableSentence(Long userId, AttemptCommand command) {
         SentenceDetail detail =
                 contentQueryService
                         .findSentence(command.sentenceId())
                         .filter(SentenceDetail::practiceable)
                         .orElseThrow(() -> new BusinessException(ApiCode.SENTENCE_NOT_FOUND));
+        if (!contentQueryService.isBankVisibleToUser(Long.parseLong(detail.bankId()), userId)) {
+            throw new BusinessException(ApiCode.ACCESS_DENIED);
+        }
         if (!command.sentenceVersionId().equals(detail.sentenceVersionId())) {
             throw new BusinessException(ApiCode.SENTENCE_NOT_FOUND, "题目版本与当前版本不一致");
         }
@@ -612,7 +621,33 @@ public class PracticeServiceImpl implements PracticeService {
                                 params.failStability(),
                                 params.failDifficulty(),
                                 now);
-                reviewDao.save(created);
+                try {
+                    // 建卡走独立新事务（REQUIRES_NEW，016 P1）：并发同句双 FIRST 双方都读到无卡时，
+                    // uk_review_card 兜底——输家的 INSERT 冲突留在内层事务里干净回滚，外层会话不残留
+                    // 失败动作。不能在外层事务直接 saveAndFlush：IDENTITY 插入失败后实体以无 id 的
+                    // SAVING 状态挂在会话里，detach 因 EntityKey 缺失不可用，提交前再次 flush 会复现
+                    // 同一条冲突把整个提交打成 500。代价：卡行先于本事务（attempt/grading 稍后）提交，
+                    // V10 后无物理外键，极小概率留下引用未落库 attempt 的卡，可自愈（下次提交按既有卡更新）。
+                    freshTxTemplate.executeWithoutResult(status -> reviewDao.saveAndFlush(created));
+                } catch (DataIntegrityViolationException exception) {
+                    // 并发同句双 FIRST（双端/重发，两个不同 attemptId）：对方抢先建卡。与 attempts
+                    // 幂等的差异在于输家不能回滚——本事务已落库合法的 attempt/grading，回滚等于丢作答。
+                    // 唯一键冲突同时证明赢家事务已提交（InnoDB 对未提交行的重复键插入会等待，
+                    // 等到的是对方 commit），独立新事务的新快照必能读到卡：读回后原样复用，
+                    // 输家本次不再重复计一次失败（同一作答动因重复 applyFailed 会双计 lapse），
+                    // 双方收敛到一张卡；输家的 review_logs 缺行是该裁决的已知代价。
+                    return freshTxTemplate.execute(
+                            status ->
+                                    reviewDao
+                                            .findByUserIdAndSentenceId(
+                                                    attempt.getUserId(), attempt.getSentenceId())
+                                            .orElseThrow(
+                                                    () ->
+                                                            new IllegalStateException(
+                                                                    "并发建卡冲突后未读到复习卡: "
+                                                                            + attempt
+                                                                                    .getSentenceId())));
+                }
                 reviewLogDao.save(
                         ReviewLog.forNewCard(
                                 created,
@@ -784,7 +819,14 @@ public class PracticeServiceImpl implements PracticeService {
             Optional<SentenceDetail> specified =
                     contentQueryService
                             .findSentence(query.sentenceId())
-                            .filter(SentenceDetail::practiceable);
+                            .filter(SentenceDetail::practiceable)
+                            // 所属库对当前用户不可见（私有库非本人、匿名访问私有库、库未发布/已软删）
+                            // 与「找不到」同语义：静默退回常规取题，不泄露句存在性，也不回显内容
+                            // （016 P0-1b 裁决；原文默认不可见红线）。
+                            .filter(
+                                    detail ->
+                                            contentQueryService.isBankVisibleToUser(
+                                                    Long.parseLong(detail.bankId()), userId));
             if (specified.isPresent()) {
                 Review card =
                         reviewDao
@@ -822,14 +864,13 @@ public class PracticeServiceImpl implements PracticeService {
                 return new NextPracticeView(detail.get(), toCardView(card), "DUE");
             }
         }
-        // 新题：跳过已入队（非 NEW）的句子与排除集合，与本地引擎 selectNew 同语义。
+        // 新题：可见性（公开库或本人私有库）与「未入队」（无非 NEW 卡）都已在候选 SQL 下推
+        // （016 P0-1a / P1，数据层为准），20 只是一次返回的窗口上限——被过滤行不占名额，
+        // 前 20 句练完不再把召回窗口占满；与本地引擎 selectNew 同语义。
         for (SentenceDetail candidate :
                 contentQueryService.findPracticeCandidates(
-                        query.bankId(), query.excludeIds(), query.tag(), 20)) {
+                        userId, query.bankId(), query.excludeIds(), query.tag(), 20)) {
             Optional<Review> card = reviewDao.findByUserIdAndSentenceId(userId, candidate.id());
-            if (card.isPresent() && card.get().getState() != Review.ReviewState.NEW) {
-                continue;
-            }
             return new NextPracticeView(candidate, card.map(this::toCardView).orElse(null), "NEW");
         }
         return null;
@@ -1254,7 +1295,7 @@ public class PracticeServiceImpl implements PracticeService {
                 // 异载荷：抛出后整个事务回滚（40903 整体拒绝）。
                 throw new BusinessException(ApiCode.ATTEMPT_ID_REUSED);
             }
-            SentenceDetail detail = requirePracticeableSentence(item);
+            SentenceDetail detail = requirePracticeableSentence(userId, item);
             validateRetryChain(userId, item);
             Instant now = Instant.now();
             Attempt attempt =
@@ -1284,7 +1325,7 @@ public class PracticeServiceImpl implements PracticeService {
                 // 异载荷仍 40903。两种情况都不再把冲突泄漏成 500。
                 TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                 Boolean sameWinner =
-                        freshReadTemplate.execute(
+                        freshTxTemplate.execute(
                                 status -> {
                                     Attempt winner =
                                             attemptDao.findById(item.attemptId()).orElse(null);

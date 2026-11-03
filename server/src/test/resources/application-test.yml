@@ -1,0 +1,40 @@
+# ---------------------------------------------------------------------------
+# 集成测试专用配置（随代码入库，016 P0 修复）。
+#
+# 为什么存在：此前 9 个 @SpringBootTest 集成测试以 local profile 启动，依赖被
+# .gitignore 排除的 server/config/application-local.yml 提供 bootstrap 口令，
+# CI 干净检出上必然失败；且 10 个测试类硬编码本机 MySQL root 口令，违反
+# AGENTS §3「密钥不入库」。
+#
+# 使用方式：测试类统一 @ActiveProfiles("test")，数据源与口令全部走环境变量；
+# 本机运行前设置 YILIAN_TEST_DB_PASSWORD（见 docs/BOOTSTRAP.md §5），
+# CI 由 workflow 注入。口令无默认值：缺失时连接失败并显式报错，而不是把任何
+# 真实口令写进仓库。这里的默认值全部是「仅测试库可见」的无害占位值。
+# ---------------------------------------------------------------------------
+spring:
+  datasource:
+    # 独立测试库 yilian_test，不读写开发库 yilian；连接参数与 application.yml 的
+    # 开发库口径一致（UTC 会话时区）。
+    url: jdbc:mysql://${YILIAN_TEST_DB_HOST:localhost}:${YILIAN_TEST_DB_PORT:3306}/${YILIAN_TEST_DB_NAME:yilian_test}?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&allowPublicKeyRetrieval=true&useSSL=false
+    username: ${YILIAN_TEST_DB_USERNAME:root}
+    # 刻意不设默认口令：无库无凭据时显式失败（测试基建要求，不是 skip）。
+    password: ${YILIAN_TEST_DB_PASSWORD:}
+
+server:
+  servlet:
+    session:
+      cookie:
+        # 集成测试走明文 HTTP（RANDOM_PORT / MockMvc），refresh Cookie 不能带 Secure。
+        secure: false
+
+yilian:
+  security:
+    jwt:
+      # 测试专用签名密钥（≥32 字节、非占位词、熵足够）；JwtConfiguration 只允许
+      # local profile 使用 local-dev-only 前缀，因此测试值不带该前缀。
+      secret: ${YILIAN_TEST_JWT_SECRET:test-only-yilian-jwt-secret-0123456789abcdef}
+  bootstrap-admin:
+    enabled: true
+    username: ${YILIAN_BOOTSTRAP_ADMIN_USERNAME:admin}
+    # 测试库的 bootstrap 口令；与生产无关，可通过环境变量覆盖。
+    password: ${YILIAN_BOOTSTRAP_ADMIN_PASSWORD:test-admin-password}

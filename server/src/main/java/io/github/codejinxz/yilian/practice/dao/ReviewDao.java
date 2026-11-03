@@ -35,6 +35,15 @@ public interface ReviewDao {
     Review save(Review review);
 
     /**
+     * 保存并立即 flush：并发同句建卡撞 {@code uk_review_card} 的唯一键冲突 必须在调用点被捕获（016 P1；调用方在 REQUIRES_NEW
+     * 内层事务中调用，冲突留在内层干净回滚）。
+     *
+     * @param review 复习卡
+     * @return 持久化后的卡
+     */
+    Review saveAndFlush(Review review);
+
+    /**
      * 到期队列（LEARNING 且 due_at≤now），due_at 升序。
      *
      * @param userId 用户 id

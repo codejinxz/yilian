@@ -38,6 +38,11 @@ public class JpaReviewDao implements ReviewDao {
     }
 
     @Override
+    public Review saveAndFlush(Review review) {
+        return reviews.saveAndFlush(review);
+    }
+
+    @Override
     public List<Review> findDue(Long userId, Instant now) {
         return reviews.findByUserIdAndStateAndDueAtLessThanEqualOrderByDueAtAsc(
                 userId, Review.ReviewState.LEARNING, now);

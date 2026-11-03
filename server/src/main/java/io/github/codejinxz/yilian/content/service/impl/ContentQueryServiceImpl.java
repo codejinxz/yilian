@@ -251,10 +251,12 @@ public class ContentQueryServiceImpl implements ContentQueryService {
     }
 
     /**
-     * 练习候选：只返回已发布题库中的已发布题目。
+     * 练习候选：只返回当前用户可见题库中已发布、未入队（无非 NEW 复习卡）的题目。
      *
-     * <p>单条 MyBatis JOIN 直出（AGENTS §3.1 复杂查询归 MyBatis）；快照缺失的候选在 JOIN 中天然丢弃：练习不能用残缺数据，宁可少一题也不能崩一次拉题。
+     * <p>单条 MyBatis JOIN 直出（AGENTS §3.1 复杂查询归 MyBatis）；可见性与「未入队」都在 SQL 过滤 （016 P0-1a / P1，数据层为准），
+     * 快照缺失的候选在 JOIN 中天然丢弃：练习不能用残缺数据，宁可少一题也不能崩一次拉题。
      *
+     * @param userId 当前用户 id，可为 null（匿名）
      * @param bankId 题库 id，可为 null
      * @param excludeIds 排除题目集合，可空
      * @param tag 考点筛选（sentence_versions.tags JSON 精确成员匹配），可为 null
@@ -264,9 +266,9 @@ public class ContentQueryServiceImpl implements ContentQueryService {
     @Override
     @Transactional(readOnly = true)
     public List<SentenceDetail> findPracticeCandidates(
-            Long bankId, Collection<String> excludeIds, String tag, int limit) {
+            Long userId, Long bankId, Collection<String> excludeIds, String tag, int limit) {
         List<PracticeCandidateRow> rows =
-                practiceCandidateQueryDao.findCandidates(bankId, excludeIds, tag, limit);
+                practiceCandidateQueryDao.findCandidates(userId, bankId, excludeIds, tag, limit);
         return rows.stream().map(this::toDetail).toList();
     }
 
@@ -283,6 +285,19 @@ public class ContentQueryServiceImpl implements ContentQueryService {
     @Transactional(readOnly = true)
     public void requireVisibleBank(long bankId, Long userId) {
         requireVisibleBank(bankId, userId, false, false);
+    }
+
+    /**
+     * 判断题库对当前用户可见（练习端口径，与 {@link #requireVisibleBank(long, Long, boolean, boolean)} 同规则的布尔版）。
+     *
+     * @param bankId 题库 id
+     * @param userId 当前用户 id，可为 null
+     * @return 可见返回 true；题库不存在时为 false
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isBankVisibleToUser(long bankId, Long userId) {
+        return bankDao.findById(bankId).map(bank -> isVisibleBank(bank, userId)).orElse(false);
     }
 
     /**
@@ -305,6 +320,21 @@ public class ContentQueryServiceImpl implements ContentQueryService {
      */
     private static boolean isPublishedActive(Sentence sentence) {
         return sentence.getDeletedAt() == null && sentence.getStatus() == ContentStatus.PUBLISHED;
+    }
+
+    /**
+     * 练习端题库可见性判定（与 {@link #requireVisibleBank(long, Long, boolean, boolean)} 同口径的布尔版）：
+     * 已发布、未软删，且为公开库或登录用户本人的私有库。
+     *
+     * @param bank 题库实体
+     * @param userId 当前用户 id，可为 null（匿名只看公开库）
+     * @return 可见返回 true
+     */
+    private static boolean isVisibleBank(SentenceBank bank, Long userId) {
+        return bank.getStatus() == ContentStatus.PUBLISHED
+                && bank.getDeletedAt() == null
+                && (bank.getVisibility() == BankVisibility.PUBLIC
+                        || (userId != null && userId.equals(bank.getOwnerId())));
     }
 
     /**

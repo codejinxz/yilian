@@ -27,8 +27,9 @@ public class MyBatisPracticeCandidateQueryDao implements PracticeCandidateQueryD
     }
 
     /**
-     * 取练习候选。
+     * 取当前用户可练且未入队的新题候选。
      *
+     * @param userId 当前用户 id，可为 null（匿名）
      * @param bankId 限定题库，可为 null
      * @param excludeIds 排除题目集合，可为 null
      * @param tag 考点筛选，可为 null
@@ -38,10 +39,10 @@ public class MyBatisPracticeCandidateQueryDao implements PracticeCandidateQueryD
      */
     @Override
     public List<PracticeCandidateRow> findCandidates(
-            Long bankId, Collection<String> excludeIds, String tag, int limit) {
+            Long userId, Long bankId, Collection<String> excludeIds, String tag, int limit) {
         if (limit < 1) {
             throw new IllegalArgumentException("limit 必须为正数: " + limit);
         }
-        return mapper.findCandidates(bankId, excludeIds, tag, limit);
+        return mapper.findCandidates(userId, bankId, excludeIds, tag, limit);
     }
 }

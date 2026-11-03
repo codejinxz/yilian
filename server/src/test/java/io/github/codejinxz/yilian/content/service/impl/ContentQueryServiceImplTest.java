@@ -470,7 +470,8 @@ class ContentQueryServiceImplTest {
     /** 候选行来自 MyBatis JOIN Dao；服务层负责行 → SentenceDetail 的映射（快照缺失丢弃在 SQL 层）。 */
     @Test
     void findPracticeCandidatesMapsJoinedRows() {
-        when(practiceCandidateQueryDao.findCandidates(isNull(), isNull(), isNull(), eq(20)))
+        when(practiceCandidateQueryDao.findCandidates(
+                        isNull(), isNull(), isNull(), isNull(), eq(20)))
                 .thenReturn(
                         List.of(
                                 new PracticeCandidateRow(
@@ -488,7 +489,8 @@ class ContentQueryServiceImplTest {
                                         TAGS_JSON,
                                         null)));
 
-        List<SentenceDetail> candidates = service.findPracticeCandidates(null, null, null, 20);
+        List<SentenceDetail> candidates =
+                service.findPracticeCandidates(null, null, null, null, 20);
 
         assertThat(candidates).hasSize(1);
         SentenceDetail detail = candidates.getFirst();
@@ -564,6 +566,8 @@ class ContentQueryServiceImplTest {
     /**
      * 构造已发布题目。
      *
+     * <p>pointToVersion 不再隐式把 DRAFT 翻成 PUBLISHED（016 P2·02#03），显式发布与导入路径同语义。
+     *
      * @param id ULID
      * @param version 银行级版本
      * @return PUBLISHED 题目，指向快照 1001
@@ -571,6 +575,7 @@ class ContentQueryServiceImplTest {
     private static Sentence publishedSentence(String id, long version) {
         Sentence sentence = Sentence.create(id, 1L, null, "fp-" + id, 1L, NOW);
         sentence.pointToVersion(1001L, 3, version, "fp-" + id, 1L);
+        sentence.changeStatus(ContentStatus.PUBLISHED, version, 1L, NOW);
         return sentence;
     }
 

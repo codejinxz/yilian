@@ -15,6 +15,7 @@ import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
 import io.github.codejinxz.yilian.practice.service.dto.AnswerPayload;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
+import io.github.codejinxz.yilian.practice.service.dto.GuestUpgradeCommand;
 import io.github.codejinxz.yilian.practice.service.dto.NextQuery;
 import io.github.codejinxz.yilian.practice.service.vo.AppealView;
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
@@ -24,6 +25,7 @@ import io.github.codejinxz.yilian.practice.service.vo.PostponeView;
 import io.github.codejinxz.yilian.practice.service.vo.ReviewCardView;
 import io.github.codejinxz.yilian.practice.service.vo.TodayView;
 import io.github.codejinxz.yilian.practice.service.vo.WrongQuestionView;
+import io.github.codejinxz.yilian.support.TestDatabases;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,8 +35,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import tools.jackson.databind.ObjectMapper;
 
@@ -58,15 +58,17 @@ import java.util.UUID;
         properties = {
             "yilian.ratelimit.enabled=false",
             "yilian.security.captcha.enabled=false",
-            "management.health.redis.enabled=false",
-            "yilian.security.jwt.secret=test-only-yilian-jwt-secret-0123456789abcdef"
+            "management.health.redis.enabled=false"
         })
-@ActiveProfiles("local")
+@ActiveProfiles("test")
 class PracticeFlowIntegrationTest {
 
     private static final Timestamp T0 = Timestamp.valueOf(LocalDateTime.of(2026, 10, 29, 12, 0, 0));
 
     private static final long USER_ID = 8L;
+
+    /** 私有题库所有者（016 可见性矩阵的「本人」视角）。 */
+    private static final long OWNER_ID = 9L;
 
     private static final String REF = "He is paying more and more attention to this matter.";
 
@@ -88,21 +90,8 @@ class PracticeFlowIntegrationTest {
     /** 当前用例导入的第二题（REVEAL 独立分支用，避免与第一题共用练习历史）。 */
     private ImportedSentence secondSeeded;
 
-    /**
-     * 测试库指向本机 yilian_test。
-     *
-     * @param registry 动态属性注册表
-     */
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add(
-                "spring.datasource.url",
-                () ->
-                        "jdbc:mysql://localhost:3306/yilian_test?useUnicode=true&characterEncoding=utf8"
-                                + "&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true"
-                                + "&allowPublicKeyRetrieval=true&useSSL=false");
-        registry.add("spring.datasource.username", () -> "root");
-        registry.add("spring.datasource.password", () -> "123456");
+    static {
+        TestDatabases.ensureDatabase();
     }
 
     /** 用例后清空 practice 五表与内容表，并重建全部 append-only 触发器。 */
@@ -120,6 +109,11 @@ class PracticeFlowIntegrationTest {
                         + " VALUES (?, 'it-learner@example.com', 'it-learner', 'seeded', 'USER', TRUE)"
                         + " ON DUPLICATE KEY UPDATE enabled = TRUE",
                 USER_ID);
+        jdbcTemplate.update(
+                "INSERT INTO users (id, email, username, password_hash, role, enabled)"
+                        + " VALUES (?, 'it-owner@example.com', 'it-owner', 'seeded', 'USER', TRUE)"
+                        + " ON DUPLICATE KEY UPDATE enabled = TRUE",
+                OWNER_ID);
         seedSentence();
     }
 
@@ -572,7 +566,8 @@ class PracticeFlowIntegrationTest {
         contentImportService.importSentences(
                 9002L, "batch-it-0088-0000-0000-000000000088", rows, USER_ID, T0.toInstant());
         List<SentenceDetail> candidates =
-                contentQueryService.findPracticeCandidates(9002L, java.util.List.of(), null, 20);
+                contentQueryService.findPracticeCandidates(
+                        USER_ID, 9002L, java.util.List.of(), null, 20);
         assertThat(candidates).hasSize(7);
         for (SentenceDetail candidate : candidates) {
             practiceService.submitAttempt(
@@ -792,6 +787,243 @@ class PracticeFlowIntegrationTest {
                         practiceService.next(
                                 USER_ID, NextQuery.normalize(9003L, null, null, null, null, null)))
                 .isNull();
+    }
+
+    /**
+     * [AC-2] 私有题库越权三路径全堵（016 P0-1）：①通用 next/候选不含他人私有库句子（登录/匿名双态，本人可见）； ②指定句指向不可见句时静默退回常规取题（不
+     * 404、不泄露存在性）；③对不可见句交卷 40300 且不落库， owner 对自己私有库不受影响；guest-upgrade 迁移同口径。
+     */
+    @Test
+    @DisplayName("[AC-2] 私有题库越权三路径：候选/指定句/交卷")
+    void ac2_privateBankInvisibleAcrossPracticePaths() {
+        ImportedSentence privateSentence = seedPrivateBank(9004L, OWNER_ID);
+
+        // 路径①：非本人与匿名的新题候选都不含私有句；本人可见（显式 bankId 限定）。
+        assertThat(
+                        contentQueryService
+                                .findPracticeCandidates(
+                                        USER_ID, null, java.util.List.of(), null, 50)
+                                .stream()
+                                .map(SentenceDetail::id)
+                                .toList())
+                .doesNotContain(privateSentence.sentenceId());
+        assertThat(
+                        contentQueryService
+                                .findPracticeCandidates(null, null, java.util.List.of(), null, 50)
+                                .stream()
+                                .map(SentenceDetail::id)
+                                .toList())
+                .doesNotContain(privateSentence.sentenceId());
+        NextPracticeView ownerNext =
+                practiceService.next(
+                        OWNER_ID, NextQuery.normalize(9004L, null, null, null, null, null));
+        assertThat(ownerNext).isNotNull();
+        assertThat(ownerNext.selection()).isEqualTo("NEW");
+        assertThat(ownerNext.sentence().id()).isEqualTo(privateSentence.sentenceId());
+        // 通用 next（无 bankId）：非本人排除公开候选后是空态，私有句不会兜底出现。
+        NextPracticeView exhausted =
+                practiceService.next(
+                        USER_ID,
+                        NextQuery.normalize(
+                                null,
+                                null,
+                                null,
+                                null,
+                                null,
+                                seeded.sentenceId() + "," + secondSeeded.sentenceId()));
+        assertThat(exhausted).isNull();
+
+        // 路径②：非本人/匿名指定私有句 → 静默退回常规取题（公开候选第一句），不 404、不回显。
+        NextPracticeView fallback =
+                practiceService.next(
+                        USER_ID,
+                        NextQuery.normalize(
+                                null, privateSentence.sentenceId(), null, null, null, null));
+        assertThat(fallback).isNotNull();
+        assertThat(fallback.sentence().id()).isEqualTo(seeded.sentenceId());
+        NextPracticeView anonymousFallback =
+                practiceService.next(
+                        null,
+                        NextQuery.normalize(
+                                null, privateSentence.sentenceId(), null, null, null, null));
+        assertThat(anonymousFallback).isNotNull();
+        assertThat(anonymousFallback.sentence().id()).isEqualTo(seeded.sentenceId());
+        // 本人指定句照常命中（无卡首练按 NEW）。
+        NextPracticeView manual =
+                practiceService.next(
+                        OWNER_ID,
+                        NextQuery.normalize(
+                                null, privateSentence.sentenceId(), null, null, null, null));
+        assertThat(manual.selection()).isEqualTo("NEW");
+        assertThat(manual.sentence().id()).isEqualTo(privateSentence.sentenceId());
+
+        // 路径③：非本人对私有句交卷 → 40300，不落任何 attempt/grading；本人可正常提交。
+        AttemptCommand intruder =
+                new AttemptCommand(
+                        UUID.randomUUID().toString(),
+                        privateSentence.sentenceId(),
+                        String.valueOf(privateSentence.sentenceVersionId()),
+                        AttemptCommand.Mode.CLOZE,
+                        AttemptCommand.Kind.FIRST,
+                        null,
+                        new AnswerPayload(
+                                1, "CLOZE", List.of(new AnswerPayload.Slot(0, "完全不相关的答案")), null),
+                        0,
+                        1000,
+                        null);
+        assertThatThrownBy(() -> practiceService.submitAttempt(USER_ID, intruder))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode()).isEqualTo(ApiCode.ACCESS_DENIED));
+        AttemptCommand ownerAttempt =
+                new AttemptCommand(
+                        UUID.randomUUID().toString(),
+                        privateSentence.sentenceId(),
+                        String.valueOf(privateSentence.sentenceVersionId()),
+                        AttemptCommand.Mode.CLOZE,
+                        AttemptCommand.Kind.FIRST,
+                        null,
+                        new AnswerPayload(
+                                1, "CLOZE", List.of(new AnswerPayload.Slot(0, "完全不相关的答案")), null),
+                        0,
+                        1000,
+                        null);
+        AttemptView ownerView = practiceService.submitAttempt(OWNER_ID, ownerAttempt);
+        // 槽值与参考译文完全不同 → 0 分，但判分/排程链路完整（对比非本人的 40300）。
+        assertThat(ownerView.score()).isEqualTo(0);
+        assertThat(ownerView.review()).isNotNull();
+        // guest-upgrade 复用同一校验函数：迁移含不可见句的批次 → 40300 整批拒绝。
+        assertThatThrownBy(
+                        () ->
+                                practiceService.guestUpgrade(
+                                        USER_ID,
+                                        new GuestUpgradeCommand(
+                                                List.of(
+                                                        new AttemptCommand(
+                                                                UUID.randomUUID().toString(),
+                                                                privateSentence.sentenceId(),
+                                                                String.valueOf(
+                                                                        privateSentence
+                                                                                .sentenceVersionId()),
+                                                                AttemptCommand.Mode.CLOZE,
+                                                                AttemptCommand.Kind.FIRST,
+                                                                null,
+                                                                new AnswerPayload(
+                                                                        1,
+                                                                        "CLOZE",
+                                                                        List.of(
+                                                                                new AnswerPayload
+                                                                                        .Slot(
+                                                                                        0, "任意答案")),
+                                                                        null),
+                                                                0,
+                                                                1000,
+                                                                null)))))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode()).isEqualTo(ApiCode.ACCESS_DENIED));
+        // 只有 owner 的一次提交落库；越权请求零痕迹。
+        assertThat(count("attempts")).isEqualTo(1L);
+    }
+
+    /**
+     * [AC-3] 新题召回下推（016 P1）：25 句、前 20 句全部入队（LEARNING）后，next 仍能返回第 21 句—— 「未入队」在 SQL 过滤，LIMIT 20
+     * 只作用于过滤后的窗口，不再被已练句子永久占满。
+     */
+    @Test
+    @DisplayName("[AC-3] 前 20 句入队后召回第 21 句")
+    void ac3_newRecallBeyondWindowAfterFirstTwentyEnqueued() {
+        List<ImportedSentence> sentences = seedBankWithSentences(9006L, 25);
+        for (int index = 0; index < 20; index++) {
+            ImportedSentence target = sentences.get(index);
+            practiceService.submitAttempt(
+                    USER_ID,
+                    new AttemptCommand(
+                            UUID.randomUUID().toString(),
+                            target.sentenceId(),
+                            String.valueOf(target.sentenceVersionId()),
+                            AttemptCommand.Mode.CLOZE,
+                            AttemptCommand.Kind.FIRST,
+                            null,
+                            new AnswerPayload(
+                                    1, "CLOZE", List.of(new AnswerPayload.Slot(0, "不对的内容")), null),
+                            0,
+                            1000,
+                            null));
+        }
+        // 前 20 句都有 LEARNING 卡（明天到期，不进 DUE 队列）：候选窗口不再被它们占用。
+        assertThat(
+                        contentQueryService
+                                .findPracticeCandidates(
+                                        USER_ID, 9006L, java.util.List.of(), null, 20)
+                                .stream()
+                                .map(SentenceDetail::id)
+                                .toList())
+                .containsExactly(
+                        sentences.get(20).sentenceId(),
+                        sentences.get(21).sentenceId(),
+                        sentences.get(22).sentenceId(),
+                        sentences.get(23).sentenceId(),
+                        sentences.get(24).sentenceId());
+        NextPracticeView next =
+                practiceService.next(
+                        USER_ID, NextQuery.normalize(9006L, null, null, null, null, null));
+        assertThat(next.selection()).isEqualTo("NEW");
+        assertThat(next.sentence().id()).isEqualTo(sentences.get(20).sentenceId());
+    }
+
+    /**
+     * [AC-3] 并发同句双 FIRST 建卡收敛（016 P1）：uk_review_card 兜底，输家不回滚、复用赢家卡—— 双方都 2xx 且拿到 LEARNING
+     * 卡投影，一句一卡、两条 attempt 都落库。
+     */
+    @Test
+    @DisplayName("[AC-3] 并发同句双 FIRST 建卡收敛")
+    void ac3_concurrentSameSentenceCardCreationConverges() throws Exception {
+        int rounds = 4;
+        List<ImportedSentence> sentences = seedBankWithSentences(9007L, rounds);
+        java.util.concurrent.ExecutorService pool =
+                java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < rounds; round++) {
+                ImportedSentence target = sentences.get(round);
+                java.util.concurrent.CountDownLatch startGate =
+                        new java.util.concurrent.CountDownLatch(1);
+                java.util.concurrent.Callable<AttemptView> senderA =
+                        () -> {
+                            startGate.await();
+                            return practiceService.submitAttempt(USER_ID, failedFirstFor(target));
+                        };
+                java.util.concurrent.Callable<AttemptView> senderB =
+                        () -> {
+                            startGate.await();
+                            return practiceService.submitAttempt(USER_ID, failedFirstFor(target));
+                        };
+                var futureA = pool.submit(senderA);
+                var futureB = pool.submit(senderB);
+                startGate.countDown();
+                AttemptView first;
+                AttemptView second;
+                try {
+                    first = futureA.get();
+                    second = futureB.get();
+                } catch (java.util.concurrent.ExecutionException exception) {
+                    throw new AssertionError("并发建卡出现异常", exception.getCause());
+                }
+                // 双方都成功且都带回 LEARNING 卡（赢家新建、输家复用，同一张卡）。
+                assertThat(first.review()).as("第 %d 轮 winner 卡", round).isNotNull();
+                assertThat(second.review()).as("第 %d 轮 loser 卡", round).isNotNull();
+                assertThat(first.review().state()).isEqualTo("LEARNING");
+                assertThat(second.review().state()).isEqualTo("LEARNING");
+                assertThat(first.review().id()).isEqualTo(second.review().id());
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        // 一句一卡；两条 attempt（含输家）都不回滚。
+        assertThat(count("reviews")).isEqualTo(rounds);
+        assertThat(count("attempts")).isEqualTo(2L * rounds);
     }
 
     /** [AC-5] 并发同 attemptId 双发：零异常、恰一方真提交一方重放、结果一致（015 修复轮 major #2）。 */
@@ -1092,6 +1324,126 @@ class PracticeFlowIntegrationTest {
                         T0.toInstant());
         seeded = imported.get(0);
         secondSeeded = imported.get(1);
+    }
+
+    /**
+     * 播种一个私有发布题库及其唯一题目（016 可见性矩阵用）。
+     *
+     * @param bankId 题库 id
+     * @param ownerId 所有者用户 id
+     * @return 导入的私有题目
+     */
+    private ImportedSentence seedPrivateBank(long bankId, long ownerId) {
+        jdbcTemplate.update(
+                "INSERT INTO sentence_banks (id, owner_id, name, description, visibility, status,"
+                        + " version, published_at, created_by, updated_by, created_at, updated_at,"
+                        + " deleted_at, deleted_by)"
+                        + " VALUES (?, ?, '私有集成题库', NULL, 'PRIVATE', 'PUBLISHED', 0, ?, NULL,"
+                        + " NULL, ?, ?, NULL, NULL)",
+                bankId,
+                ownerId,
+                T0,
+                T0,
+                T0);
+        String batchId = "batch-it-0161-0000-0000-" + String.format("%012d", bankId);
+        jdbcTemplate.update(
+                "INSERT INTO import_batches (id, bank_id, format, original_filename, storage_key,"
+                        + " content_hash, size_bytes, status, created_by, created_by_name, created_at)"
+                        + " VALUES (?, ?, 'JSON', 'it.json', 'imports/it.json', ?, 1024,"
+                        + " 'COMMITTING', ?, 'admin', ?)",
+                batchId,
+                bankId,
+                "a".repeat(64),
+                ownerId,
+                T0);
+        String ref = "Private bank sentence for visibility matrix.";
+        List<SentenceContent> rows =
+                List.of(
+                        new SentenceContent(
+                                "s_priv",
+                                "私有题库的可见性测试原句。",
+                                ref,
+                                "这是私有题库题目的解析说明，长度满足最小要求。",
+                                List.of(new SentenceChunk(0, "私", List.of(ref), "代词", null)),
+                                List.of(0),
+                                List.of("代词"),
+                                null,
+                                null,
+                                null));
+        return contentImportService
+                .importSentences(bankId, batchId, rows, ownerId, T0.toInstant())
+                .get(0);
+    }
+
+    /**
+     * 播种一个公开发布题库并按序导入指定数量的题目（同 created_at 下按 ULID 升序 = 导入序，与顺延用例同口径）。
+     *
+     * @param bankId 题库 id
+     * @param count 题目数量
+     * @return 按导入顺序的题目列表
+     */
+    private List<ImportedSentence> seedBankWithSentences(long bankId, int count) {
+        jdbcTemplate.update(
+                "INSERT INTO sentence_banks (id, owner_id, name, description, visibility, status,"
+                        + " version, published_at, created_by, updated_by, created_at, updated_at,"
+                        + " deleted_at, deleted_by)"
+                        + " VALUES (?, NULL, '批量公开题库', NULL, 'PUBLIC', 'PUBLISHED', 0, ?, NULL,"
+                        + " NULL, ?, ?, NULL, NULL)",
+                bankId,
+                T0,
+                T0,
+                T0);
+        String batchId = "batch-it-0162-0000-0000-" + String.format("%012d", bankId);
+        jdbcTemplate.update(
+                "INSERT INTO import_batches (id, bank_id, format, original_filename, storage_key,"
+                        + " content_hash, size_bytes, status, created_by, created_by_name, created_at)"
+                        + " VALUES (?, ?, 'JSON', 'it.json', 'imports/it.json', ?, 1024,"
+                        + " 'COMMITTING', ?, 'admin', ?)",
+                batchId,
+                bankId,
+                "a".repeat(64),
+                USER_ID,
+                T0);
+        List<SentenceContent> rows = new ArrayList<>(count);
+        for (int index = 1; index <= count; index++) {
+            String zh = "批量第" + index + "句越来越熟练。";
+            String ref = "Batched sentence number " + index + " reads increasingly fluently.";
+            rows.add(
+                    new SentenceContent(
+                            "s_b" + String.format("%04d", index),
+                            zh,
+                            ref,
+                            "这是批量第 " + index + " 句的解析说明，长度满足最小要求。",
+                            List.of(
+                                    new SentenceChunk(
+                                            0, zh.substring(0, 1), List.of(ref), "句式", null)),
+                            List.of(0),
+                            List.of("句式"),
+                            null,
+                            null,
+                            null));
+        }
+        return contentImportService.importSentences(bankId, batchId, rows, USER_ID, T0.toInstant());
+    }
+
+    /**
+     * 构造对指定题目的 FIRST 错题提交（并发建卡用例双端各带独立 attemptId）。
+     *
+     * @param target 目标题目
+     * @return 提交命令
+     */
+    private AttemptCommand failedFirstFor(ImportedSentence target) {
+        return new AttemptCommand(
+                UUID.randomUUID().toString(),
+                target.sentenceId(),
+                String.valueOf(target.sentenceVersionId()),
+                AttemptCommand.Mode.CLOZE,
+                AttemptCommand.Kind.FIRST,
+                null,
+                new AnswerPayload(1, "CLOZE", List.of(new AnswerPayload.Slot(0, "错得离谱的答案")), null),
+                0,
+                1000,
+                null);
     }
 
     /**

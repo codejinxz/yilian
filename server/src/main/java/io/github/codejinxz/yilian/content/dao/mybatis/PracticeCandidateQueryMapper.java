@@ -19,6 +19,7 @@ public interface PracticeCandidateQueryMapper {
     /**
      * 按动态筛选取练习候选（XML 动态 SQL）。
      *
+     * @param userId 当前用户 id，null 表示匿名（仅公开题库参与候选）
      * @param bankId 限定题库，null 表示全部
      * @param excludeIds 排除题目集合，null 或空表示不排除
      * @param tag 考点筛选，null 表示不筛选
@@ -26,6 +27,7 @@ public interface PracticeCandidateQueryMapper {
      * @return 候选行
      */
     List<PracticeCandidateRow> findCandidates(
+            @Param("userId") Long userId,
             @Param("bankId") Long bankId,
             @Param("excludeIds") Collection<String> excludeIds,
             @Param("tag") String tag,

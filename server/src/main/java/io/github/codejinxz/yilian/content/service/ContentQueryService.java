@@ -86,8 +86,24 @@ public interface ContentQueryService {
     void requireVisibleBank(long bankId, Long userId);
 
     /**
-     * 练习候选：只返回已发布题库中的已发布题目。
+     * 判断题库对当前用户可见（练习端口径，与 {@link #requireVisibleBank(long, Long)} 同规则的布尔版）：
+     * 已发布、未软删，且为公开库或登录用户本人的私有库。
      *
+     * <p>供 practice 模块对「按 id 取到的句子」补所属库可见性校验（016 P0-1）：MANUAL 指定句不可见时 静默退回常规取题，交卷校验不可见时回
+     * 40300——两条路径都不回显题目内容（原文默认不可见红线）。
+     *
+     * @param bankId 题库 id
+     * @param userId 当前用户 id，可为 null（匿名）
+     * @return 可见返回 true；题库不存在时为 false
+     */
+    boolean isBankVisibleToUser(long bankId, Long userId);
+
+    /**
+     * 练习候选：只返回当前用户可见题库中已发布、未入队（无非 NEW 复习卡）的题目。
+     *
+     * <p>可见性与「未入队」均在数据层过滤（016 P0-1a / P1），limit 只作用于过滤后的候选窗口。
+     *
+     * @param userId 当前用户 id，可为 null（匿名，仅公开题库参与候选）
      * @param bankId 题库 id，可为 null
      * @param excludeIds 排除题目集合，可空；空集合表示不排除
      * @param tag 考点筛选（sentence_versions.tags JSON 精确成员匹配），可为 null
@@ -95,5 +111,5 @@ public interface ContentQueryService {
      * @return 候选题目
      */
     List<SentenceDetail> findPracticeCandidates(
-            Long bankId, Collection<String> excludeIds, String tag, int limit);
+            Long userId, Long bankId, Collection<String> excludeIds, String tag, int limit);
 }

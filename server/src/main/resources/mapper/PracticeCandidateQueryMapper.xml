@@ -3,12 +3,17 @@
 <mapper namespace="io.github.codejinxz.yilian.content.dao.mybatis.PracticeCandidateQueryMapper">
 
     <!--
-      练习候选（ContentQueryServiceImpl.findPracticeCandidates）：单条 JOIN 直出，
-      语义与原 JPA 两步查询一致——
-      - 题库可见性：status=PUBLISHED 且未软删；
+      练习候选（ContentQueryServiceImpl.findPracticeCandidates）：单条 JOIN 直出——
       - 题目可见性：status=PUBLISHED 且未软删；
+      - 题库可见性（016 P0-1a，数据层为准）：status=PUBLISHED 且未软删，且为公开库或
+        登录用户本人的私有库（与 requireVisibleBank 同口径）；匿名（userId 为 NULL）只看公开库，
+        owner_id = NULL 的比较恒不成立，无需分支；
+      - 未入队下推（016 P1）：NOT EXISTS 排除「已有非 NEW 卡」的句子——一句一卡且入队不出队，
+        若先 LIMIT 再在 Java 跳过，前 20 句练完后召回窗口被永久占满（新题饥饿）；
+        state='NEW'（未练过或重置）不算已入队，与本地引擎 selectNew 同语义；
+        uk_review_card (user_id, sentence_id) 保证该子查询走唯一索引前缀；
       - INNER JOIN 当前快照：快照缺失（current_version_id 为 NULL 或指向缺失行）的候选天然丢弃；
-      - 排序与原实现一致：created_at 升序、id 升序（同秒内按 ULID 稳定）；
+      - 排序：created_at 升序、id 升序（同秒内按 ULID 稳定）；
       - 动态条件：bankId / excludeIds / tag 任一可为空。
       - 考点用 JSON_CONTAINS 做「数组精确成员」匹配，与错题列表的内存 matchTag 同口径；
         不用 LIKE，避免「搭配」误命中「固定搭配」这类包含关系的考点名。
@@ -35,6 +40,14 @@
           AND b.deleted_at IS NULL
           AND s.status = 'PUBLISHED'
           AND s.deleted_at IS NULL
+          AND (b.visibility = 'PUBLIC'
+               OR (#{userId,jdbcType=BIGINT} IS NOT NULL
+                   AND b.owner_id = #{userId,jdbcType=BIGINT}))
+          AND NOT EXISTS (
+                SELECT 1 FROM reviews r
+                WHERE r.user_id = #{userId,jdbcType=BIGINT}
+                  AND r.sentence_id = s.id
+                  AND r.state &lt;&gt; 'NEW')
         <if test="bankId != null">
             AND s.bank_id = #{bankId}
         </if>
