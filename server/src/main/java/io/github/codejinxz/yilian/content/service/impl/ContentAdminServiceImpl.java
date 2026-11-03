@@ -53,6 +53,12 @@ public class ContentAdminServiceImpl implements ContentAdminService {
     /** 单页题库/题目条数上限；与管理端其余分页口径一致。 */
     private static final int MAX_PAGE_SIZE = 100;
 
+    /**
+     * 页码上限（与 {@code AdminLogServiceImpl} 同口径）：题目列表的 offset 按 {@code (page-1)*size} 计算， 不设上限的深页码会
+     * int 溢出为负 offset 被 MyBatis 前置校验拒绝后落成 500（016 P2·02#04）， 10_000 页 × 100 条已远超现实数据量。
+     */
+    private static final int MAX_PAGE = 10_000;
+
     /** 批量操作单次题目数上限；防御误选全库，前端多选最多一页（≤100），余量充足。 */
     private static final int MAX_BULK_IDS = 500;
 
@@ -864,11 +870,14 @@ public class ContentAdminServiceImpl implements ContentAdminService {
     /**
      * 校验分页参数，越界统一抛 40004。
      *
-     * @param page 页码，从 1 开始
+     * <p>页码带上限（016 P2·02#04）：深页码的 {@code (page-1)*size} 会 int 溢出为负 offset， 把客户端输入错误放大成 500；负数页码本就被
+     * {@code page < 1} 拒绝。
+     *
+     * @param page 页码，1–10_000
      * @param size 每页大小，1–100
      */
     private static void requireValidPage(int page, int size) {
-        if (page < 1 || size < 1 || size > MAX_PAGE_SIZE) {
+        if (page < 1 || page > MAX_PAGE || size < 1 || size > MAX_PAGE_SIZE) {
             throw new BusinessException(ApiCode.INVALID_PAGINATION);
         }
     }

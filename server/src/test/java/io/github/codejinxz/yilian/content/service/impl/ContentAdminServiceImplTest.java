@@ -773,6 +773,81 @@ class ContentAdminServiceImplTest {
         assertThat(view.status()).isEqualTo("DISABLED");
     }
 
+    /**
+     * 编辑草稿题保持 DRAFT（016 P2·02#03 裁决）：内容编辑只换版本指针，不隐式发布—— 「先降草稿、改好再发」的管理动作不再被一次行内编辑提前上线；发布必须走显式状态流转。
+     */
+    @Test
+    void adminUpdateSentenceDetailKeepsDraftStatusOnContentEdit() {
+        SentenceBank bank = bank(5L, ContentStatus.PUBLISHED, 7);
+        Sentence sentence = sentenceWithVersion("01A", 5L, ContentStatus.DRAFT, 7);
+        List<SentenceVersion> versions = new ArrayList<>(List.of(currentVersion()));
+        when(sentenceDao.findById("01A")).thenReturn(Optional.of(sentence));
+        when(sentenceDao.findVersionsByIds(anyCollection()))
+                .thenAnswer(
+                        invocation -> {
+                            Collection<Long> ids = invocation.getArgument(0);
+                            return versions.stream()
+                                    .filter(version -> ids.contains(version.getId()))
+                                    .toList();
+                        });
+        when(sentenceDao.findLatestVersion("01A")).thenReturn(Optional.of(currentVersion()));
+        when(bankDao.lockById(5L)).thenReturn(Optional.of(bank));
+        when(sentenceDao.saveVersion(any(SentenceVersion.class)))
+                .thenAnswer(
+                        invocation -> {
+                            SentenceVersion version = invocation.getArgument(0);
+                            ReflectionTestUtils.setField(version, "id", 12L);
+                            versions.add(version);
+                            return version;
+                        });
+        when(contentImportService.fingerprintsOf(any())).thenReturn(List.of("fp-new"));
+
+        SentenceDetail view =
+                service.adminUpdateSentenceDetail(
+                        9L, "01A", "改好的草稿新句。", null, null, null, null, null, "改草稿");
+
+        // 版本指针与指纹照常推进，但生命周期状态保持 DRAFT，不进练习端。
+        assertThat(sentence.getCurrentVersionId()).isEqualTo(12L);
+        assertThat(sentence.getFingerprint()).isEqualTo("fp-new");
+        assertThat(sentence.getStatus()).isEqualTo(ContentStatus.DRAFT);
+        assertThat(view.status()).isEqualTo("DRAFT");
+    }
+
+    /** 深页码防御（016 P2·02#04）：page 超上限与负数页码统一 40004，不把输入错误放大成 500。 */
+    @Test
+    void adminListSentencesRejectsOutOfRangePage() {
+        // (page-1)*size 在 int 上溢出为负 offset 的深页码 → 40004。
+        assertThatThrownBy(() -> service.adminListSentences(null, null, null, null, 10_001, 100))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.INVALID_PAGINATION));
+        assertThatThrownBy(
+                        () -> service.adminListSentences(null, null, null, null, 100_000_000, 20))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.INVALID_PAGINATION));
+        // 负数页码同样 40004。
+        assertThatThrownBy(() -> service.adminListSentences(null, null, null, null, -1, 20))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.INVALID_PAGINATION));
+        // 上限边界内合法：page=10_000 可正常放行到查询 Dao。
+        when(adminSentenceQueryDao.search(
+                        isNull(), isNull(), isNull(), isNull(), eq(true), eq(999_900), eq(100)))
+                .thenReturn(List.of());
+        when(adminSentenceQueryDao.count(isNull(), isNull(), isNull(), isNull(), eq(true)))
+                .thenReturn(0L);
+        service.adminListSentences(null, null, null, null, 10_000, 100);
+        verify(adminSentenceQueryDao)
+                .search(isNull(), isNull(), isNull(), isNull(), eq(true), eq(999_900), eq(100));
+    }
+
     /** 行内编辑先改内容后移动：移动的指纹预检用的是回填后的新指纹。 */
     @Test
     void adminUpdateSentenceDetailChecksNewFingerprintWhenMovingAfterContentEdit() {

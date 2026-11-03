@@ -52,7 +52,10 @@ public interface ContentImportService {
     List<String> fingerprintsOf(List<SentenceContent> rows);
 
     /**
-     * 回滚已导入题目：逐题置 RECYCLED（deleted_at/by 回写）并每题递增银行修订号， 使增量流下发 tombstone；单事务。题目不存在时跳过（幂等）。
+     * 回滚已导入题目：逐题置 RECYCLED（deleted_at/by 回写）并每题递增银行修订号， 使增量流下发 tombstone；单事务。
+     *
+     * <p>幂等与防御（016 P2·02#06）：不存在、不属于 {@code bankId} 或已回收（软删）的 id 一律跳过，
+     * 返回值只统计实际回收数——归属校验防止批次行错乱时用本库版本号写坏他库题目。
      *
      * @param bankId 题库 id
      * @param sentenceIds 待回收的题目 id

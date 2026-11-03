@@ -148,6 +148,9 @@ public class ContentImportServiceImpl implements ContentImportService {
             bank.advanceVersion(bank.getVersion() + 1, actorId, now);
             sentence.pointToVersion(
                     savedVersion.getId(), 1, bank.getVersion(), fingerprint, actorId);
+            // 导入落库的题目随批次提交直接进入可练态：显式发布（016 P2·02#03 之后 pointToVersion
+            // 不再隐式把 DRAFT 翻成 PUBLISHED，发布是导入语义的一部分而非编辑副作用）。
+            sentence.changeStatus(ContentStatus.PUBLISHED, bank.getVersion(), actorId, now);
             sentenceDao.save(sentence);
 
             results.add(new ImportedSentence(sentence.getId(), savedVersion.getId(), 1));
@@ -187,6 +190,12 @@ public class ContentImportServiceImpl implements ContentImportService {
         for (String sentenceId : sentenceIds) {
             sentenceDao
                     .findById(sentenceId)
+                    // 归属与状态防御（016 P2·02#06）：本方法对 upload 模块开放且入参含 bankId 与
+                    // sentenceIds 两组独立数据，V10 后批次行与题目间只剩逻辑外键——批次行错乱时
+                    // 不校验归属就会用本库版本号改写他库题目并推进他库修订号；已软删（已回收）的题
+                    // 跳过，避免二次回收重复推进版本号。越界/重复 id 静默忽略，回收数只统计实际发生者。
+                    .filter(sentence -> sentence.getBankId() == bankId)
+                    .filter(sentence -> sentence.getDeletedAt() == null)
                     .ifPresent(
                             sentence -> {
                                 sentence.changeStatus(

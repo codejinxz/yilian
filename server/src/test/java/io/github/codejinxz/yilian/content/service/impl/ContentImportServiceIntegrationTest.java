@@ -7,9 +7,11 @@ import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.content.service.ContentImportService;
 import io.github.codejinxz.yilian.content.service.ContentQueryService;
+import io.github.codejinxz.yilian.content.service.dto.ImportedSentence;
 import io.github.codejinxz.yilian.content.service.dto.SentenceContent;
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
 import io.github.codejinxz.yilian.content.service.vo.SentencePage;
+import io.github.codejinxz.yilian.support.TestDatabases;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,8 +21,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
@@ -39,10 +39,9 @@ import java.util.Set;
         properties = {
             "yilian.ratelimit.enabled=false",
             "yilian.security.captcha.enabled=false",
-            "management.health.redis.enabled=false",
-            "yilian.security.jwt.secret=test-only-yilian-jwt-secret-0123456789abcdef"
+            "management.health.redis.enabled=false"
         })
-@ActiveProfiles("local")
+@ActiveProfiles("test")
 class ContentImportServiceIntegrationTest {
 
     private static final Timestamp T0 = Timestamp.valueOf(LocalDateTime.of(2026, 10, 29, 12, 0, 0));
@@ -53,21 +52,8 @@ class ContentImportServiceIntegrationTest {
 
     @Autowired private JdbcTemplate jdbcTemplate;
 
-    /**
-     * 测试库指向本机 yilian_test。
-     *
-     * @param registry 动态属性注册表
-     */
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add(
-                "spring.datasource.url",
-                () ->
-                        "jdbc:mysql://localhost:3306/yilian_test?useUnicode=true&characterEncoding=utf8"
-                                + "&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true"
-                                + "&allowPublicKeyRetrieval=true&useSSL=false");
-        registry.add("spring.datasource.username", () -> "root");
-        registry.add("spring.datasource.password", () -> "123456");
+    static {
+        TestDatabases.ensureDatabase();
     }
 
     /** 用例后清掉批次与内容表，避免 RESTRICT 外键污染其他集成套件（AuthFlow 清 users）。 */
@@ -235,6 +221,91 @@ class ContentImportServiceIntegrationTest {
         assertThat(pages).isBetween(4, 5);
         assertThat(seen).hasSize(200);
         assertThat(draftTombstoneStatus).isEqualTo("DRAFT");
+    }
+
+    /**
+     * 回收归属与状态防御（016 P2·02#06）：不属于目标库的 id 与已回收（软删）的 id 一律跳过，
+     * 返回值只计实际回收——防止批次行错乱时用本库版本号改写他库题目并重复推进修订号。
+     */
+    @Test
+    @DisplayName("[AC-4] 回收校验归属库与已回收状态")
+    void ac4_recycleSkipsForeignBankAndAlreadyRecycledSentences() {
+        long bankId = insertBank("PUBLISHED");
+        List<SentenceContent> rows =
+                List.of(
+                        row(1, "他越来越重视这件事。", "He is paying more and more attention."),
+                        row(2, "会议如期顺利举行了。", "The meeting was held as scheduled."));
+        seedImportBatch("batch-it-0004-0000-0000-000000000004");
+        List<ImportedSentence> imported =
+                contentImportService.importSentences(
+                        bankId, "batch-it-0004-0000-0000-000000000004", rows, 9L, T0.toInstant());
+        String ownId = imported.get(0).sentenceId();
+        String secondId = imported.get(1).sentenceId();
+
+        // 他库题目（V10 后与批次间只剩逻辑外键，跨库 id 现实可传）。
+        jdbcTemplate.update(
+                "INSERT INTO sentence_banks (id, owner_id, name, description, visibility, status,"
+                        + " version, published_at, created_by, updated_by, created_at, updated_at,"
+                        + " deleted_at, deleted_by)"
+                        + " VALUES (9002, NULL, '他库', NULL, 'PUBLIC', 'PUBLISHED', 5, ?, NULL, NULL,"
+                        + " ?, ?, NULL, NULL)",
+                T0,
+                T0,
+                T0);
+        jdbcTemplate.update(
+                "INSERT INTO sentences (id, bank_id, external_key, status, current_version_id,"
+                        + " version, fingerprint, created_by, updated_by, created_at, updated_at,"
+                        + " deleted_at, deleted_by)"
+                        + " VALUES ('01JFOREIG0000000000000000A', 9002, NULL, 'PUBLISHED', NULL, 5,"
+                        + " 'fp-foreign', NULL, NULL, ?, ?, NULL, NULL)",
+                T0,
+                T0);
+        // 本库已回收的题目（deleted_at 非空）。
+        jdbcTemplate.update(
+                "UPDATE sentences SET status = 'RECYCLED', deleted_at = ?, deleted_by = 9"
+                        + " WHERE id = ?",
+                T0,
+                secondId);
+        Long foreignVersionBefore =
+                jdbcTemplate.queryForObject(
+                        "SELECT version FROM sentences WHERE id = '01JFOREIG0000000000000000A'",
+                        Long.class);
+        Long foreignBankVersionBefore =
+                jdbcTemplate.queryForObject(
+                        "SELECT version FROM sentence_banks WHERE id = 9002", Long.class);
+
+        int recycled =
+                contentImportService.recycleImportedSentences(
+                        bankId,
+                        List.of(ownId, secondId, "01JFOREIG0000000000000000A"),
+                        9L,
+                        T0.toInstant());
+
+        // 只回收本库未软删的 ownId：已回收与他库 id 都跳过。
+        assertThat(recycled).isEqualTo(1);
+        Long ownDeleted =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM sentences WHERE id = ? AND deleted_at IS NOT NULL"
+                                + " AND status = 'RECYCLED'",
+                        Long.class,
+                        ownId);
+        assertThat(ownDeleted).isEqualTo(1L);
+        // 他库题目与题库修订号原样不动。
+        assertThat(
+                        jdbcTemplate.queryForObject(
+                                "SELECT version FROM sentences WHERE id ="
+                                        + " '01JFOREIG0000000000000000A'",
+                                Long.class))
+                .isEqualTo(foreignVersionBefore);
+        assertThat(
+                        jdbcTemplate.queryForObject(
+                                "SELECT version FROM sentence_banks WHERE id = 9002", Long.class))
+                .isEqualTo(foreignBankVersionBefore);
+        // 本库修订号只因实际回收推进一版（导入 2 行到 2，再推进到 3）。
+        Long bankVersion =
+                jdbcTemplate.queryForObject(
+                        "SELECT version FROM sentence_banks WHERE id = ?", Long.class, bankId);
+        assertThat(bankVersion).isEqualTo(3L);
     }
 
     /**
