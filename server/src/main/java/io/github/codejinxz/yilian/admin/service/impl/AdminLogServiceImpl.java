@@ -9,14 +9,16 @@ import io.github.codejinxz.yilian.admin.service.vo.AdminErrorLogView;
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.api.PageResponse;
+import io.github.codejinxz.yilian.common.util.StringUtils;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 
@@ -25,6 +27,9 @@ import java.util.List;
  *
  * <p>分区表纪律（012 计划 §AC-1/AC-2）：from/to 缺省按「近 30 天」收口，保证 XML WHERE 恒含 created_at 范围；size 上限 100（越界归
  * 100），页码/size 非法回 40004。keyword 做 LIKE 通配 转义（%、_、反斜杠），使检索语义与 mock 的纯「contains」一致，不暴露 SQL 通配符。
+ *
+ * <p>from/to 是**管理员本地日期**（前端日期选择器按浏览器本地日发送，012 冒烟发现 UTC 日界在凌晨 会把「今天」的记录筛丢）：服务端按配置的日界时区（默认
+ * Asia/Shanghai，单产品默认，见 {@code yilian.admin.day-zone}）换算成 UTC 时刻窗口；口径已文档化到 API §8.5/§8.6。
  */
 @Service
 public class AdminLogServiceImpl implements AdminLogService {
@@ -47,18 +52,24 @@ public class AdminLogServiceImpl implements AdminLogService {
 
     private final Clock clock;
 
+    /** from/to 日期参数的日界时区（管理员视角的「本地日」）；默认 Asia/Shanghai。 */
+    private final ZoneId dayZone;
+
     /**
-     * 注入只读 Dao 与 UTC 时钟；时钟测试用反射固定（先例同 {@code AdminOverviewServiceImpl}）。
+     * 注入只读 Dao、UTC 时钟与日界时区；时钟测试用反射固定（先例同 {@code AdminOverviewServiceImpl}）。
      *
      * @param adminAuditLogQueryDao 操作日志查询 Dao
      * @param adminErrorLogQueryDao 异常日志查询 Dao
+     * @param dayZone from/to 日期参数的日界时区，缺省 Asia/Shanghai（yilian.admin.day-zone）
      */
     public AdminLogServiceImpl(
             AdminAuditLogQueryDao adminAuditLogQueryDao,
-            AdminErrorLogQueryDao adminErrorLogQueryDao) {
+            AdminErrorLogQueryDao adminErrorLogQueryDao,
+            @Value("${yilian.admin.day-zone:Asia/Shanghai}") ZoneId dayZone) {
         this.adminAuditLogQueryDao = adminAuditLogQueryDao;
         this.adminErrorLogQueryDao = adminErrorLogQueryDao;
         this.clock = Clock.systemUTC();
+        this.dayZone = dayZone;
     }
 
     @Override
@@ -177,14 +188,16 @@ public class AdminLogServiceImpl implements AdminLogService {
             return null;
         }
         try {
-            return LocalDate.parse(value.trim()).atStartOfDay(ZoneOffset.UTC).toInstant();
+            // 日期参数按管理员本地日界（dayZone）换算 UTC 时刻：凌晨 00:30 的记录在
+            // 「今天」筛选下可见（012 冒烟观察项，015 修复——旧实现按 UTC 日界会把本地凌晨漏掉）。
+            return LocalDate.parse(value.trim()).atStartOfDay(dayZone).toInstant();
         } catch (DateTimeParseException exception) {
             throw new BusinessException(ApiCode.VALIDATION_FAILED, field + " 需为 YYYY-MM-DD 日期");
         }
     }
 
     /**
-     * 解析 YYYY-MM-DD 为次日 UTC 零点（窗口终点，不含），使「to=当日」包含整天。
+     * 解析 YYYY-MM-DD 为次日日界零点（窗口终点，不含），使「to=当日」包含整天（时区见 {@link #dayZone}）。
      *
      * @param value 入参，可空
      * @param field 字段名，错误提示用
@@ -196,10 +209,7 @@ public class AdminLogServiceImpl implements AdminLogService {
             return null;
         }
         try {
-            return LocalDate.parse(value.trim())
-                    .plusDays(1)
-                    .atStartOfDay(ZoneOffset.UTC)
-                    .toInstant();
+            return LocalDate.parse(value.trim()).plusDays(1).atStartOfDay(dayZone).toInstant();
         } catch (DateTimeParseException exception) {
             throw new BusinessException(ApiCode.VALIDATION_FAILED, field + " 需为 YYYY-MM-DD 日期");
         }
@@ -268,16 +278,13 @@ public class AdminLogServiceImpl implements AdminLogService {
     }
 
     /**
-     * 关键字 LIKE 转义：反斜杠、%、_ 前置反斜杠，配合 SQL 的 ESCAPE '\\' 让检索语义等于纯 contains（与 mock 契约一致，不暴露通配符）。
+     * 关键字 LIKE 转义：统一走 {@link StringUtils#escapeLike}（反斜杠、%、_ 前置反斜杠， 配合 SQL 的 ESCAPE '\\' 让检索语义等于纯
+     * contains，不暴露通配符）。
      *
      * @param keyword 入参，可空
      * @return 转义后的关键字；空白输入返回 null
      */
     private static String escapeLike(String keyword) {
-        String normalized = normalizeText(keyword);
-        if (normalized == null) {
-            return null;
-        }
-        return normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+        return StringUtils.escapeLike(keyword);
     }
 }

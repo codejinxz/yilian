@@ -19,6 +19,9 @@ import java.util.Set;
 public record NextQuery(
         Long bankId, String sentenceId, String tag, boolean errors, List<String> excludeIds) {
 
+    /** excludeIds 归一化上限：防 URL 无限膨胀拖垮选题；超出部分按归一化静默语义丢弃。 */
+    private static final int MAX_EXCLUDE_IDS = 100;
+
     /**
      * 从原始查询串归一化：trim、去空、去重、errors 只认字面量 "1"。
      *
@@ -52,13 +55,19 @@ public record NextQuery(
                 }
             }
         }
+        // 截断到 ≤100：归一化走「脏值不报错、只是失效」的静默语义，超出上限的排除项
+        // 静默丢弃（URL 长度防御，015 缺陷 #8）；LinkedHashSet 保序，保留最早出现的 100 个。
+        List<String> capped =
+                excluded.size() <= MAX_EXCLUDE_IDS
+                        ? List.copyOf(excluded)
+                        : excluded.stream().limit(MAX_EXCLUDE_IDS).toList();
         return new NextQuery(
                 bankId,
                 trimToNull(sentenceId),
                 trimToNull(tag),
                 // 与本地引擎 params.get("errors") === "1" 逐值一致：只认原始字面量，不做大小写/trim 变通。
                 "1".equals(errors),
-                List.copyOf(excluded));
+                capped);
     }
 
     /**

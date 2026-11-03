@@ -200,7 +200,9 @@ public class UserAccountServiceImpl implements UserAccountService {
         if (!USER_STATUSES.contains(normalizedStatus)) {
             throw new BusinessException(ApiCode.INVALID_PAGINATION, "status 不受支持");
         }
-        String normalizedKeyword = StringUtils.isBlank(keyword) ? null : keyword.trim();
+        // keyword 走 LIKE 转义（StringUtils.escapeLike）：用户输入的 %/_ 是字面量，
+        // 检索语义=纯 contains（015 缺陷 #5）。
+        String normalizedKeyword = StringUtils.escapeLike(keyword);
         Page<AppUser> result =
                 appUserDao.search(
                         normalizedKeyword,

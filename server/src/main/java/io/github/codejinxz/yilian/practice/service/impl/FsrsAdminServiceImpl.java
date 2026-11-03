@@ -37,6 +37,9 @@ public class FsrsAdminServiceImpl implements FsrsAdminService {
 
     private static final Logger log = LoggerFactory.getLogger(FsrsAdminServiceImpl.class);
 
+    /** 优化器训练样本上限：超出取最近的（时间倒序截断），防超大样本拖垮同步训练请求。 */
+    private static final int MAX_OPTIMIZE_SAMPLES = 5000;
+
     private final FsrsParameterVersionDao fsrsParameterVersionDao;
 
     private final ReviewLogDao reviewLogDao;
@@ -59,7 +62,9 @@ public class FsrsAdminServiceImpl implements FsrsAdminService {
 
     @Override
     public FsrsParameterVersionView optimize(Long targetUserId, Long actorId) {
-        List<ReviewLog> logs = reviewLogDao.findByUserId(targetUserId);
+        // 训练样本上限（015 缺陷 #10）：超出取最近 MAX_OPTIMIZE_SAMPLES 条（id 倒序取前 N 翻回时间序），
+        // 防止单个超大样本用户把 SGD 训练拖成分钟级请求；FSRS 样本充足后边际收益递减，5000 条量级足够。
+        List<ReviewLog> logs = reviewLogDao.findRecentByUserId(targetUserId, MAX_OPTIMIZE_SAMPLES);
         // 「没有真实数据前不生成候选权重」：样本不足直接拒绝，不写占位行、不伪造已优化。
         if (logs.size() < FsrsOptimizer.MIN_SAMPLES) {
             throw new BusinessException(

@@ -18,7 +18,7 @@ import java.time.Instant;
  * @param sentenceVersionId 提交时客户端持有的题目版本 id（字符串化的 BIGINT），必须与当前版本一致
  * @param mode 练习模式 CLOZE/FREE
  * @param kind 提交类型 FIRST/RETRY/REVEAL
- * @param retryOfId 重打来源 attempt，仅 kind=RETRY 必填
+ * @param retryOfId 重打来源 attempt，仅 kind=RETRY 必填；上限 36 对齐 attempts.retry_of_id 列宽（CHAR(36)）
  * @param answer 答案载荷，见 DATA-MODEL §6.4
  * @param hintsUsed 提示次数 0–3，缺省 0
  * @param durationMs 作答耗时 0–86400000ms，可空
@@ -35,7 +35,7 @@ public record AttemptCommand(
         @NotBlank(message = "sentenceVersionId 不能为空") String sentenceVersionId,
         @NotNull(message = "mode 不能为空") Mode mode,
         @NotNull(message = "kind 不能为空") Kind kind,
-        String retryOfId,
+        @Size(max = 36, message = "retryOfId 超出长度") String retryOfId,
         @NotNull(message = "answer 不能为空") @Valid AnswerPayload answer,
         @Min(value = 0, message = "hintsUsed 不能为负") @Max(value = 3, message = "hintsUsed 最多 3")
                 Integer hintsUsed,

@@ -73,6 +73,19 @@ class UserAccountServiceImplTest {
         verify(appUserDao, never()).save(any());
     }
 
+    /** [AC-5] 用户检索 keyword 做 LIKE 转义：用户输入的 %/_ 是字面量（015 修复轮 minor #5）。 */
+    @Test
+    void adminSearchEscapesLikeKeyword_ac5() {
+        when(appUserDao.search(
+                        org.mockito.ArgumentMatchers.eq("100\\%\\_完\\\\成"), any(), any(), any()))
+                .thenReturn(org.springframework.data.domain.Page.empty());
+
+        service.adminSearch(" 100%_完\\成 ", null, null, 1, 20);
+
+        verify(appUserDao)
+                .search(org.mockito.ArgumentMatchers.eq("100\\%\\_完\\\\成"), any(), any(), any());
+    }
+
     /** [AC-3] 非法角色字符串收敛为参数校验失败（40000），不触达用户查询。 */
     @Test
     void adminSetRoleRejectsUnknownRoleValue_ac3() {

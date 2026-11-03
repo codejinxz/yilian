@@ -42,7 +42,8 @@ public interface SentenceBankJpaRepository extends JpaRepository<SentenceBank, L
               and b.deletedAt is null
               and (b.visibility = io.github.codejinxz.yilian.content.entity.BankVisibility.PUBLIC
                    or b.ownerId = :userId)
-              and (:keyword is null or lower(b.name) like lower(concat('%', :keyword, '%')))
+              and (:keyword is null
+                   or lower(b.name) like lower(concat('%', :keyword, '%')) escape '\\')
               and (:visibility is null or b.visibility = :visibility)
             """)
     Page<SentenceBank> searchVisible(
@@ -65,8 +66,8 @@ public interface SentenceBankJpaRepository extends JpaRepository<SentenceBank, L
             """
             select b from SentenceBank b
             where (:keyword is null
-                    or lower(b.name) like lower(concat('%', :keyword, '%'))
-                    or lower(b.description) like lower(concat('%', :keyword, '%')))
+                    or lower(b.name) like lower(concat('%', :keyword, '%')) escape '\\'
+                    or lower(b.description) like lower(concat('%', :keyword, '%')) escape '\\')
               and (:visibility is null or b.visibility = :visibility)
               and (:status is null or b.status = :status)
             """)

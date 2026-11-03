@@ -15,7 +15,9 @@
             AND s.bank_id = #{bankId}
         </if>
         <if test="keyword != null and keyword != ''">
-            AND (v.zh LIKE CONCAT('%', #{keyword}, '%') OR v.ref LIKE CONCAT('%', #{keyword}, '%'))
+            <!-- keyword 由服务层 escapeLike 转义（%、_、\ 前置 \），这里显式声明 ESCAPE 使检索语义=纯 contains -->
+            AND (v.zh LIKE CONCAT('%', #{keyword}, '%') ESCAPE '\\'
+                 OR v.ref LIKE CONCAT('%', #{keyword}, '%') ESCAPE '\\')
         </if>
         <if test="level != null and level != ''">
             AND v.level = #{level}

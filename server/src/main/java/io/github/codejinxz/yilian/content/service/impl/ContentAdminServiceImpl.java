@@ -115,7 +115,8 @@ public class ContentAdminServiceImpl implements ContentAdminService {
         requireValidPage(page, size);
         BankVisibility visibilityFilter = parseVisibility(visibility);
         ContentStatus statusFilter = parseContentStatus(status, "status 不受支持");
-        String normalizedKeyword = normalizeKeyword(keyword);
+        // keyword 走 LIKE 转义：用户输入的 %/_ 是字面量，检索语义=纯 contains（015 缺陷 #5）。
+        String normalizedKeyword = StringUtils.escapeLike(keyword);
         Page<SentenceBank> result =
                 bankDao.searchAdmin(
                         normalizedKeyword,
@@ -206,8 +207,9 @@ public class ContentAdminServiceImpl implements ContentAdminService {
         requireValidPage(page, size);
         requireBank(bankId);
         ContentStatus statusFilter = parseContentStatus(status, "status 不受支持");
+        // keyword 走 LIKE 转义（XML 侧 ESCAPE '\\'）；level 是等值过滤不转义。
         return searchSentencePage(
-                bankId, normalizeKeyword(keyword), null, statusFilter, false, page, size);
+                bankId, StringUtils.escapeLike(keyword), null, statusFilter, false, page, size);
     }
 
     @Override
@@ -219,9 +221,10 @@ public class ContentAdminServiceImpl implements ContentAdminService {
         ContentStatus statusFilter = parseContentStatus(status, "status 不受支持");
         // 缺省隐藏回收站（前端跨题库列表契约）；显式传 status（含 RECYCLED）时按精确状态过滤。
         boolean hideRecycled = statusFilter == null;
+        // keyword 走 LIKE 转义（XML 侧 ESCAPE '\\'）；level 是等值过滤不转义。
         return searchSentencePage(
                 bankIdFilter,
-                normalizeKeyword(keyword),
+                StringUtils.escapeLike(keyword),
                 normalizeKeyword(level),
                 statusFilter,
                 hideRecycled,
@@ -393,17 +396,49 @@ public class ContentAdminServiceImpl implements ContentAdminService {
         Sentence sentence = requireSentence(sentenceId);
         // 源题库 id 必须在移动前捕获：moveToBank 会原地改写 bankId。
         long originalBankId = sentence.getBankId();
-        Instant now = Instant.now();
-
+        boolean willMove = targetBankId != null && targetBankId != originalBankId;
+        if (willMove) {
+            // 目标库可用性是纯读校验，提前到加锁前完成，避免白锁一轮。
+            requireUsableBank(targetBankId);
+        }
         boolean contentChange =
                 zhEdit != null || levelProvided || tagsEdit != null || noteEdit != null;
+        // 与当前状态相同则不推进修订号（前端编辑弹窗恒带当前 status，属常见空操作）；
+        // 纯空操作（内容/状态/移动都不变）不加锁、不落任何写，行为与 015 修复轮之前一致。
+        boolean statusChange = statusTarget != null && sentence.getStatus() != statusTarget;
+        Instant now = Instant.now();
+
+        // 统一锁序（015 缺陷 #6）：编辑、状态、移动涉及的全部题库按 id 升序一次加齐，
+        // 且加齐发生在任何题库行被修改之前。旧行为「applyContentEdit 先锁源库、moveSentence
+        // 再升序锁 {源,目标}」留下 ABBA 窗口——本请求持有源库等目标库、并发批量移动持有
+        // 目标库等源库时会互相等待直至锁超时。
+        Map<Long, SentenceBank> lockedBanks = Map.of();
+        if (contentChange || statusChange || willMove) {
+            TreeSet<Long> lockOrder = new TreeSet<>();
+            lockOrder.add(originalBankId);
+            if (willMove) {
+                lockOrder.add(targetBankId);
+            }
+            lockedBanks = new LinkedHashMap<>();
+            for (Long id : lockOrder) {
+                lockedBanks.put(id, lockedBankOf(id));
+            }
+        }
+
         if (contentChange) {
             applyContentEdit(
-                    actorId, sentence, zhEdit, levelProvided, levelEdit, tagsEdit, noteEdit, now);
+                    actorId,
+                    sentence,
+                    lockedBanks.get(originalBankId),
+                    zhEdit,
+                    levelProvided,
+                    levelEdit,
+                    tagsEdit,
+                    noteEdit,
+                    now);
         }
-        // 与当前状态相同则不推进修订号（前端编辑弹窗恒带当前 status，属常见空操作）。
-        if (statusTarget != null && sentence.getStatus() != statusTarget) {
-            SentenceBank bank = lockedBankOf(sentence.getBankId());
+        if (statusChange) {
+            SentenceBank bank = lockedBanks.get(sentence.getBankId());
             long nextVersion = bank.getVersion() + 1;
             sentence.changeStatus(statusTarget, nextVersion, actorId, now);
             bank.advanceVersion(nextVersion, actorId, now);
@@ -411,8 +446,8 @@ public class ContentAdminServiceImpl implements ContentAdminService {
             bankDao.save(bank);
         }
         boolean moved = false;
-        if (targetBankId != null && targetBankId != sentence.getBankId()) {
-            moveSentence(actorId, sentence, targetBankId, now);
+        if (willMove) {
+            moveSentence(actorId, sentence, lockedBanks, targetBankId, now);
             moved = true;
         }
         // 内容/状态编辑影响原库视图，移动还改变目标库句数：提交后一并失效。
@@ -427,8 +462,11 @@ public class ContentAdminServiceImpl implements ContentAdminService {
     /**
      * 落实版本字段编辑：新增不可变版本行、回填指纹与 content_hash、推进题库修订号并指向新快照。
      *
+     * <p>题库锁由调用方按统一锁序提前获取（见 {@link #adminUpdateSentenceDetail}），本方法只消费锁定的实体。
+     *
      * @param actorId 操作管理员 id
      * @param sentence 目标题目
+     * @param bank 已加写锁的所属题库
      * @param zhEdit 新中文，null 表示不改
      * @param levelProvided 是否显式提供了 level（区分「不改」与「清空」）
      * @param levelEdit 新难度（已归一化，可为 null 表示清空）
@@ -439,13 +477,13 @@ public class ContentAdminServiceImpl implements ContentAdminService {
     private void applyContentEdit(
             long actorId,
             Sentence sentence,
+            SentenceBank bank,
             String zhEdit,
             boolean levelProvided,
             String levelEdit,
             List<String> tagsEdit,
             String noteEdit,
             Instant now) {
-        SentenceBank bank = lockedBankOf(sentence.getBankId());
         SentenceVersion current = currentVersionOf(sentence);
         int nextVersionNo =
                 sentenceDao
@@ -519,26 +557,28 @@ public class ContentAdminServiceImpl implements ContentAdminService {
     }
 
     /**
-     * 单题移动：目标库须可用且无相同内容，目标库每题递增修订号、源库推进一次（语义与批量移动一致）。
+     * 单题移动：目标库无相同内容，目标库每题递增修订号、源库推进一次（语义与批量移动一致）。
+     *
+     * <p>目标库可用性校验与题库加锁都在调用方完成（统一锁序），本方法只做指纹预检与数据迁移。
      *
      * @param actorId 操作管理员 id
      * @param sentence 待移动题目
+     * @param lockedBanks 已按 id 升序加锁的全部涉及题库（源库与目标库）
      * @param targetBankId 目标题库 id
      * @param now 统一时钟
      */
-    private void moveSentence(long actorId, Sentence sentence, long targetBankId, Instant now) {
-        requireUsableBank(targetBankId);
+    private void moveSentence(
+            long actorId,
+            Sentence sentence,
+            Map<Long, SentenceBank> lockedBanks,
+            long targetBankId,
+            Instant now) {
         // 源题库 id 必须在移动前捕获：moveToBank 会原地改写 bankId。
         long sourceBankId = sentence.getBankId();
         if (!sentenceDao
                 .findActiveFingerprints(targetBankId, List.of(sentence.getFingerprint()))
                 .isEmpty()) {
             throw new BusinessException(ApiCode.VALIDATION_FAILED, "目标题库已存在相同题目");
-        }
-        TreeSet<Long> lockOrder = new TreeSet<>(List.of(sourceBankId, targetBankId));
-        Map<Long, SentenceBank> lockedBanks = new LinkedHashMap<>();
-        for (Long id : lockOrder) {
-            lockedBanks.put(id, lockedBankOf(id));
         }
         SentenceBank targetBank = lockedBanks.get(targetBankId);
         long nextVersion = targetBank.getVersion() + 1;

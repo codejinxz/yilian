@@ -817,11 +817,15 @@ class ContentAdminServiceImplTest {
     /** 行内编辑移动：目标库已有相同内容（按指纹）→ 40000 整体不落库。 */
     @Test
     void adminUpdateSentenceDetailRejectsDuplicateFingerprintInTargetBank() {
+        SentenceBank sourceBank = bank(5L, ContentStatus.PUBLISHED, 7);
         SentenceBank targetBank = bank(7L, ContentStatus.PUBLISHED, 10);
         Sentence sentence = sentenceWithVersion("01A", 5L, ContentStatus.PUBLISHED, 7);
         when(sentenceDao.findById("01A")).thenReturn(Optional.of(sentence));
         when(sentenceDao.findVersionsByIds(List.of(11L))).thenReturn(List.of(currentVersion()));
         when(bankDao.findById(7L)).thenReturn(Optional.of(targetBank));
+        // 015 修复轮后统一锁序在指纹预检前加锁：源库与目标库都要可锁。
+        when(bankDao.lockById(5L)).thenReturn(Optional.of(sourceBank));
+        when(bankDao.lockById(7L)).thenReturn(Optional.of(targetBank));
         when(sentenceDao.findActiveFingerprints(eq(7L), anyCollection()))
                 .thenReturn(List.of("fp-01A"));
 
@@ -837,6 +841,48 @@ class ContentAdminServiceImplTest {
         verify(sentenceDao, never()).save(any());
         verify(bankDao, never()).save(any());
         verify(sentenceDao, never()).saveVersion(any());
+    }
+
+    /** [AC-5] 行内编辑+移动统一锁序（015 修复轮 minor #6）：目标库 id 小于源库时也按升序先锁目标库，消除 ABBA 窗口。 */
+    @Test
+    void adminUpdateSentenceDetailLocksBanksInAscendingOrder_ac5() {
+        SentenceBank sourceBank = bank(7L, ContentStatus.PUBLISHED, 10);
+        SentenceBank targetBank = bank(5L, ContentStatus.PUBLISHED, 3);
+        Sentence sentence = sentenceWithVersion("01A", 7L, ContentStatus.PUBLISHED, 10);
+        List<SentenceVersion> versions = new ArrayList<>(List.of(currentVersion()));
+        when(sentenceDao.findById("01A")).thenReturn(Optional.of(sentence));
+        when(sentenceDao.findVersionsByIds(anyCollection()))
+                .thenAnswer(
+                        invocation -> {
+                            Collection<Long> ids = invocation.getArgument(0);
+                            return versions.stream()
+                                    .filter(version -> ids.contains(version.getId()))
+                                    .toList();
+                        });
+        when(sentenceDao.findLatestVersion("01A")).thenReturn(Optional.of(currentVersion()));
+        when(sentenceDao.saveVersion(any(SentenceVersion.class)))
+                .thenAnswer(
+                        invocation -> {
+                            SentenceVersion version = invocation.getArgument(0);
+                            ReflectionTestUtils.setField(version, "id", 12L);
+                            versions.add(version);
+                            return version;
+                        });
+        when(contentImportService.fingerprintsOf(any())).thenReturn(List.of("fp-new"));
+        when(bankDao.findById(5L)).thenReturn(Optional.of(targetBank));
+        when(bankDao.lockById(5L)).thenReturn(Optional.of(targetBank));
+        when(bankDao.lockById(7L)).thenReturn(Optional.of(sourceBank));
+        when(sentenceDao.findActiveFingerprints(eq(5L), anyCollection())).thenReturn(List.of());
+
+        // 编辑内容 + 移动到 id 更小的目标库：涉及 {5,7} 两库，必须按升序一次加齐。
+        service.adminUpdateSentenceDetail(
+                9L, "01A", "  他越来越胖了呀。  ", null, null, null, "5", null, "编辑题目");
+
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(bankDao);
+        inOrder.verify(bankDao).lockById(5L);
+        inOrder.verify(bankDao).lockById(7L);
+        assertThat(sentence.getBankId()).isEqualTo(5L);
+        assertThat(sentence.getFingerprint()).isEqualTo("fp-new");
     }
 
     /** 行内编辑校验：中文太短 / 非法状态 / 题目缺失（40402）。 */

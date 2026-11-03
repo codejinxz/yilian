@@ -1,5 +1,6 @@
 package io.github.codejinxz.yilian.content.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -16,11 +17,15 @@ import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.api.PageResponse;
 import io.github.codejinxz.yilian.common.logging.ErrorLogRecorder;
+import io.github.codejinxz.yilian.common.ratelimit.RateLimit;
+import io.github.codejinxz.yilian.common.ratelimit.RateLimitDimension;
 import io.github.codejinxz.yilian.common.security.PasswordChangeRequiredInterceptor;
 import io.github.codejinxz.yilian.common.security.RestAccessDeniedHandler;
 import io.github.codejinxz.yilian.common.security.RestAuthenticationEntryPoint;
 import io.github.codejinxz.yilian.common.security.SecurityConfig;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
+import io.github.codejinxz.yilian.content.entity.BankVisibility;
+import io.github.codejinxz.yilian.content.entity.ContentStatus;
 import io.github.codejinxz.yilian.content.service.ContentQueryService;
 import io.github.codejinxz.yilian.content.service.vo.BankView;
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
@@ -266,5 +271,34 @@ class BankControllerTest {
                 List.of(1, 2),
                 List.of("副词结构", "搭配"),
                 "TEM8");
+    }
+
+    /** [AC-5] 限流契约（015 修复轮 minor #12）：三个匿名可读 GET 都挂 IP 维度 120 次/60 秒，防滥用入口裸奔。 */
+    @org.junit.jupiter.api.Test
+    void readOnlyEndpointsHaveIpRateLimit_ac5() throws Exception {
+        Class<?>[][] signatures = {
+            {
+                int.class,
+                int.class,
+                String.class,
+                BankVisibility.class,
+                ContentStatus.class,
+                YilianUserPrincipal.class
+            },
+            {long.class, YilianUserPrincipal.class},
+            {long.class, long.class, int.class, YilianUserPrincipal.class}
+        };
+        String[] methods = {"listBanks", "getBank", "listSentences"};
+        for (int i = 0; i < methods.length; i++) {
+            RateLimit rateLimit =
+                    BankController.class
+                            .getDeclaredMethod(methods[i], signatures[i])
+                            .getAnnotation(RateLimit.class);
+            assertThat(rateLimit).as(methods[i]).isNotNull();
+            assertThat(rateLimit.scene()).isEqualTo("banks-read");
+            assertThat(rateLimit.dimensions()).containsExactly(RateLimitDimension.IP);
+            assertThat(rateLimit.limit()).isEqualTo(120);
+            assertThat(rateLimit.windowSeconds()).isEqualTo(60);
+        }
     }
 }

@@ -31,4 +31,13 @@ public interface ReviewLogDao {
      * @return 日志列表
      */
     List<ReviewLog> findByUserId(Long userId);
+
+    /**
+     * 用户最近的排程日志（FSRS 优化器训练集样本上限），按 id 倒序取前 limit 条，返回时已恢复时间升序。
+     *
+     * @param userId 用户 id
+     * @param limit 最多条数
+     * @return 日志列表（时间升序，最多 limit 条）
+     */
+    List<ReviewLog> findRecentByUserId(Long userId, int limit);
 }

@@ -72,11 +72,19 @@ class AdminErrorLogControllerTest {
         verifyNoInteractions(adminLogService);
     }
 
-    /** [AC-2] 非 ADMIN 登录用户：403 信封，不触达 Service。 */
+    /** [AC-2] 非 ADMIN 登录用户：列表与详情均 403 信封，不触达 Service（015 观察项 #14 补详情端点切片）。 */
     @Test
     void endpointsRejectNonAdminWith403_ac2() throws Exception {
         mockMvc.perform(
                         get("/api/admin/error-logs")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(ApiCode.ACCESS_DENIED.code()));
+        mockMvc.perform(
+                        get("/api/admin/error-logs/{id}", 200)
                                 .with(
                                         authentication(
                                                 new TestingAuthenticationToken(

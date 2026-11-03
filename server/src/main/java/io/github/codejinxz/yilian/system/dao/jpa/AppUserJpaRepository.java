@@ -91,8 +91,8 @@ public interface AppUserJpaRepository extends JpaRepository<AppUser, Long> {
             """
             select u from AppUser u
             where (:keyword is null
-                   or lower(u.username) like lower(concat('%', :keyword, '%'))
-                   or lower(u.email) like lower(concat('%', :keyword, '%')))
+                   or lower(u.username) like lower(concat('%', :keyword, '%')) escape '\\'
+                   or lower(u.email) like lower(concat('%', :keyword, '%')) escape '\\')
               and (:role is null or u.role = :role)
               and (:status = 'all'
                    or (:status = 'active' and u.enabled = true and u.deletedAt is null)

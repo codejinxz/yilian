@@ -16,6 +16,8 @@ import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.logging.ErrorLogRecorder;
 import io.github.codejinxz.yilian.common.logging.OperationLog;
 import io.github.codejinxz.yilian.common.logging.OperationLogContext;
+import io.github.codejinxz.yilian.common.ratelimit.RateLimit;
+import io.github.codejinxz.yilian.common.ratelimit.RateLimitDimension;
 import io.github.codejinxz.yilian.common.security.PasswordChangeRequiredInterceptor;
 import io.github.codejinxz.yilian.common.security.RestAccessDeniedHandler;
 import io.github.codejinxz.yilian.common.security.RestAuthenticationEntryPoint;
@@ -362,5 +364,23 @@ class AdminFsrsControllerTest {
                 null,
                 Instant.parse("2026-10-30T00:00:00Z"),
                 "M2 原型占位权重");
+    }
+
+    /** [AC-5] optimize 限流契约（015 修复轮 minor #10）：SGD 重计算入口按管理员账号 5 次/60 秒。 */
+    @org.junit.jupiter.api.Test
+    void optimizeHasAccountRateLimit_ac5() throws Exception {
+        RateLimit rateLimit =
+                AdminFsrsController.class
+                        .getDeclaredMethod(
+                                "optimize",
+                                io.github.codejinxz.yilian.practice.service.dto.FsrsOptimizeRequest
+                                        .class,
+                                YilianUserPrincipal.class)
+                        .getAnnotation(RateLimit.class);
+        assertThat(rateLimit).isNotNull();
+        assertThat(rateLimit.scene()).isEqualTo("fsrs-optimize");
+        assertThat(rateLimit.dimensions()).containsExactly(RateLimitDimension.ACCOUNT);
+        assertThat(rateLimit.limit()).isEqualTo(5);
+        assertThat(rateLimit.windowSeconds()).isEqualTo(60);
     }
 }

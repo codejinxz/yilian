@@ -2,6 +2,7 @@ package io.github.codejinxz.yilian.practice.dao.jpa;
 
 import io.github.codejinxz.yilian.practice.entity.ReviewLog;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -25,4 +26,13 @@ public interface ReviewLogJpaRepository extends JpaRepository<ReviewLog, Long> {
      * @return 日志列表
      */
     List<ReviewLog> findByUserIdOrderByIdAsc(Long userId);
+
+    /**
+     * 用户最近日志（id 倒序分页取前 N 条，训练样本上限用）。
+     *
+     * @param userId 用户 id
+     * @param pageable 分页（size 即样本上限）
+     * @return 日志列表（id 倒序）
+     */
+    List<ReviewLog> findByUserIdOrderByIdDesc(Long userId, Pageable pageable);
 }

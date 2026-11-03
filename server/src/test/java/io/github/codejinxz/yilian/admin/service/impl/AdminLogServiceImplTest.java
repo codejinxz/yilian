@@ -44,8 +44,37 @@ class AdminLogServiceImplTest {
     void setUp() {
         auditLogQueryDao = mock(AdminAuditLogQueryDao.class);
         errorLogQueryDao = mock(AdminErrorLogQueryDao.class);
-        service = new AdminLogServiceImpl(auditLogQueryDao, errorLogQueryDao);
+        // 日界时区显式传 UTC，保持既有窗口断言不变；Asia/Shanghai 口径另有专测。
+        service =
+                new AdminLogServiceImpl(
+                        auditLogQueryDao, errorLogQueryDao, java.time.ZoneId.of("UTC"));
         ReflectionTestUtils.setField(service, "clock", Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    /** [AC-5] from/to 按管理员本地日界换算（015 修复轮观察项 #13）：Asia/Shanghai 的「今天」含本地凌晨记录。 */
+    @Test
+    void searchAuditLogsParsesDatesInAdminDayZone_ac5() {
+        when(auditLogQueryDao.search(any(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
+                .thenReturn(List.of());
+        when(auditLogQueryDao.countSearch(any(), any(), any(), any(), any(), any())).thenReturn(0L);
+        AdminLogServiceImpl shanghaiService =
+                new AdminLogServiceImpl(
+                        auditLogQueryDao, errorLogQueryDao, java.time.ZoneId.of("Asia/Shanghai"));
+        ReflectionTestUtils.setField(shanghaiService, "clock", Clock.fixed(NOW, ZoneOffset.UTC));
+
+        // to=2026-10-31（北京日）→ 终点为 UTC 2026-10-31T16:00:00Z（北京 11-01 零点），含北京 10-31 全天。
+        shanghaiService.searchAuditLogs(null, null, null, null, "2026-10-31", "2026-10-31", 1, 20);
+
+        verify(auditLogQueryDao)
+                .search(
+                        isNull(),
+                        isNull(),
+                        isNull(),
+                        isNull(),
+                        eq(Instant.parse("2026-10-30T16:00:00Z")),
+                        eq(Instant.parse("2026-10-31T16:00:00Z")),
+                        eq(0),
+                        eq(20));
     }
 
     /** [AC-1] from/to 缺省兜底近 30 天：窗口 = [now-30d, now)，Dao 收到非空分区键条件。 */

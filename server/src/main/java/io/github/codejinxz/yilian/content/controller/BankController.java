@@ -2,6 +2,8 @@ package io.github.codejinxz.yilian.content.controller;
 
 import io.github.codejinxz.yilian.common.api.ApiResponse;
 import io.github.codejinxz.yilian.common.api.PageResponse;
+import io.github.codejinxz.yilian.common.ratelimit.RateLimit;
+import io.github.codejinxz.yilian.common.ratelimit.RateLimitDimension;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
 import io.github.codejinxz.yilian.content.entity.BankVisibility;
 import io.github.codejinxz.yilian.content.entity.ContentStatus;
@@ -24,6 +26,9 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>GET {@code /api/banks**} 由安全配置对匿名放行；「匿名只看公开、登录附私有」由 Service 依据 当前用户判定，Controller
  * 不做权限判断，只透传登录身份。 匿名时 {@code @AuthenticationPrincipal} 解析为 null（匿名 Authentication 的 principal 是字符串，
  * 与 {@link YilianUserPrincipal} 类型不匹配按 null 处理）。三个接口均为读操作，不标 {@code @OperationLog}。
+ *
+ * <p>匿名可读的入口需要 IP 维度限流（015 缺陷 #12）：120 次/分钟是正常刷题客户端碰不到的量级。 限流切面在 Service 的 {@code @Cacheable}
+ * 之前执行——被限流的请求不会消耗缓存与数据库；放行的请求继续走既有缓存分层。
  */
 @Tag(name = "题库", description = "公开题库浏览与增量拉题；匿名可读公开题库，登录后附自己的私有题库。")
 @RestController
@@ -53,6 +58,11 @@ public class BankController {
      * @return 分页题库视图
      */
     @Operation(summary = "题库列表", description = "匿名只返回公开题库，登录后附自己的私有题库；status 仅支持 PUBLISHED。")
+    @RateLimit(
+            scene = "banks-read",
+            dimensions = RateLimitDimension.IP,
+            limit = 120,
+            windowSeconds = 60)
     @GetMapping
     public ApiResponse<PageResponse<BankView>> listBanks(
             @RequestParam(defaultValue = "1") int page,
@@ -74,6 +84,11 @@ public class BankController {
      * @return 题库视图；不存在或对当前用户不可见时返回 40401 信封
      */
     @Operation(summary = "题库详情", description = "匿名只能查看已发布的公开题库；私有题库对匿名按不存在处理，登录后非所有者返回 40300。")
+    @RateLimit(
+            scene = "banks-read",
+            dimensions = RateLimitDimension.IP,
+            limit = 120,
+            windowSeconds = 60)
     @GetMapping("/{bankId}")
     public ApiResponse<BankView> getBank(
             @PathVariable long bankId, @AuthenticationPrincipal YilianUserPrincipal principal) {
@@ -93,6 +108,11 @@ public class BankController {
     @Operation(
             summary = "增量拉取题目",
             description = "按 sinceVersion 游标拉取，首次传 0；删除/停用题目以 deleted=true 的 tombstone 返回。")
+    @RateLimit(
+            scene = "banks-read",
+            dimensions = RateLimitDimension.IP,
+            limit = 120,
+            windowSeconds = 60)
     @GetMapping("/{bankId}/sentences")
     public ApiResponse<SentencePage> listSentences(
             @PathVariable long bankId,

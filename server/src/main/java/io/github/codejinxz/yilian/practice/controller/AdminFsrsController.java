@@ -2,6 +2,8 @@ package io.github.codejinxz.yilian.practice.controller;
 
 import io.github.codejinxz.yilian.common.api.ApiResponse;
 import io.github.codejinxz.yilian.common.logging.OperationLog;
+import io.github.codejinxz.yilian.common.ratelimit.RateLimit;
+import io.github.codejinxz.yilian.common.ratelimit.RateLimitDimension;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
 import io.github.codejinxz.yilian.practice.service.FsrsAdminService;
 import io.github.codejinxz.yilian.practice.service.dto.FsrsOptimizeRequest;
@@ -74,6 +76,12 @@ public class AdminFsrsController {
             module = "practice",
             action = "FSRS_OPTIMIZE",
             targetType = "fsrs_parameter_version")
+    // SGD 训练是重计算入口：按管理员账号限 5 次/分钟，防误触连点与脚本滥用（015 缺陷 #10）。
+    @RateLimit(
+            scene = "fsrs-optimize",
+            dimensions = RateLimitDimension.ACCOUNT,
+            limit = 5,
+            windowSeconds = 60)
     @PostMapping(value = "/optimize", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ApiResponse<FsrsParameterVersionView> optimize(
             @Valid @RequestBody FsrsOptimizeRequest request,
