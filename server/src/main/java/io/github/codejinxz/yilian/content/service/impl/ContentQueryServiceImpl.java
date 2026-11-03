@@ -4,6 +4,7 @@ import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.api.PageResponse;
 import io.github.codejinxz.yilian.common.config.CacheConfig;
+import io.github.codejinxz.yilian.common.util.StringUtils;
 import io.github.codejinxz.yilian.content.dao.BankDao;
 import io.github.codejinxz.yilian.content.dao.PracticeCandidateQueryDao;
 import io.github.codejinxz.yilian.content.dao.PracticeCandidateRow;
@@ -118,7 +119,9 @@ public class ContentQueryServiceImpl implements ContentQueryService {
         if (status != null && status != ContentStatus.PUBLISHED) {
             return PageResponse.of(List.of(), page, size, 0);
         }
-        String normalizedKeyword = normalizeKeyword(keyword);
+        // keyword 走 LIKE 转义（StringUtils.escapeLike）：用户输入的 %/_ 是字面量，
+        // 检索语义=纯 contains（015 缺陷 #5）。
+        String normalizedKeyword = StringUtils.escapeLike(keyword);
         Page<SentenceBank> result =
                 bankDao.searchVisible(
                         userId,
@@ -254,7 +257,7 @@ public class ContentQueryServiceImpl implements ContentQueryService {
      *
      * @param bankId 题库 id，可为 null
      * @param excludeIds 排除题目集合，可空
-     * @param tag 考点筛选，可为 null
+     * @param tag 考点筛选（sentence_versions.tags JSON 精确成员匹配），可为 null
      * @param limit 最多条数
      * @return 候选题目
      */
@@ -268,6 +271,21 @@ public class ContentQueryServiceImpl implements ContentQueryService {
     }
 
     /**
+     * 校验题库对当前用户可见（practice.next 显式 bankId 过滤的前置校验，API §6.1 错误表 40401）。
+     *
+     * <p>登录用户直查库（不走匿名缓存）：练习端恒带登录态，缓存条目不覆盖「他人私有库」等分支； 校验失败抛出的错误码与 {@link #getBank(long, Long,
+     * boolean)} 完全一致。
+     *
+     * @param bankId 题库 id
+     * @param userId 当前用户 id，可为 null
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public void requireVisibleBank(long bankId, Long userId) {
+        requireVisibleBank(bankId, userId, false, false);
+    }
+
+    /**
      * 校验分页参数，越界统一抛 40004。
      *
      * @param page 页码，从 1 开始
@@ -277,19 +295,6 @@ public class ContentQueryServiceImpl implements ContentQueryService {
         if (page < 1 || size < 1 || size > MAX_PAGE_SIZE) {
             throw new BusinessException(ApiCode.INVALID_PAGINATION);
         }
-    }
-
-    /**
-     * 归一化关键字：空白串视为未过滤。
-     *
-     * @param keyword 原始关键字
-     * @return 去除首尾空白后的关键字；无有效内容时为 null
-     */
-    private static String normalizeKeyword(String keyword) {
-        if (keyword == null || keyword.isBlank()) {
-            return null;
-        }
-        return keyword.trim();
     }
 
     /**

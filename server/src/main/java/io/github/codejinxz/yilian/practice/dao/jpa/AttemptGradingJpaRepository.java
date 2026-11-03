@@ -29,6 +29,14 @@ public interface AttemptGradingJpaRepository extends JpaRepository<AttemptGradin
     Optional<AttemptGrading> findFirstByAttemptIdOrderBySequenceDesc(String attemptId);
 
     /**
+     * 批量取多个提交的全部判分（最新行由 Dao 侧按 sequence 归并）。
+     *
+     * @param attemptIds 提交 id 集合
+     * @return 判分记录
+     */
+    List<AttemptGrading> findByAttemptIdIn(java.util.Collection<String> attemptIds);
+
+    /**
      * score&lt;100 的判分数（跨聚合 JPQL 联接）。
      *
      * @param userId 用户 id

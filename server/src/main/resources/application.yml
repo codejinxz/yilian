@@ -46,7 +46,11 @@ spring:
       timeout: 2s
   threads:
     virtual:
-      enabled: true
+      # 015 压测实证（docs/analysis/api-test-015/perf-report.md §3）：开启虚拟线程后
+      # 10~50 并发读在 1~2 秒内触发 JVM 原生崩溃（0xC0000005，4 次复现且无 hs_err）；
+      # 关闭后同场景 2693 req/s 零错误稳定跑通。因此默认关闭；
+      # 目标部署环境（Linux + 生产 JDK）重测通过后再评估开启。
+      enabled: false
   jackson:
     # 必须是 always：失败响应同样要输出 data（值为 null），前端才能按 Result 统一解析。
     default-property-inclusion: always
@@ -91,6 +95,11 @@ info:
     version: "@project.version@"
 
 yilian:
+  admin:
+    # 管理端 from/to 日期筛选的日界时区（管理员视角的「本地日」，012/015 观察项修复：
+    # 前端按浏览器本地日发送日期，服务端按 UTC 日界换算会在凌晨漏掉「今天」的记录）。
+    # 单产品默认 Asia/Shanghai；analytics 的 from/to 另按用户自己的时区换算（用户设置）。
+    day-zone: ${YILIAN_ADMIN_DAY_ZONE:Asia/Shanghai}
   registration:
     # prod 默认强制邀请码；local 可在 application-local.yml 关闭，方便本机联调。
     invite-required: ${YILIAN_REGISTRATION_INVITE_REQUIRED:false}

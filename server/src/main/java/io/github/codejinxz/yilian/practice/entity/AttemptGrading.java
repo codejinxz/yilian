@@ -91,6 +91,15 @@ public class AttemptGrading {
     }
 
     /**
+     * 所属提交 id。
+     *
+     * @return 提交 id（UUID）
+     */
+    public String getAttemptId() {
+        return attemptId;
+    }
+
+    /**
      * 判分序号。
      *
      * @return 1 起

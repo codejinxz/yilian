@@ -138,6 +138,49 @@ class ContentQueryServiceImplTest {
         verify(bankDao).searchVisible(isNull(), eq("专八"), isNull(), any(Pageable.class));
     }
 
+    /** [AC-5] keyword 做 LIKE 转义：用户输入的 %/_/\ 是字面量（015 修复轮 minor #5）。 */
+    @Test
+    void listBanksEscapesLikeWildcards_ac5() {
+        when(bankDao.searchVisible(any(), any(), any(), any(Pageable.class)))
+                .thenReturn(Page.empty());
+
+        service.listBanks(null, " 100%_完\\成 ", null, null, 1, 20);
+
+        // 与 AdminLog 同口径：反斜杠、%、_ 前置反斜杠，配合 JPQL escape '\\' 等价纯 contains。
+        verify(bankDao)
+                .searchVisible(isNull(), eq("100\\%\\_完\\\\成"), isNull(), any(Pageable.class));
+    }
+
+    /** [AC-5] requireVisibleBank（practice.next 前置校验）：可见放行，缺失/未发布/匿名私有 40401、他人私有 40300。 */
+    @Test
+    void requireVisibleBankEnforcesVisibility_ac5() {
+        when(bankDao.findById(1L)).thenReturn(Optional.of(publishedPublicBank(1L, 12)));
+        when(bankDao.findById(2L)).thenReturn(Optional.of(publishedPrivateBank(2L, 9L)));
+        when(bankDao.findById(3L)).thenReturn(Optional.empty());
+        SentenceBank draft = publishedPublicBank(4L, 1);
+        draft.changeStatus(ContentStatus.DRAFT, 1L, NOW);
+        when(bankDao.findById(4L)).thenReturn(Optional.of(draft));
+
+        // 可见：不抛错。
+        service.requireVisibleBank(1L, null);
+        service.requireVisibleBank(1L, 7L);
+        service.requireVisibleBank(2L, 9L);
+        // 缺失 / 匿名私有 / 未发布 → 40401。
+        assertThatThrownBy(() -> service.requireVisibleBank(3L, 7L))
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.BANK_NOT_FOUND);
+        assertThatThrownBy(() -> service.requireVisibleBank(2L, null))
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.BANK_NOT_FOUND);
+        assertThatThrownBy(() -> service.requireVisibleBank(4L, 7L))
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.BANK_NOT_FOUND);
+        // 他人私有 → 40300。
+        assertThatThrownBy(() -> service.requireVisibleBank(2L, 7L))
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.ACCESS_DENIED);
+    }
+
     /** page/size 越界统一 40004，不触达 Dao。 */
     @Test
     void listBanksRejectsInvalidPagination() {

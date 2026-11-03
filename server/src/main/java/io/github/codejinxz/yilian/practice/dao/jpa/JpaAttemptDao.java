@@ -33,6 +33,11 @@ public class JpaAttemptDao implements AttemptDao {
     }
 
     @Override
+    public Attempt saveAndFlush(Attempt attempt) {
+        return attempts.saveAndFlush(attempt);
+    }
+
+    @Override
     public Optional<Attempt> findLatestByUserAndSentence(Long userId, String sentenceId) {
         return attempts.findFirstByUserIdAndSentenceIdOrderByCreatedAtDesc(userId, sentenceId);
     }

@@ -733,10 +733,113 @@ class PracticeFlowIntegrationTest {
         assertThat(tagged.sentence().id()).isEqualTo(seeded.sentenceId());
 
         // bankId 是显式筛选：错题在 9001，9002 视角下错题池为空。
+        // 015 修复轮后显式 bankId 需真实存在：先建空库 9002（015 major #4）。
+        jdbcTemplate.update(
+                "INSERT INTO sentence_banks (id, owner_id, name, description, visibility, status,"
+                        + " version, published_at, created_by, updated_by, created_at, updated_at,"
+                        + " deleted_at, deleted_by)"
+                        + " VALUES (9002, NULL, '错题过滤空库', NULL, 'PUBLIC', 'PUBLISHED', 0, ?,"
+                        + " NULL, NULL, ?, ?, NULL, NULL)",
+                T0,
+                T0,
+                T0);
         assertThat(
                         practiceService.next(
                                 USER_ID, NextQuery.normalize(9002L, null, null, "1", null, null)))
                 .isNull();
+    }
+
+    /** [AC-5] next 显式 bankId 前置校验：不存在 40401；库存在但无题保持 data=null（015 修复轮 major #4）。 */
+    @Test
+    @DisplayName("[AC-5] next bankId 校验：40401 与空态")
+    void ac5_nextBankIdNotFoundRejected() {
+        // 库不存在 → 40401；与 sentenceId 同给时校验优先于指定句分支。
+        assertThatThrownBy(
+                        () ->
+                                practiceService.next(
+                                        USER_ID,
+                                        NextQuery.normalize(999999L, null, null, null, null, null)))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode()).isEqualTo(ApiCode.BANK_NOT_FOUND));
+        assertThatThrownBy(
+                        () ->
+                                practiceService.next(
+                                        USER_ID,
+                                        NextQuery.normalize(
+                                                999999L,
+                                                seeded.sentenceId(),
+                                                null,
+                                                null,
+                                                null,
+                                                null)))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode()).isEqualTo(ApiCode.BANK_NOT_FOUND));
+        // 库可见但无题：空库视角 → data=null 空态（不是 40401）。
+        jdbcTemplate.update(
+                "INSERT INTO sentence_banks (id, owner_id, name, description, visibility, status,"
+                        + " version, published_at, created_by, updated_by, created_at, updated_at,"
+                        + " deleted_at, deleted_by)"
+                        + " VALUES (9003, NULL, '空库校验', NULL, 'PUBLIC', 'PUBLISHED', 0, ?, NULL,"
+                        + " NULL, ?, ?, NULL, NULL)",
+                T0,
+                T0,
+                T0);
+        assertThat(
+                        practiceService.next(
+                                USER_ID, NextQuery.normalize(9003L, null, null, null, null, null)))
+                .isNull();
+    }
+
+    /** [AC-5] 并发同 attemptId 双发：零异常、恰一方真提交一方重放、结果一致（015 修复轮 major #2）。 */
+    @Test
+    @DisplayName("[AC-5] 并发同 attemptId 双发幂等收敛")
+    void ac5_concurrentSameAttemptIdDoubleSubmitConverges() throws Exception {
+        int rounds = 5;
+        java.util.concurrent.ExecutorService pool =
+                java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < rounds; round++) {
+                AttemptCommand command = firstAttempt(wrongAnswer(), 1000);
+                java.util.concurrent.CountDownLatch startGate =
+                        new java.util.concurrent.CountDownLatch(1);
+                java.util.concurrent.Callable<AttemptView> senderA =
+                        () -> {
+                            startGate.await();
+                            return practiceService.submitAttempt(USER_ID, command);
+                        };
+                java.util.concurrent.Callable<AttemptView> senderB =
+                        () -> {
+                            startGate.await();
+                            return practiceService.submitAttempt(USER_ID, command);
+                        };
+                // 先 submit 两笔再放闸：invokeAll 会阻塞主线程，闸永远没人开（自锁）。
+                var futureA = pool.submit(senderA);
+                var futureB = pool.submit(senderB);
+                startGate.countDown();
+                AttemptView first;
+                AttemptView second;
+                try {
+                    first = futureA.get();
+                    second = futureB.get();
+                } catch (java.util.concurrent.ExecutionException exception) {
+                    // 双发中出现异常即等价于黑盒观测到的 500，直接判失败并带出根因。
+                    throw new AssertionError("并发双发出现异常", exception.getCause());
+                }
+                assertThat(first.replayed())
+                        .as("第 %d 轮 replayed=%s/%s", round, first.replayed(), second.replayed())
+                        .isNotEqualTo(second.replayed());
+                assertThat(first.score()).isEqualTo(second.score());
+                assertThat(first.attemptId()).isEqualTo(command.attemptId());
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        // 每轮只落一行提交，无重复插入。
+        assertThat(count("attempts")).isEqualTo(rounds);
     }
 
     /** [AC-8] dispute 立即 ACCEPTED 并 overlay 排除；appeal 记 PENDING；唯一/批注/归属校验。 */

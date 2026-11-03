@@ -37,4 +37,12 @@ public interface ImportBatchDao {
      * @return 匹配的批次，按创建时间升序
      */
     List<ImportBatch> findByStatus(ImportBatchStatus status);
+
+    /**
+     * 加悲观写锁取批次（SELECT ... FOR UPDATE），commit 单事务与对账恢复都用它串行化同一批次。
+     *
+     * @param id 批次 id
+     * @return 已锁定的批次；不存在时为空
+     */
+    Optional<ImportBatch> lockById(String id);
 }

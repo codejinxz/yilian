@@ -58,4 +58,20 @@ public final class StringUtils {
         }
         return value.length() <= maxLength ? value : value.substring(0, maxLength);
     }
+
+    /**
+     * 关键字 LIKE 转义：归一化（去首尾空白、空白视为 null）后给反斜杠、%、_ 前置反斜杠。
+     *
+     * <p>配合 SQL 的 {@code ESCAPE '\\'} 使用，让检索语义等于纯「contains」——用户输入的 {@code %}/{@code _}
+     * 是字面量而不是通配符（015 缺陷 #5：三处 keyword 未转义）。
+     *
+     * @param keyword 原始关键字，允许为 null
+     * @return 转义后的关键字；空白输入返回 null
+     */
+    public static String escapeLike(String keyword) {
+        if (isBlank(keyword)) {
+            return null;
+        }
+        return keyword.trim().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
 }

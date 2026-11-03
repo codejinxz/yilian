@@ -2,6 +2,7 @@ package io.github.codejinxz.yilian.practice.dao;
 
 import io.github.codejinxz.yilian.practice.entity.AttemptGrading;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,6 +32,14 @@ public interface AttemptGradingDao {
      * @return 最新判分
      */
     Optional<AttemptGrading> findLatestByAttemptId(String attemptId);
+
+    /**
+     * 批量取多个提交的最新判分（一条 IN 查询，analytics 装配用，替代逐条 N+1）。
+     *
+     * @param attemptIds 提交 id 集合
+     * @return 每个提交的最新判分；无判分的提交不出现在结果里
+     */
+    List<AttemptGrading> findLatestByAttemptIds(Collection<String> attemptIds);
 
     /**
      * 用户在某题 score<100 的判分数（wrongCount 派生，排除 REVEAL null 分）。

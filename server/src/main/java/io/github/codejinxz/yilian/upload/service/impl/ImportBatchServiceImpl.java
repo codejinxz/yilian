@@ -30,8 +30,12 @@ import io.github.codejinxz.yilian.upload.support.ImportFilePolicy;
 import io.github.codejinxz.yilian.upload.validation.ImportBusinessValidator;
 import io.github.codejinxz.yilian.upload.validation.ImportRowParser;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import tools.jackson.databind.JsonNode;
@@ -55,11 +59,15 @@ import java.util.UUID;
 /**
  * 导入批次服务实现（preview→commit→rollback 编排）。
  *
- * <p>事务边界：preview 的「批次 + 行」单事务落库（对象存储写入在事务窗口内但非事务资源，落库失败清孤儿文件补偿）； commit 的「内容快照 + 题目」单事务在 {@code
- * ContentImportService} 内，批次状态推进 为独立小事务（PREVIEWED→COMMITTING 乐观兜底，失败落 FAILED 可追溯）；rollback 同理。
+ * <p>事务边界：preview 的「批次 + 行」单事务落库（对象存储写入在事务窗口内但非事务资源，落库失败清孤儿文件补偿）； commit 是**一个**原子事务—— 「锁批次行 → 复检状态
+ * → 内容快照/题目落库（{@code ContentImportService} 同事务加入）→ 行回写 → COMMITTED」， 任一步失败整体回滚并补记 FAILED，
+ * 不再出现「题目已入库而批次停在 COMMITTING」的死锁状态（015 缺陷 #3）； rollback 同理为单事务。历史上残留的 COMMITTING 批次由 {@link
+ * #reconcileCommittingBatches()} 按行数据对账收敛。
  */
 @Service
 public class ImportBatchServiceImpl implements ImportBatchService {
+
+    private static final Logger log = LoggerFactory.getLogger(ImportBatchServiceImpl.class);
 
     /** 预览响应里行明细的最大条数（对齐 mock 契约，全部明细走详情分页）。 */
     private static final int PREVIEW_ROW_LIMIT = 100;
@@ -83,8 +91,10 @@ public class ImportBatchServiceImpl implements ImportBatchService {
 
     private final ObjectMapper objectMapper;
 
+    private final TransactionTemplate transactionTemplate;
+
     /**
-     * 注入存储、content 落库接缝、批次/行 Dao、动态查询 Dao 与解析校验器。
+     * 注入存储、content 落库接缝、批次/行 Dao、动态查询 Dao、解析校验器与事务模板。
      *
      * @param objectStorage 对象存储
      * @param contentImportService content 落库接缝
@@ -94,6 +104,7 @@ public class ImportBatchServiceImpl implements ImportBatchService {
      * @param rowParser 行解析器
      * @param businessValidator 业务校验器
      * @param objectMapper Jackson 映射器
+     * @param transactionManager 事务管理器（commit 原子事务与对账恢复的编程式事务）
      */
     public ImportBatchServiceImpl(
             ObjectStorage objectStorage,
@@ -103,7 +114,8 @@ public class ImportBatchServiceImpl implements ImportBatchService {
             ImportBatchQueryDao importBatchQueryDao,
             ImportRowParser rowParser,
             ImportBusinessValidator businessValidator,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            PlatformTransactionManager transactionManager) {
         this.objectStorage = objectStorage;
         this.contentImportService = contentImportService;
         this.importBatchDao = importBatchDao;
@@ -112,6 +124,7 @@ public class ImportBatchServiceImpl implements ImportBatchService {
         this.rowParser = rowParser;
         this.businessValidator = businessValidator;
         this.objectMapper = objectMapper;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
     @Override
@@ -232,24 +245,74 @@ public class ImportBatchServiceImpl implements ImportBatchService {
                     summary);
         } catch (RuntimeException exception) {
             // 落库失败清孤儿文件；对象存储不在事务内，手动补偿。
-            objectStorage.delete(storageKey);
+            // 补偿失败只告警不吞异常：原始落库失败才是要回给客户端的错误，孤儿文件靠运维清理。
+            try {
+                objectStorage.delete(storageKey);
+            } catch (RuntimeException cleanupException) {
+                log.warn(
+                        "import_preview_orphan_cleanup_failed storageKey={} reason={}",
+                        storageKey,
+                        cleanupException.getMessage());
+            }
             throw exception;
         }
     }
 
     @Override
     public ImportBatchViewResponse commit(String batchId, YilianUserPrincipal actor) {
-        ImportBatch batch = requireBatch(batchId);
+        ImportBatch current = requireBatch(batchId);
+        if (current.isCommitted()) {
+            return toView(current); // 重复 commit 幂等返回
+        }
+        if (current.getStatus()
+                != io.github.codejinxz.yilian.upload.entity.ImportBatchStatus.PREVIEWED) {
+            throw new BusinessException(ApiCode.IMPORT_NOT_COMMITTABLE, "当前批次不可提交");
+        }
+        try {
+            // 单原子事务：内容落库、行回写、状态推进要么全部生效要么全部回滚。
+            // 失败后批次仍在 PREVIEWED（COMMITTING 轨迹对外不可见），不产生永久卡死状态。
+            ImportBatch committed =
+                    transactionTemplate.execute(status -> commitAtomically(batchId, actor));
+            return toView(committed);
+        } catch (RuntimeException exception) {
+            // 事务已整体回滚：题目与行回写均未生效。批次仍在 PREVIEWED 时补记 FAILED（终态，
+            // 已知取舍：原文件留在对象存储，storage_key 仍挂在批次行上可审计，不构成孤儿）；
+            // 状态已被他人改写（对账/并发收敛）则原样上抛，不覆盖别人的状态。
+            ImportBatch failed = requireBatch(batchId);
+            if (failed.getStatus()
+                    == io.github.codejinxz.yilian.upload.entity.ImportBatchStatus.PREVIEWED) {
+                failed.markFailed(writeJson(failureSummary(exception)), Instant.now());
+                importBatchDao.save(failed);
+            }
+            throw exception;
+        }
+    }
+
+    /**
+     * commit 的原子事务体：锁批次行 → 锁内复检状态 → markCommitting → 落题目 → 行回写 → markCommitted。
+     *
+     * <p>先锁批次行再复检状态，并发重复提交在行锁上串行化：等锁后看到 COMMITTED 直接幂等返回。 {@code ContentImportService} 的 REQUIRED
+     * 事务加入本事务，与行回写、状态推进同生共死。
+     *
+     * @param batchId 批次 id
+     * @param actor 当前管理员
+     * @return 提交完成（或幂等命中）的批次
+     */
+    private ImportBatch commitAtomically(String batchId, YilianUserPrincipal actor) {
+        ImportBatch batch =
+                importBatchDao
+                        .lockById(batchId)
+                        .orElseThrow(() -> new BusinessException(ApiCode.IMPORT_BATCH_NOT_FOUND));
         if (batch.isCommitted()) {
-            return toView(batch); // 重复 commit 幂等返回
+            return batch; // 并发重复 commit：等锁后复检，幂等返回
         }
         if (batch.getStatus()
                 != io.github.codejinxz.yilian.upload.entity.ImportBatchStatus.PREVIEWED) {
             throw new BusinessException(ApiCode.IMPORT_NOT_COMMITTABLE, "当前批次不可提交");
         }
-        Instant now = Instant.now();
-        batch.markCommitting(now);
-        importBatchDao.save(batch);
+        // 状态机仍走 PREVIEWED→COMMITTING→COMMITTED，但 COMMITTING 只存在于本事务内部，
+        // 不再作为「提前落库的乐观兜底」暴露给其他事务。
+        batch.markCommitting(Instant.now());
 
         List<ImportBatchRow> validRows =
                 importBatchRowDao.findByBatchIdAndStatus(batchId, ImportBatchRowStatus.VALID);
@@ -258,32 +321,88 @@ public class ImportBatchServiceImpl implements ImportBatchService {
             contents.add(
                     toSentenceContent(objectMapper.readTree(row.getRaw()), row.getExternalKey()));
         }
-        try {
-            var results =
-                    contentImportService.importSentences(
-                            batch.getBankId(), batchId, contents, actor.id(), Instant.now());
-            for (int index = 0; index < validRows.size(); index++) {
-                validRows
-                        .get(index)
-                        .markImported(
-                                results.get(index).sentenceId(),
-                                results.get(index).sentenceVersionId(),
-                                Instant.now());
-                importBatchRowDao.save(validRows.get(index));
-            }
-            batch.markCommitted(results.size(), Instant.now());
-        } catch (RuntimeException exception) {
-            // 只包「落库事务」：行回写/状态推进失败不会被误标 FAILED（题目已入库时状态与库内一致）。
-            if (!validRows.isEmpty() && validRows.getFirst().getSentenceId() != null) {
-                throw exception;
-            }
-            ImportBatch failed = requireBatch(batchId);
-            failed.markFailed(writeJson(failureSummary(exception)), Instant.now());
-            importBatchDao.save(failed);
-            throw exception;
+        var results =
+                contentImportService.importSentences(
+                        batch.getBankId(), batchId, contents, actor.id(), Instant.now());
+        for (int index = 0; index < validRows.size(); index++) {
+            validRows
+                    .get(index)
+                    .markImported(
+                            results.get(index).sentenceId(),
+                            results.get(index).sentenceVersionId(),
+                            Instant.now());
+            importBatchRowDao.save(validRows.get(index));
         }
-        importBatchDao.save(batch);
-        return toView(batch);
+        batch.markCommitted(results.size(), Instant.now());
+        return importBatchDao.save(batch);
+    }
+
+    @Override
+    public int reconcileCommittingBatches() {
+        int reconciled = 0;
+        // COMMITTING 残留只可能来自旧版本「分事务提交」的历史数据：新 commit 的 COMMITTING
+        // 轨迹仅存在于未提交事务内，对其他事务不可见。逐批独立事务收敛，单批失败不影响其余。
+        for (ImportBatch stale :
+                importBatchDao.findByStatus(
+                        io.github.codejinxz.yilian.upload.entity.ImportBatchStatus.COMMITTING)) {
+            ImportBatch outcome =
+                    transactionTemplate.execute(status -> reconcileOne(stale.getId()));
+            if (outcome != null) {
+                reconciled++;
+            }
+        }
+        return reconciled;
+    }
+
+    /**
+     * 收敛单个 COMMITTING 残留批次（独立事务，锁批次行后再裁决）。
+     *
+     * <p>按行数据判定：行已关联题目 → 内容确已入库（旧版「importSentences 先提交、回写后置」 中断的遗产），补齐行状态并 markCommitted；行未关联题目 →
+     * 提交事务未完成、什么都没入库， 标记 FAILED（终态，管理员重新导入新批次）。
+     *
+     * <p>与 {@link #commitAtomically} 靠批次行锁互斥：锁内重读状态，已不是 COMMITTING （并发 commit 恰好完成）则放弃收敛，避免覆盖提交结果。
+     *
+     * @param batchId 批次 id
+     * @return 收敛后的批次；无需收敛（状态已被改写）时为 null
+     */
+    private ImportBatch reconcileOne(String batchId) {
+        ImportBatch batch = importBatchDao.lockById(batchId).orElse(null);
+        if (batch == null
+                || batch.getStatus()
+                        != io.github.codejinxz.yilian.upload.entity.ImportBatchStatus.COMMITTING) {
+            return null;
+        }
+        List<ImportBatchRow> linkedRows =
+                importBatchRowDao.findByBatchId(batchId).stream()
+                        .filter(row -> row.getSentenceId() != null)
+                        .toList();
+        if (linkedRows.isEmpty()) {
+            batch.markFailed(
+                    writeJson(
+                            new ImportErrorSummary(
+                                    ImportErrorSummary.SCHEMA_VERSION,
+                                    "COMMIT_INTERRUPTED",
+                                    "提交中断，对账确认未入库，批次标记失败",
+                                    null)),
+                    Instant.now());
+            log.warn("import_batch_reconciled batchId={} outcome=FAILED", batchId);
+        } else {
+            for (ImportBatchRow row : linkedRows) {
+                if (row.getStatus() == ImportBatchRowStatus.VALID
+                        && row.getSentenceVersionId() != null) {
+                    // 旧版部分回写残留：行已拿到题目 id 但状态仍 VALID，这里补齐。
+                    row.markImported(
+                            row.getSentenceId(), row.getSentenceVersionId(), Instant.now());
+                    importBatchRowDao.save(row);
+                }
+            }
+            batch.markCommitted(linkedRows.size(), Instant.now());
+            log.warn(
+                    "import_batch_reconciled batchId={} outcome=COMMITTED importedRows={}",
+                    batchId,
+                    linkedRows.size());
+        }
+        return importBatchDao.save(batch);
     }
 
     @Override

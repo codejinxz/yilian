@@ -30,6 +30,17 @@ public interface AttemptDao {
     Attempt save(Attempt attempt);
 
     /**
+     * 保存提交并立即 flush，让 INSERT 在调用点执行而不是延迟到事务提交。
+     *
+     * <p>并发同 id 双发时，主键冲突会在调用方的 catch 里被捕获并按幂等语义处理； 若用 {@link #save(Attempt)}，冲突会延迟到 commit 阶段才暴露，绕过
+     * catch 直接变成 500。
+     *
+     * @param attempt 提交
+     * @return 持久化后的提交
+     */
+    Attempt saveAndFlush(Attempt attempt);
+
+    /**
      * 用户在某题的最近一次提交。
      *
      * @param userId 用户 id

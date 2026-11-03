@@ -42,7 +42,8 @@ import java.util.List;
             "yilian.ratelimit.enabled=false",
             "yilian.security.captcha.enabled=false",
             "management.health.redis.enabled=false",
-            "yilian.security.jwt.secret=test-only-yilian-jwt-secret-0123456789abcdef"
+            "yilian.security.jwt.secret=test-only-yilian-jwt-secret-0123456789abcdef",
+            "yilian.import.reconcile-enabled=false"
         })
 @ActiveProfiles("local")
 class ImportBatchServiceIntegrationTest {
@@ -59,6 +60,9 @@ class ImportBatchServiceIntegrationTest {
     @Autowired private io.github.codejinxz.yilian.content.service.ContentQueryService queryService;
 
     @Autowired private JdbcTemplate jdbcTemplate;
+
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    private io.github.codejinxz.yilian.upload.dao.ImportBatchRowDao importBatchRowDao;
 
     /**
      * 测试库指向本机 yilian_test。
@@ -99,6 +103,8 @@ class ImportBatchServiceIntegrationTest {
     /** 清空内容与批次表（V10 后为逻辑外键，按序删除仅为可读性约定），并幂等播种操作者。 */
     @BeforeEach
     void clean() {
+        // 清掉可能被前序用例 stub 的 spy 行为，避免跨用例污染。
+        org.mockito.Mockito.reset(importBatchRowDao);
         jdbcTemplate.update("DROP TRIGGER IF EXISTS trg_sentence_versions_no_update");
         jdbcTemplate.update("DROP TRIGGER IF EXISTS trg_sentence_versions_no_delete");
         jdbcTemplate.update("UPDATE sentences SET current_version_id = NULL");
@@ -239,6 +245,84 @@ class ImportBatchServiceIntegrationTest {
                 .isInstanceOf(BusinessException.class);
         ImportBatchViewResponse failed = importBatchService.detail(batchId, 1, 20, null).batch();
         assertThat(failed.status()).isEqualTo("FAILED");
+    }
+
+    /** [AC-5] 提交原子性（015 修复轮 major #3）：行回写失败 → 整体回滚、批次 FAILED、零题目入库；随后同库可重新导入。 */
+    @Test
+    @DisplayName("[AC-5] commit 原子性：回写失败整体回滚可恢复")
+    void ac5_commitWritebackFailureRollsBackAtomically() {
+        long bankId = seedBank();
+        String batchId = previewBatch(bankId, fileJson(3, 0));
+        try {
+            // 模拟「题目已入库、行回写失败」的进程内故障：行 Dao 抛异常，整个原子事务必须回滚。
+            org.mockito.Mockito.doThrow(new IllegalStateException("回写失败"))
+                    .when(importBatchRowDao)
+                    .save(org.mockito.ArgumentMatchers.any());
+            assertThatThrownBy(() -> importBatchService.commit(batchId, ADMIN))
+                    // 事务出口会把行 Dao 的 RuntimeException 包装为 DataAccessException 体系，
+                    // 断言堆栈携带根因即可：失败必须原样上抛（转 FAILED 的语义在 catch 里完成）。
+                    .hasStackTraceContaining("回写失败");
+        } finally {
+            org.mockito.Mockito.reset(importBatchRowDao);
+        }
+        // 批次收敛为 FAILED（终态），不再卡 COMMITTING；重试 commit 也是 40904。
+        assertThat(importBatchService.detail(batchId, 1, 20, null).batch().status())
+                .isEqualTo("FAILED");
+        assertThatThrownBy(() -> importBatchService.commit(batchId, ADMIN))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.IMPORT_NOT_COMMITTABLE));
+        // 零题目入库、零行回写、银行修订号不动：原子回滚证据。
+        Long sentenceCount =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM sentences WHERE bank_id = ?", Long.class, bankId);
+        assertThat(sentenceCount).isZero();
+        Long importedRowCount =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM import_batch_rows WHERE status = 'IMPORTED'",
+                        Long.class);
+        assertThat(importedRowCount).isZero();
+        Long bankVersion =
+                jdbcTemplate.queryForObject(
+                        "SELECT version FROM sentence_banks WHERE id = ?", Long.class, bankId);
+        assertThat(bankVersion).isZero();
+        // 可恢复：同库新批次正常预览+提交。
+        ImportBatchViewResponse recovered =
+                importBatchService.commit(previewBatch(bankId, fileJson(2, 0)), ADMIN);
+        assertThat(recovered.status()).isEqualTo("COMMITTED");
+    }
+
+    /** [AC-5] COMMITTING 残留对账（015 修复轮 major #3）：行未关联 → FAILED；行已关联 → 补 COMMITTED。 */
+    @Test
+    @DisplayName("[AC-5] COMMITTING 残留对账收敛")
+    void ac5_reconcileCommittingBatchesConverges() {
+        long bankId = seedBank();
+        // 场景 1：提交事务未完成（行未关联题目）→ 收敛为 FAILED，不再死锁状态。
+        String batchA = previewBatch(bankId, fileJson(2, 0));
+        jdbcTemplate.update("UPDATE import_batches SET status = 'COMMITTING' WHERE id = ?", batchA);
+        assertThat(importBatchService.reconcileCommittingBatches()).isEqualTo(1);
+        assertThat(importBatchService.detail(batchA, 1, 20, null).batch().status())
+                .isEqualTo("FAILED");
+
+        // 场景 2：旧版部分提交遗产——题目已入库、行已 IMPORTED、状态停在 COMMITTING → 补 COMMITTED。
+        String batchB = previewAndCommit(bankId, fileJson(2, 0));
+        jdbcTemplate.update(
+                "UPDATE import_batches SET status = 'COMMITTING', committed_at = NULL WHERE id = ?",
+                batchB);
+        assertThat(importBatchService.reconcileCommittingBatches()).isEqualTo(1);
+        ImportBatchViewResponse recovered = importBatchService.detail(batchB, 1, 20, null).batch();
+        assertThat(recovered.status()).isEqualTo("COMMITTED");
+        assertThat(recovered.importedRows()).isEqualTo(2);
+        // 对账只补状态不重复入库。
+        Long sentenceCount =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM sentences WHERE bank_id = ?", Long.class, bankId);
+        assertThat(sentenceCount).isEqualTo(2L);
+        // 收敛后的批次与正常提交同语义：可回滚。
+        ImportBatchViewResponse rolled = importBatchService.rollback(batchB, "对账后回滚", ADMIN);
+        assertThat(rolled.status()).isEqualTo("ROLLED_BACK");
     }
 
     /**

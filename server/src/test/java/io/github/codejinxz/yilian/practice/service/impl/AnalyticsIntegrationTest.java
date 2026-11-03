@@ -1,7 +1,10 @@
 package io.github.codejinxz.yilian.practice.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.codejinxz.yilian.common.api.ApiCode;
+import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.content.service.ContentImportService;
 import io.github.codejinxz.yilian.content.service.ContentQueryService;
 import io.github.codejinxz.yilian.content.service.dto.ImportedSentence;
@@ -25,6 +28,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import java.sql.Timestamp;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -160,6 +164,33 @@ class AnalyticsIntegrationTest {
                 USER_ID);
         ErrorTagsView afterDispute = practiceService.errorTags(USER_ID, null, null);
         assertThat(afterDispute.items()).isEmpty();
+    }
+
+    /** [AC-5] from/to 闭区间上限 92 天：超长 40000 拒绝、恰好 92 个本地日放行（015 修复轮）。 */
+    @Test
+    @DisplayName("[AC-5] accuracy/error-tags 区间上限 92 天")
+    void ac5_analyticsRangeCappedAt92Days() {
+        LocalDate end = LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+        // 93 个本地日（between=92）→ 40000，两个端点都拦。
+        assertThatThrownBy(
+                        () -> practiceService.accuracy(USER_ID, end.minusDays(92), end, null, null))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.VALIDATION_FAILED));
+        assertThatThrownBy(() -> practiceService.errorTags(USER_ID, end.minusDays(92), end))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.VALIDATION_FAILED));
+        // 92 个本地日（between=91）→ 放行（区间内无提交，返回空聚合视图）。
+        AccuracyView withinRange =
+                practiceService.accuracy(USER_ID, end.minusDays(91), end, null, null);
+        assertThat(withinRange.from()).isEqualTo(end.minusDays(91));
+        assertThat(withinRange.totalAttempts()).isZero();
+        assertThat(practiceService.errorTags(USER_ID, end.minusDays(91), end).items()).isEmpty();
     }
 
     /** 清空 practice 五表与内容表；append-only 触发器先摘后重建。 */

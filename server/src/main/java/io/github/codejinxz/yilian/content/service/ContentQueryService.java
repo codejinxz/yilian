@@ -75,6 +75,17 @@ public interface ContentQueryService {
     List<SentenceDetail> findSentences(Collection<String> sentenceIds);
 
     /**
+     * 校验题库对当前用户可见（practice.next 显式 bankId 过滤的前置校验）。
+     *
+     * <p>与 {@link #getBank(long, Long, boolean)} 的可见性口径一致：不存在、未发布或已软删回 40401； 匿名访问私有库回
+     * 40401，登录后非所有者回 40300。 通过校验只代表「库可见」，库内无题仍由取题逻辑返回空态。
+     *
+     * @param bankId 题库 id
+     * @param userId 当前用户 id，可为 null
+     */
+    void requireVisibleBank(long bankId, Long userId);
+
+    /**
      * 练习候选：只返回已发布题库中的已发布题目。
      *
      * @param bankId 题库 id，可为 null

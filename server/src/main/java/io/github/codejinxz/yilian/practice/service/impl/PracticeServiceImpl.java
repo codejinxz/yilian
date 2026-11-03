@@ -43,7 +43,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
@@ -85,6 +89,9 @@ public class PracticeServiceImpl implements PracticeService {
     /** 降载推送上限：降载时一次只推最早到期的 5 道。 */
     private static final int PUSH_LIMIT = 5;
 
+    /** analytics from/to 闭区间上限（本地日数）：全量内存聚合的量级保护，超长按 40000 拒绝。 */
+    private static final int MAX_RANGE_DAYS = 92;
+
     private final AttemptDao attemptDao;
 
     private final AttemptGradingDao gradingDao;
@@ -103,6 +110,9 @@ public class PracticeServiceImpl implements PracticeService {
 
     private final ObjectMapper objectMapper;
 
+    /** 并发同 id 竞态后的独立读事务（REQUIRES_NEW）：绕开失败会话与本事务的过期快照。 */
+    private final TransactionTemplate freshReadTemplate;
+
     /**
      * 只依赖 Dao 接口与跨模块 service 接口，不触碰实体映射之外的具体实现。
      *
@@ -115,6 +125,7 @@ public class PracticeServiceImpl implements PracticeService {
      * @param contentQueryService 题目内容只读查询（content 模块）
      * @param userAccountService 用户设置查询（system 模块）
      * @param objectMapper JSON 序列化（答案载荷与判分结果落库）
+     * @param transactionManager 事务管理器（装配竞态读回用的 REQUIRES_NEW 模板）
      */
     public PracticeServiceImpl(
             AttemptDao attemptDao,
@@ -125,7 +136,8 @@ public class PracticeServiceImpl implements PracticeService {
             FsrsScheduler fsrsScheduler,
             ContentQueryService contentQueryService,
             UserAccountService userAccountService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            PlatformTransactionManager transactionManager) {
         this.attemptDao = attemptDao;
         this.gradingDao = gradingDao;
         this.reviewDao = reviewDao;
@@ -135,6 +147,9 @@ public class PracticeServiceImpl implements PracticeService {
         this.contentQueryService = contentQueryService;
         this.userAccountService = userAccountService;
         this.objectMapper = objectMapper;
+        this.freshReadTemplate = new TransactionTemplate(transactionManager);
+        this.freshReadTemplate.setPropagationBehavior(
+                TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Override
@@ -177,16 +192,16 @@ public class PracticeServiceImpl implements PracticeService {
                         command.clientCreatedAt(),
                         now);
         try {
-            attemptDao.save(attempt);
+            // 立即 flush：并发同 id 的主键冲突在本方法内被捕获；若延迟到 commit 阶段，
+            // 异常会绕过 catch 直接变成 500（015 缺陷 #2 的根因，见 blackbox-defects.md D-2）。
+            attemptDao.saveAndFlush(attempt);
         } catch (DataIntegrityViolationException exception) {
-            // 并发同 id：PK 兜底（幂等以数据库唯一约束为准）。重读比对，读不到按复用拒绝。
-            Attempt winner = attemptDao.findById(command.attemptId()).orElse(null);
-            if (winner != null
-                    && winner.getUserId().equals(userId)
-                    && winner.getAnswerHash().equals(answerHash)) {
-                return buildReplayView(winner);
-            }
-            throw new BusinessException(ApiCode.ATTEMPT_ID_REUSED);
+            // 并发同 id 双发，PK 兜底（幂等以数据库唯一约束为准）。本事务的 INSERT 已失败：
+            // 失败动作仍挂在会话里（提交前再次 flush 会复现同一条冲突），且 REPEATABLE READ
+            // 快照读不到赢家已提交的行——因此先标记回滚丢弃本事务，再在独立新事务里读回
+            // 赢家结果：同载荷按重放返回原结果（replayed=true），异载荷按 40903 拒绝。
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            return replayAfterDuplicateInsert(userId, command, answerHash);
         }
 
         GradingResult result = gradeForCommand(detail, command);
@@ -213,6 +228,30 @@ public class PracticeServiceImpl implements PracticeService {
         Review review = scheduleReview(attempt, result.score(), rating, command, now);
 
         return buildView(attempt, detail, grading, result, review, rating, false);
+    }
+
+    /**
+     * 并发同 id 竞态后的幂等读回：在独立新事务里按 attemptId 取已提交的赢家行并比对载荷哈希。
+     *
+     * <p>必须用 REQUIRES_NEW：调用方的本事务已含失败的 INSERT 且被标记回滚， 其会话不可继续复用，其 REPEATABLE READ 快照也读不到赢家已提交的行。
+     *
+     * @param userId 当前用户 id
+     * @param command 原提交命令
+     * @param answerHash 原提交的载荷哈希
+     * @return 赢家的完整判分视图（replayed=true）
+     */
+    private AttemptView replayAfterDuplicateInsert(
+            Long userId, AttemptCommand command, String answerHash) {
+        return freshReadTemplate.execute(
+                status -> {
+                    Attempt winner = attemptDao.findById(command.attemptId()).orElse(null);
+                    if (winner == null
+                            || !winner.getUserId().equals(userId)
+                            || !winner.getAnswerHash().equals(answerHash)) {
+                        throw new BusinessException(ApiCode.ATTEMPT_ID_REUSED);
+                    }
+                    return buildReplayView(winner);
+                });
     }
 
     @Override
@@ -732,6 +771,12 @@ public class PracticeServiceImpl implements PracticeService {
 
     @Override
     public NextPracticeView next(Long userId, NextQuery query) {
+        // 显式 bankId 过滤的前置校验（API §6.1 错误表）：库不存在/不可见回 40401，
+        // 不再吞成「无可练题」空态让客户端误判为该库无题（015 黑盒 D-1）；
+        // 库可见但无题仍返回 data=null 空态。
+        if (query.bankId() != null) {
+            contentQueryService.requireVisibleBank(query.bankId(), userId);
+        }
         // 指定句优先（复习页「重练」/下一步训练的显式动作）：命中且可练直接返回，
         // 忽略 bankId/tag/exclude/errors；找不到（已删/不可练）退回常规取题，不 404，
         // 避免死链把练习页打成空白。有卡即 MANUAL（含重置后的 NEW 卡），无卡是首练按 NEW。
@@ -1057,8 +1102,11 @@ public class PracticeServiceImpl implements PracticeService {
         if (start.isAfter(end)) {
             throw new BusinessException(ApiCode.VALIDATION_FAILED, "from 不能晚于 to");
         }
+        requireRangeWithinLimit(start, end);
         List<Attempt> attempts = filterAttempts(userId, start, end, zone, bankId, mode);
-        List<Integer> scores = latestScores(attempts);
+        // 最新判分一次 IN 查询装配，总/分模式/逐日/最近共用，替代逐 attempt 的 N+1。
+        Map<String, AttemptGrading> latestGradings = latestGradingsByAttempt(attempts);
+        List<Integer> scores = scoresOf(attempts, latestGradings);
         long totalAttempts = attempts.size();
         Double correctRate =
                 scores.isEmpty() ? null : round1(correctCount(scores) * 100.0 / scores.size());
@@ -1075,7 +1123,7 @@ public class PracticeServiceImpl implements PracticeService {
             if (modeAttempts.isEmpty()) {
                 continue;
             }
-            List<Integer> modeScores = latestScores(modeAttempts);
+            List<Integer> modeScores = scoresOf(modeAttempts, latestGradings);
             byMode.add(
                     new AccuracyView.ModeAccuracyView(
                             m.name(),
@@ -1097,7 +1145,7 @@ public class PracticeServiceImpl implements PracticeService {
                                                     .toLocalDate()
                                                     .equals(finalDay))
                             .toList();
-            List<Integer> dayScores = latestScores(dayAttempts);
+            List<Integer> dayScores = scoresOf(dayAttempts, latestGradings);
             daily14.add(
                     new AccuracyView.DailyAccuracyView(
                             day,
@@ -1117,9 +1165,7 @@ public class PracticeServiceImpl implements PracticeService {
                                                 attempt.getSentenceId(),
                                                 attempt.getMode().name(),
                                                 attempt.getKind().name(),
-                                                latestScores(List.of(attempt)).stream()
-                                                        .findFirst()
-                                                        .orElse(null),
+                                                latestScoreOf(attempt.getId(), latestGradings),
                                                 attempt.getCreatedAt()))
                         .toList();
         return new AccuracyView(
@@ -1136,6 +1182,7 @@ public class PracticeServiceImpl implements PracticeService {
         if (start.isAfter(end)) {
             throw new BusinessException(ApiCode.VALIDATION_FAILED, "from 不能晚于 to");
         }
+        requireRangeWithinLimit(start, end);
         List<Attempt> attempts = filterAttempts(userId, start, end, zone, null, null);
         Set<String> disputedKeys =
                 appealDao
@@ -1145,15 +1192,15 @@ public class PracticeServiceImpl implements PracticeService {
                         .stream()
                         .map(appeal -> appeal.getSentenceId() + "|" + appeal.getAnnotationKey())
                         .collect(Collectors.toSet());
+        Map<String, AttemptGrading> latestGradings = latestGradingsByAttempt(attempts);
         Map<String, Long> counts = new LinkedHashMap<>();
         long[] total = {0};
         for (Attempt attempt : attempts) {
-            Optional<AttemptGrading> grading = gradingDao.findLatestByAttemptId(attempt.getId());
-            if (grading.isEmpty()) {
+            AttemptGrading grading = latestGradings.get(attempt.getId());
+            if (grading == null) {
                 continue;
             }
-            GradingResult result =
-                    objectMapper.readValue(grading.get().getResult(), GradingResult.class);
+            GradingResult result = objectMapper.readValue(grading.getResult(), GradingResult.class);
             for (GradingAnnotation annotation : result.annotations()) {
                 if (annotation.correct()
                         || disputedKeys.contains(
@@ -1228,16 +1275,27 @@ public class PracticeServiceImpl implements PracticeService {
                             item.clientCreatedAt(),
                             now);
             try {
-                attemptDao.save(attempt);
+                // 立即 flush：让并发同 id 的主键冲突在本方法内被捕获（理由同 submitAttempt）。
+                attemptDao.saveAndFlush(attempt);
             } catch (DataIntegrityViolationException exception) {
-                Attempt winner = attemptDao.findById(item.attemptId()).orElse(null);
-                if (winner != null
-                        && winner.getUserId().equals(userId)
-                        && winner.getAnswerHash().equals(payloadHash(item))) {
-                    skipped++;
-                    continue;
-                }
-                throw new BusinessException(ApiCode.ATTEMPT_ID_REUSED);
+                // 并发同 id：本事务的 INSERT 已失败，整批必须放弃（失败的 INSERT 动作挂在会话里，
+                // 继续处理后续行会在提交前复现冲突，且已写行随后都会被回滚）。标记回滚后在新事务里
+                // 读回赢家比对：同载荷按 40900「请勿重复提交」提示重试——重试时预检命中走 skip 路径；
+                // 异载荷仍 40903。两种情况都不再把冲突泄漏成 500。
+                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+                Boolean sameWinner =
+                        freshReadTemplate.execute(
+                                status -> {
+                                    Attempt winner =
+                                            attemptDao.findById(item.attemptId()).orElse(null);
+                                    return winner != null
+                                            && winner.getUserId().equals(userId)
+                                            && winner.getAnswerHash().equals(payloadHash(item));
+                                });
+                throw new BusinessException(
+                        Boolean.TRUE.equals(sameWinner)
+                                ? ApiCode.IDEMPOTENT_CONFLICT
+                                : ApiCode.ATTEMPT_ID_REUSED);
             }
             GradingResult result = gradeForCommand(detail, item);
             gradingDao.save(
@@ -1279,6 +1337,8 @@ public class PracticeServiceImpl implements PracticeService {
     /**
      * 区间过滤（含题库/模式）：from 当地零点起、to 次日零点止。
      *
+     * <p>提交列表只取一次；题库过滤需要题目归属时才补一次批量详情查询。
+     *
      * @param userId 用户 id
      * @param start 起始本地日期
      * @param end 截止本地日期
@@ -1289,31 +1349,28 @@ public class PracticeServiceImpl implements PracticeService {
      */
     private List<Attempt> filterAttempts(
             Long userId, LocalDate start, LocalDate end, ZoneId zone, Long bankId, String mode) {
+        List<Attempt> attempts =
+                attemptDao.findByUserBetween(
+                        userId,
+                        start.atStartOfDay(zone).toInstant(),
+                        end.plusDays(1).atStartOfDay(zone).toInstant());
+        if (bankId == null) {
+            return attempts.stream()
+                    .filter(attempt -> mode == null || attempt.getMode().name().equals(mode))
+                    .toList();
+        }
         Map<String, SentenceDetail> details =
                 contentQueryService
                         .findSentences(
-                                attemptDao
-                                        .findByUserBetween(
-                                                userId,
-                                                start.atStartOfDay(zone).toInstant(),
-                                                end.plusDays(1).atStartOfDay(zone).toInstant())
-                                        .stream()
+                                attempts.stream()
                                         .map(Attempt::getSentenceId)
                                         .collect(Collectors.toSet()))
                         .stream()
                         .collect(Collectors.toMap(SentenceDetail::id, detail -> detail));
-        return attemptDao
-                .findByUserBetween(
-                        userId,
-                        start.atStartOfDay(zone).toInstant(),
-                        end.plusDays(1).atStartOfDay(zone).toInstant())
-                .stream()
+        return attempts.stream()
                 .filter(attempt -> mode == null || attempt.getMode().name().equals(mode))
                 .filter(
                         attempt -> {
-                            if (bankId == null) {
-                                return true;
-                            }
                             SentenceDetail detail = details.get(attempt.getSentenceId());
                             return detail != null && String.valueOf(bankId).equals(detail.bankId());
                         })
@@ -1321,18 +1378,63 @@ public class PracticeServiceImpl implements PracticeService {
     }
 
     /**
-     * 逐条取最新判分分数（只保留有分数的）。
+     * 批量取各提交的最新判分（一条 IN 查询，替代逐 attempt 的 N+1）。
      *
      * @param attempts 提交列表
-     * @return 分数列表
+     * @return attemptId → 最新判分；无判分的提交不在映射内
      */
-    private List<Integer> latestScores(List<Attempt> attempts) {
+    private Map<String, AttemptGrading> latestGradingsByAttempt(List<Attempt> attempts) {
+        if (attempts.isEmpty()) {
+            return Map.of();
+        }
+        return gradingDao
+                .findLatestByAttemptIds(attempts.stream().map(Attempt::getId).toList())
+                .stream()
+                .collect(Collectors.toMap(AttemptGrading::getAttemptId, grading -> grading));
+    }
+
+    /**
+     * 从批量判分映射里取有分数的判分值（保持 attempts 的重复语义：一条一次）。
+     *
+     * @param attempts 提交列表
+     * @param latestGradings 批量判分映射
+     * @return 分数列表（剔除 REVEAL 的 null 分）
+     */
+    private List<Integer> scoresOf(
+            List<Attempt> attempts, Map<String, AttemptGrading> latestGradings) {
         return attempts.stream()
-                .map(attempt -> gradingDao.findLatestByAttemptId(attempt.getId()))
-                .flatMap(Optional::stream)
+                .map(attempt -> latestGradings.get(attempt.getId()))
+                .filter(Objects::nonNull)
                 .map(AttemptGrading::getScore)
                 .filter(Objects::nonNull)
                 .toList();
+    }
+
+    /**
+     * 单条最新判分分数（recent 视图用，可空）。
+     *
+     * @param attemptId 提交 id
+     * @param latestGradings 批量判分映射
+     * @return 最新分数；无判分或 REVEAL 无分为 null
+     */
+    private Integer latestScoreOf(String attemptId, Map<String, AttemptGrading> latestGradings) {
+        AttemptGrading grading = latestGradings.get(attemptId);
+        return grading == null ? null : grading.getScore();
+    }
+
+    /**
+     * from/to 闭区间上限：共 between+1 个本地日，超过 92 天按 40000 拒绝。
+     *
+     * <p>选显式拒绝而非静默截断：截断会悄悄改变统计口径，客户端无从得知； 区间上限保护的是全量内存聚合（V1 口径）的量级。
+     *
+     * @param start 起始本地日期
+     * @param end 截止本地日期
+     */
+    private static void requireRangeWithinLimit(LocalDate start, LocalDate end) {
+        if (java.time.temporal.ChronoUnit.DAYS.between(start, end) >= MAX_RANGE_DAYS) {
+            throw new BusinessException(
+                    ApiCode.VALIDATION_FAILED, "from 与 to 区间最长 " + MAX_RANGE_DAYS + " 天");
+        }
     }
 
     /**

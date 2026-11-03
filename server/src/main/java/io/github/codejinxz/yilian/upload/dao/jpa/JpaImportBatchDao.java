@@ -61,4 +61,15 @@ public class JpaImportBatchDao implements ImportBatchDao {
     public List<ImportBatch> findByStatus(ImportBatchStatus status) {
         return repository.findByStatusOrderByCreatedAtAsc(status);
     }
+
+    /**
+     * 加悲观写锁取批次。
+     *
+     * @param id 批次 id
+     * @return 已锁定的批次
+     */
+    @Override
+    public Optional<ImportBatch> lockById(String id) {
+        return repository.lockById(id);
+    }
 }

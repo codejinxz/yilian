@@ -66,4 +66,13 @@ public interface ImportBatchService {
      * @return 批次与行分页
      */
     ImportBatchDetailResponse detail(String batchId, int page, int size, String rowStatus);
+
+    /**
+     * 对账恢复：把残留 COMMITTING 状态的批次收敛到终态，避免「重试 40904、回滚又要 COMMITTED」 的死锁状态（015 缺陷 #3 的恢复面）。
+     *
+     * <p>判定按行数据：存在已关联题目的行 → 内容确已入库，补 markCommitted； 否则原子事务未完成、什么都没入库，标记 FAILED（终态，管理员重新导入新批次）。
+     *
+     * @return 本次收敛的批次数
+     */
+    int reconcileCommittingBatches();
 }
