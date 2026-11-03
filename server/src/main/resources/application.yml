@@ -5,6 +5,18 @@ spring:
     # 本项目在 AuthServiceImpl 中显式完成认证；若不排除该自动配置，
     # 会自动生成一个带随机密码的内存用户，并可能把密码写进生产日志。
     exclude: org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
+  ai:
+    model:
+      # 017：spring-ai-starter-model-openai 只作为手工装配 ChatClient 的依赖引入（见
+      # practice/llm/TutorLlmConfiguration），其全部自动配置在此关闭，避免 starter 在缺省凭证下
+      # 自行拼出空凭证的模型 bean。凭证走 YILIAN_LLM_*，由 TutorLlmConfiguration 按凭证存在性惰性装配。
+      chat: none
+      embedding: none
+      image: none
+      audio:
+        speech: none
+        transcription: none
+      moderation: none
   datasource:
     url: ${YILIAN_DB_URL:jdbc:mysql://localhost:3306/yilian?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&allowPublicKeyRetrieval=true&useSSL=false}
     username: ${YILIAN_DB_USERNAME:yilian}
@@ -100,6 +112,16 @@ info:
     version: "@project.version@"
 
 yilian:
+  llm:
+    # 017 题目答疑：OpenAI 兼容端点接入。三态——三者中 base-url/api-key 未配置=功能不存在；
+    # 已配置但后台未开启=40304；开启=可用。base-url 指向智谱 bigmodel 时主人的套餐额度即被项目使用。
+    # 详见 PRD §5.4 与 docs/API.md §6.12/§8.11。
+    base-url: ${YILIAN_LLM_BASE_URL:}
+    # 密钥只进环境变量（AGENTS §3.4），不落库、不进配置文件；后台接口只回 hasKey 布尔。
+    api-key: ${YILIAN_LLM_API_KEY:}
+    model: ${YILIAN_LLM_MODEL:glm-4.7}
+    # 单次调用超时：超时/异常统一降级为「答疑暂时不可用」，不阻塞答题主链路。
+    timeout: ${YILIAN_LLM_TIMEOUT:15s}
   admin:
     # 管理端 from/to 日期筛选的日界时区（管理员视角的「本地日」，012/015 观察项修复：
     # 前端按浏览器本地日发送日期，服务端按 UTC 日界换算会在凌晨漏掉「今天」的记录）。

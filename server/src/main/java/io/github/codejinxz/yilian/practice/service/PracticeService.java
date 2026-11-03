@@ -1,6 +1,7 @@
 package io.github.codejinxz.yilian.practice.service;
 
 import io.github.codejinxz.yilian.common.api.PageResponse;
+import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
 import io.github.codejinxz.yilian.practice.service.dto.GuestUpgradeCommand;
 import io.github.codejinxz.yilian.practice.service.dto.NextQuery;
@@ -35,6 +36,16 @@ public interface PracticeService {
      * @return 判分与排程视图；幂等重放时 replayed=true
      */
     AttemptView submitAttempt(Long userId, AttemptCommand command);
+
+    /**
+     * 取一道可练习的题目详情（016 统一口径：practiceable + 库可见或练习史豁免），供题目答疑（017） 复用同一可见性判定，避免口径分叉。
+     *
+     * @param userId 当前用户 id
+     * @param sentenceId 题目 id
+     * @return 题目详情
+     * @throws io.github.codejinxz.yilian.common.api.BusinessException 40402 不存在/不可练；40300 无权访问
+     */
+    SentenceDetail requirePracticeableSentence(Long userId, String sentenceId);
 
     /**
      * 查询作答详情（批改结果/刷新恢复）；只能看自己的。

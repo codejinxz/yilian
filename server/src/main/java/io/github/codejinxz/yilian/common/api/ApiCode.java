@@ -38,6 +38,11 @@ public enum ApiCode {
     REGISTRATION_CLOSED(40302, "当前未开放注册", HttpStatus.FORBIDDEN),
     /** 首次登录未改初始密码，业务接口一律拒绝。 */
     PASSWORD_CHANGE_REQUIRED(40303, "请先修改初始密码", HttpStatus.FORBIDDEN),
+    /**
+     * 功能已部署但管理员未开放：017 题目答疑配置了模型凭证但 enabled=false（017 计划原文误写 40301， 该号已被 CSRF 占用，按「发布后不改号不复用」启用
+     * 40304）。
+     */
+    ASK_NOT_OPEN(40304, "答疑未开放", HttpStatus.FORBIDDEN),
 
     /** 路由或静态资源不存在。 */
     NOT_FOUND(40400, "请求的资源不存在", HttpStatus.NOT_FOUND),

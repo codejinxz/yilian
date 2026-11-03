@@ -1,0 +1,216 @@
+package io.github.codejinxz.yilian.practice.controller;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import io.github.codejinxz.yilian.common.api.ApiCode;
+import io.github.codejinxz.yilian.common.api.BusinessException;
+import io.github.codejinxz.yilian.common.logging.ErrorLogRecorder;
+import io.github.codejinxz.yilian.common.logging.OperationLog;
+import io.github.codejinxz.yilian.common.logging.OperationLogContext;
+import io.github.codejinxz.yilian.common.security.PasswordChangeRequiredInterceptor;
+import io.github.codejinxz.yilian.common.security.RestAccessDeniedHandler;
+import io.github.codejinxz.yilian.common.security.RestAuthenticationEntryPoint;
+import io.github.codejinxz.yilian.common.security.SecurityConfig;
+import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
+import io.github.codejinxz.yilian.practice.service.TutorService;
+import io.github.codejinxz.yilian.practice.service.dto.LlmConfigUpdateRequest;
+import io.github.codejinxz.yilian.practice.service.vo.LlmConfigView;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+
+/**
+ * 管理端 LLM 配置端点（API §8.11）的 HTTP 层切片测试 [AC-3]：鉴权矩阵（匿名 401 / 非管理员 403）、 GET 形状（hasKey 不回读 key）、PUT
+ * 透传与 40000 校验、审计注解口径（写 LLM_CONFIG_UPDATE、读不标）； 服务层分支由 {@code TutorServiceImplTest} 覆盖。
+ */
+@WebMvcTest(controllers = AdminLlmConfigController.class)
+@Import({
+    SecurityConfig.class,
+    RestAuthenticationEntryPoint.class,
+    RestAccessDeniedHandler.class,
+    PasswordChangeRequiredInterceptor.class
+})
+class AdminLlmConfigControllerTest {
+
+    private static final YilianUserPrincipal ADMIN =
+            YilianUserPrincipal.of(1L, "admin", "ADMIN", true);
+
+    private static final YilianUserPrincipal USER =
+            YilianUserPrincipal.of(7L, "learner", "USER", true);
+
+    @Autowired private MockMvc mockMvc;
+
+    @MockitoBean private TutorService tutorService;
+
+    @MockitoBean private JwtDecoder jwtDecoder;
+
+    @MockitoBean private ErrorLogRecorder errorLogRecorder;
+
+    @AfterEach
+    void cleanOperationLogContext() {
+        // 切面不在 @WebMvcTest 上下文里，测试线程上的审计覆盖值需要手动清，避免串测。
+        OperationLogContext.clear();
+    }
+
+    /** [AC-3] 匿名访问：GET/PUT 都是 401 信封（code=40100），不触达 Service。 */
+    @Test
+    void configEndpointsRejectAnonymousWith401_ac3() throws Exception {
+        mockMvc.perform(get("/api/admin/llm/config"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(ApiCode.AUTH_REQUIRED.code()));
+        mockMvc.perform(
+                        put("/api/admin/llm/config")
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"enabled\":true}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(ApiCode.AUTH_REQUIRED.code()));
+        verifyNoInteractions(tutorService);
+    }
+
+    /** [AC-3] 非 ADMIN 登录用户：403 信封（code=40300），权限在服务端（AGENTS §3.7）。 */
+    @Test
+    void configEndpointsRejectNonAdminWith403_ac3() throws Exception {
+        mockMvc.perform(
+                        get("/api/admin/llm/config")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(ApiCode.ACCESS_DENIED.code()));
+        mockMvc.perform(
+                        put("/api/admin/llm/config")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"enabled\":true}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(ApiCode.ACCESS_DENIED.code()));
+        verifyNoInteractions(tutorService);
+    }
+
+    /** [AC-3] GET：200 信封 data 为 {enabled, baseUrl, model, hasKey}，无 apiKey 字段回显。 */
+    @Test
+    void getConfigReturnsHasKeyWithoutSecret_ac3() throws Exception {
+        when(tutorService.getAdminConfig())
+                .thenReturn(
+                        new LlmConfigView(
+                                true, "https://open.bigmodel.cn/api/paas/v4", "glm-4.7", true));
+
+        mockMvc.perform(
+                        get("/api/admin/llm/config")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.enabled").value(true))
+                .andExpect(jsonPath("$.data.baseUrl").value("https://open.bigmodel.cn/api/paas/v4"))
+                .andExpect(jsonPath("$.data.model").value("glm-4.7"))
+                .andExpect(jsonPath("$.data.hasKey").value(true))
+                .andExpect(jsonPath("$.data.apiKey").doesNotExist());
+    }
+
+    /** [AC-3] PUT：合法开关透传 Service 并返回更新后的视图。 */
+    @Test
+    void putConfigUpdatesEnabledFlag_ac3() throws Exception {
+        when(tutorService.updateAdminConfig(new LlmConfigUpdateRequest(true, null, null, null), 1L))
+                .thenReturn(
+                        new LlmConfigView(
+                                true, "https://open.bigmodel.cn/api/paas/v4", "glm-4.7", true));
+
+        mockMvc.perform(
+                        put("/api/admin/llm/config")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"enabled\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.enabled").value(true));
+        verify(tutorService)
+                .updateAdminConfig(new LlmConfigUpdateRequest(true, null, null, null), 1L);
+    }
+
+    /** [AC-3] PUT：enabled 缺失（40000）与 Service 拒收 apiKey（40000）都以信封返回。 */
+    @Test
+    void putConfigValidationAndServiceRejections_ac3() throws Exception {
+        mockMvc.perform(
+                        put("/api/admin/llm/config")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ApiCode.VALIDATION_FAILED.code()));
+
+        when(tutorService.updateAdminConfig(any(), eq(1L)))
+                .thenThrow(
+                        new BusinessException(
+                                ApiCode.VALIDATION_FAILED,
+                                "API Key 只能通过环境变量 YILIAN_LLM_API_KEY 配置"));
+        mockMvc.perform(
+                        put("/api/admin/llm/config")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"enabled\":true,\"apiKey\":\"sk-x\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ApiCode.VALIDATION_FAILED.code()))
+                .andExpect(jsonPath("$.message").value("API Key 只能通过环境变量 YILIAN_LLM_API_KEY 配置"));
+    }
+
+    /** [AC-3] 审计口径：PUT 标 @OperationLog(LLM_CONFIG_UPDATE)，GET 不标（AGENTS §3.6）。 */
+    @Test
+    void writeCarriesAuditAndReadDoesNot_ac3() throws Exception {
+        OperationLog put =
+                AdminLlmConfigController.class
+                        .getDeclaredMethod(
+                                "updateConfig",
+                                LlmConfigUpdateRequest.class,
+                                YilianUserPrincipal.class)
+                        .getAnnotation(OperationLog.class);
+        assertThat(put).isNotNull();
+        assertThat(put.module()).isEqualTo("llm");
+        assertThat(put.action()).isEqualTo("LLM_CONFIG_UPDATE");
+
+        OperationLog get =
+                AdminLlmConfigController.class
+                        .getDeclaredMethod("getConfig", YilianUserPrincipal.class)
+                        .getAnnotation(OperationLog.class);
+        assertThat(get).isNull();
+    }
+}

@@ -519,6 +519,27 @@ public class PracticeServiceImpl implements PracticeService {
     }
 
     /**
+     * 按句取可练习题目（017 答疑入口）：与 {@link #requirePracticeableSentence(Long, AttemptCommand)} 同一 016
+     * 口径（practiceable + 库可见或练习史豁免），但不做版本比对——答疑始终针对当前版本。
+     *
+     * @param userId 当前用户 id
+     * @param sentenceId 题目 id
+     * @return 题目详情
+     */
+    @Override
+    public SentenceDetail requirePracticeableSentence(Long userId, String sentenceId) {
+        SentenceDetail detail =
+                contentQueryService
+                        .findSentence(sentenceId)
+                        .filter(SentenceDetail::practiceable)
+                        .orElseThrow(() -> new BusinessException(ApiCode.SENTENCE_NOT_FOUND));
+        if (!accessibleForPractice(userId, detail)) {
+            throw new BusinessException(ApiCode.ACCESS_DENIED);
+        }
+        return detail;
+    }
+
+    /**
      * 练习端句级可访问性统一口径（016 修复轮 2 监督者裁决）：库可见，或练习史豁免（本人已有该句复习卡）。
      *
      * <p>五条练习路径统一：交卷（{@link #requirePracticeableSentence}）、MANUAL 指定句、DUE 到期召回、 错题池、getAttempt
