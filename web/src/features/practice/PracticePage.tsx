@@ -30,7 +30,6 @@ import {
 import { RoundSummaryModal, type RoundTally } from "@/features/practice/session-summary";
 import { useFocusScroll } from "@/hooks/use-focus-scroll";
 import { useOnlineStatus } from "@/hooks/use-online-status";
-import { ApiError } from "@/lib/api";
 import { getBankSentences, getBanks } from "@/lib/api/content";
 import {
   appealAnnotation,
@@ -40,6 +39,7 @@ import {
   getReviews,
   submitAttempt,
 } from "@/lib/api/practice";
+import { isTransportError } from "@/lib/api-error";
 import { queryKeys, todayQueryOptions } from "@/lib/query";
 import type {
   AttemptRequest,
@@ -602,10 +602,21 @@ export function PracticePage() {
       void queryClient.invalidateQueries({ queryKey: ["practice", "reviews"] });
     },
     onError: (error, submission) => {
-      if (error instanceof ApiError && error.status === 0) {
+      // 014 冒烟根因（详见 submitAttempt 与 isTransportError 注释）：这里曾把一切
+      // status===0 都当「离线」。三类失败混在一起：真断网、超时/响应丢失（服务端可能
+      // 已判分成功）、2xx 后 body 校验失败（服务端必已成功）。后者走离线队列必然产生
+      // 同载荷重放（AppShell 见队非空且在线会立即补交，服务端 replayed=true 去重），
+      // 即「离线横幅 + 重复提交」的假降级。现在只有 transport 类失败才降级；
+      // response 类失败保留在页内错误区，重试按钮重放同一载荷即可自愈（幂等键去重）。
+      if (isTransportError(error)) {
         enqueueAttempt(submission.request);
         setPendingSubmission(null);
-        setOfflineNotice("当前离线：本次作答已保存在本机，联网后会自动补交，不会丢。");
+        // 浏览器仍报在线却传输失败（超时/瞬断），横幅不谎称「当前离线」。
+        setOfflineNotice(
+          navigator.onLine
+            ? "网络不稳定：本次作答已保存在本机，恢复后会自动补交，不会丢。"
+            : "当前离线：本次作答已保存在本机，联网后会自动补交，不会丢。",
+        );
         return;
       }
       setPendingSubmission(submission);

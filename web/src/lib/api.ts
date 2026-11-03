@@ -178,20 +178,22 @@ function createTimeoutSignal(
 
 /**
  * 把 fetch 抛出的异常归一为可展示的 ApiError；超时或中止提示重试，其余按网络失败处理。
+ * 全部标记 networkKind="transport"：请求可能已到达服务端（超时/响应丢失时尤其如此），
+ * 调用方必须凭幂等键重试去重，不能直接按离线降级——014 冒烟的误判根源就在这里。
  * @param error fetch 抛出的原始异常
- * @returns status 为 0 的 ApiError
+ * @returns status 为 0 且 networkKind="transport" 的 ApiError
  */
 function toNetworkError(error: unknown): ApiError {
   if (
     error instanceof DOMException &&
     (error.name === "TimeoutError" || error.name === "AbortError")
   ) {
-    return new ApiError(0, FALLBACK_ERROR_CODE, "请求超时，请重试");
+    return new ApiError(0, FALLBACK_ERROR_CODE, "请求超时，请重试", "transport");
   }
   if (error instanceof ApiError) {
     return error;
   }
-  return new ApiError(0, FALLBACK_ERROR_CODE, "网络连接失败，请检查网络后重试");
+  return new ApiError(0, FALLBACK_ERROR_CODE, "网络连接失败，请检查网络后重试", "transport");
 }
 
 /**
@@ -248,6 +250,7 @@ function unwrapApiEnvelope(response: Response, envelope: ApiEnvelope | null): un
 
 /**
  * 校验并返回当前用户；结构不合法时按服务端响应异常处理，避免把脏数据写进 Query 缓存。
+ * 标记 networkKind="response"：能走到这里说明 2xx 已收到，服务端处理必已发生。
  * @param data 信封中的 data
  * @returns 通过校验的用户
  * @throws ApiError 数据结构不符合 currentUserSchema
@@ -255,7 +258,7 @@ function unwrapApiEnvelope(response: Response, envelope: ApiEnvelope | null): un
 function parseUser(data: unknown): CurrentUser {
   const parsed = currentUserSchema.safeParse(data);
   if (!parsed.success) {
-    throw new ApiError(0, FALLBACK_ERROR_CODE, "服务响应异常，请稍后重试");
+    throw new ApiError(0, FALLBACK_ERROR_CODE, "服务响应异常，请稍后重试", "response");
   }
   return parsed.data;
 }

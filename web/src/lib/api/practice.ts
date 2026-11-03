@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/api";
+import { isTransportError } from "@/lib/api-error";
 import {
   type AppealResponse,
   type AttemptRequest,
@@ -81,15 +82,46 @@ export async function getNextPractice(
   return parseData(nextPracticeSchema, data);
 }
 
+/** 传输失败后的重试等待；给网络抖动与服务端收尾一个恢复窗口，不放大重试次数。 */
+const SUBMIT_RETRY_DELAY_MS = 800;
+
+/**
+ * 等待固定毫秒；重试退避用。
+ * @param ms 等待毫秒数
+ */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 /**
  * 提交一次作答；填空分数由页面本地计算并展示，服务端按版本复核。
+ *
+ * <p>014 冒烟根因防御：超时/连接重置（transport 失败）时请求可能已被服务端处理、
+ * 只是响应没回来。这里在浏览器仍报在线时用同一载荷重试一次——attemptId 就是幂等键，
+ * 服务端以 replayed=true 去重，重试安全；重试成功即拿到真实判分，不会误入离线队列。
+ * 仅 transport 失败重试：response 类失败说明服务端已 2xx，重试只会复制同样的解析错误。
+ *
  * @param input attempt 请求
  * @returns 判分结果、批注、参考译文与复习状态
+ * @throws ApiError 首次与重试都传输失败，或业务/结构失败
  */
 export async function submitAttempt(input: AttemptRequest): Promise<AttemptResponse> {
   const validated = attemptRequestSchema.parse(input);
-  const data = await jsonRequest<unknown>("/practice/attempts", "POST", validated);
-  return parseData(attemptResponseSchema, data);
+  const post = () =>
+    jsonRequest<unknown>("/practice/attempts", "POST", validated).then((data) =>
+      parseData(attemptResponseSchema, data),
+    );
+  try {
+    return await post();
+  } catch (error) {
+    if (!isTransportError(error) || !navigator.onLine) {
+      throw error;
+    }
+    await delay(SUBMIT_RETRY_DELAY_MS);
+    return post();
+  }
 }
 
 /**

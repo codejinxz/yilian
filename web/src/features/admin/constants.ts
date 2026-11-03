@@ -85,13 +85,30 @@ export const GEN_TAGS = ["时态", "搭配", "倒装", "从句", "非谓语", "�
  */
 export const MOCK_GEN_MODEL_LABEL = "DeepSeek · deepseek-chat";
 
-/** 操作日志的动作码中文名；覆盖种子数据与九页签演示写入的全部动作。 */
+/**
+ * 操作日志的动作码中文名。
+ *
+ * <p>全集对齐服务端 admin_audit_log 的两个写入源（015 修复轮核对）：
+ * OperationLog 注解各 action（account: LOGIN/LOGOUT/PASSWORD_CHANGE/SETTINGS_UPDATE，
+ * admin: BANK 系、SENTENCE 系、USER 系、INVITE_CREATE、GENERATION_IMPORT，
+ * content: IMPORT_PREVIEW/IMPORT_COMMIT/IMPORT_ROLLBACK）与
+ * audit-events 白名单（RESET_PASSWORD/EXPORT_USER_DATA/SESSION_REVOKE/
+ * MODEL_CONFIG_UPDATE/MODEL_TOGGLE/PROMPT_UPDATE）。
+ * 仍保留 USER_DISABLE/USER_ENABLE/USER_DELETE/ROLE_CHANGE/SENTENCE_DISABLE/
+ * VIEW_ATTEMPT_RAW：它们出现在文档示例与 mock 演示流（handlers.ts），
+ * 且 V5 迁移把旧 operation_log 历史行原样搬进了 admin_audit_log，筛掉会漏历史数据。
+ */
 export const ACTION_LABELS: Record<string, string> = {
   LOGIN: "登录",
+  LOGOUT: "退出登录",
+  PASSWORD_CHANGE: "修改密码",
+  SETTINGS_UPDATE: "更新设置",
   USER_DISABLE: "停用账号",
   USER_ENABLE: "恢复账号",
   USER_DELETE: "删除账号",
+  USER_STATUS_CHANGE: "变更用户状态",
   ROLE_CHANGE: "变更角色",
+  USER_ROLE_CHANGE: "变更用户角色",
   VIEW_ATTEMPT_RAW: "查看作答",
   RESET_PASSWORD: "重置密码",
   EXPORT_USER_DATA: "导出数据",
@@ -104,9 +121,10 @@ export const ACTION_LABELS: Record<string, string> = {
   SENTENCE_DISABLE: "停用题目",
   SENTENCE_BULK_STATUS: "批量变更题目状态",
   SENTENCE_BULK_MOVE: "批量移动题目",
+  IMPORT_PREVIEW: "预览导入",
   IMPORT_COMMIT: "提交导入",
   IMPORT_ROLLBACK: "回滚导入",
-  PASSWORD_CHANGE: "修改密码",
+  GENERATION_IMPORT: "生成导入",
   MODEL_CONFIG_UPDATE: "更新模型配置",
   MODEL_TOGGLE: "启停模型",
   PROMPT_UPDATE: "更新 Prompt",
