@@ -43,6 +43,7 @@ export const queryKeys = {
     imports: (params: Record<string, unknown>) => ["admin", "imports", params] as const,
     importBatch: (batchId: string, params: Record<string, unknown>) =>
       ["admin", "imports", batchId, params] as const,
+    llmConfig: ["admin", "llm-config"] as const,
   },
 };
 

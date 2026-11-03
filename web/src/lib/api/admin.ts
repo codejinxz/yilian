@@ -626,5 +626,43 @@ export async function updateAdminBankStatus(
   return parseData(bankViewSchema, data);
 }
 
+// ---------------------------------------------------------------------------
+// 答疑 LLM 配置（017 落地的真实端点，019 ModelsPage 状态中心接入）。
+// 凭据只走 YILIAN_LLM_* 环境变量（AGENTS §3.4 密钥不入库）：GET 回 hasKey 不回读
+// apiKey；PUT 只受理 enabled，baseUrl/model/apiKey 三个字段不传——服务端对非空值
+// 一律 40000 拒绝（API §8.14.2）。
+// ---------------------------------------------------------------------------
+
+/** 管理端 LLM 配置视图（API §8.14.1）：enabled 为生效开关，baseUrl/model 为环境变量生效值。 */
+export const llmConfigSchema = z.object({
+  enabled: z.boolean(),
+  baseUrl: z.string(),
+  model: z.string(),
+  hasKey: z.boolean(),
+});
+
+/** 管理端 LLM 配置视图类型。 */
+export type LlmConfig = z.infer<typeof llmConfigSchema>;
+
+/**
+ * 读取答疑 LLM 配置；ModelsPage「统一模型配置」状态卡的数据源。
+ * @param signal 取消信号
+ * @returns enabled、生效 baseUrl/model 与 hasKey（API Key 不回读）
+ */
+export async function getLlmConfig(signal?: AbortSignal): Promise<LlmConfig> {
+  const data = await apiRequest<unknown>("/admin/llm/config", { signal });
+  return parseData(llmConfigSchema, data);
+}
+
+/**
+ * 更新答疑开关；只传 enabled，凭证字段留给环境变量（传非空值会被服务端 40000 拒绝）。
+ * @param input 目标开关状态
+ * @returns 更新后的配置视图
+ */
+export async function updateLlmConfig(input: { enabled: boolean }): Promise<LlmConfig> {
+  const data = await jsonRequest<unknown>("/admin/llm/config", "PUT", { enabled: input.enabled });
+  return parseData(llmConfigSchema, data);
+}
+
 // 九页签页面直接从客户端取用户类型；schemas 保持既有导出面，不额外扩散。
 export type { AdminUser };
