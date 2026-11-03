@@ -3,6 +3,8 @@ package io.github.codejinxz.yilian.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.codejinxz.yilian.common.logging.ErrorLogRecorder;
+import io.github.codejinxz.yilian.support.InsecureCookieHandler;
+import io.github.codejinxz.yilian.support.TestDatabases;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,19 +16,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
-import java.net.CookieManager;
-import java.net.CookiePolicy;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.SQLException;
-import java.sql.Statement;
 import java.time.Duration;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -36,71 +30,35 @@ import java.util.stream.Collectors;
 /**
  * 认证与安全链路的端到端集成测试：真实 HTTP + 本机 MySQL（Flyway 迁移与 ddl-auto=validate）。
  *
- * <p>测试使用本机 MySQL 的独立测试库 {@code yilian_test}，不依赖 Docker / Testcontainers， 也不会读写开发库 {@code
- * yilian}。类初始化时会用固定测试账号 {@code root / 123456} 连接 {@code localhost:3306} 并执行 {@code CREATE DATABASE
- * IF NOT EXISTS yilian_test}。
+ * <p>测试使用独立测试库 {@code yilian_test}（不依赖 Docker / Testcontainers，也不会读写开发库 {@code yilian}）。数据源与
+ * bootstrap 凭据由入库的 {@code application-test.yml} 按环境变量 {@code YILIAN_TEST_DB_*} 提供，类初始化时经 {@link
+ * TestDatabases#ensureDatabase()} 幂等建库。
  *
- * <p><strong>前置条件</strong>：本机 MySQL 8 已在 {@code localhost:3306} 启动，且 {@code root / 123456}
- * 可以登录。不满足时本类会直接失败，而不是像 Testcontainers 那样跳过。
+ * <p><strong>前置条件</strong>：可用的 MySQL 8 实例与 {@code YILIAN_TEST_DB_PASSWORD} 等环境 变量（见
+ * docs/BOOTSTRAP.md §5）。不满足时本类会显式失败，而不是像 Testcontainers 那样跳过。
  *
  * <p>每个用例开始前清理 {@code spring_session}、{@code spring_session_attributes} 以及除 bootstrap 管理员 {@code
  * admin} 之外的应用账号，并把 {@code admin} 的密码重置为测试值、 角色修正为 {@code ADMIN}，保证重复运行幂等；{@code admin} 由应用启动时的
  * bootstrap 流程创建，测试不会删除它。
  */
-@ActiveProfiles("local")
+@ActiveProfiles("test")
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
             "yilian.ratelimit.enabled=false",
             "yilian.security.captcha.enabled=false",
-            "management.health.redis.enabled=false",
-            "server.servlet.session.cookie.secure=false",
-            "yilian.bootstrap-admin.username=admin",
-            "yilian.bootstrap-admin.password=test-admin-password",
-            "yilian.security.jwt.secret=test-only-yilian-jwt-secret-0123456789abcdef"
+            "management.health.redis.enabled=false"
         })
 class AuthFlowIntegrationTest {
-
-    /** 本机 MySQL 主机；可用 YILIAN_TEST_DB_HOST 覆盖，默认只连接 localhost。 */
-    private static final String MYSQL_HOST = env("YILIAN_TEST_DB_HOST", "localhost");
-
-    /** 本机 MySQL 端口。 */
-    private static final int MYSQL_PORT = Integer.parseInt(env("YILIAN_TEST_DB_PORT", "3306"));
-
-    /** 本机 MySQL 测试账号；CI/其他机器可用 YILIAN_TEST_DB_USERNAME 覆盖。 */
-    private static final String MYSQL_USERNAME = env("YILIAN_TEST_DB_USERNAME", "root");
-
-    /** 本机 MySQL 测试密码；CI/其他机器可用 YILIAN_TEST_DB_PASSWORD 覆盖。 */
-    private static final String MYSQL_PASSWORD = env("YILIAN_TEST_DB_PASSWORD", "123456");
-
-    /** 独立测试库，避免污染开发库 {@code yilian}。 */
-    private static final String TEST_DATABASE = env("YILIAN_TEST_DB_NAME", "yilian_test");
-
-    /** 与 application-local.yml 一致的连接参数，保证 UTC 与时区行为一致。 */
-    private static final String MYSQL_PARAMETERS =
-            "useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC"
-                    + "&forceConnectionTimeZoneToSession=true&allowPublicKeyRetrieval=true"
-                    + "&useSSL=false&connectTimeout=5000&socketTimeout=10000";
-
-    /** 指向独立测试库的 JDBC URL，由 {@link #datasource} 注入 Spring 环境。 */
-    private static final String TEST_DATABASE_URL =
-            "jdbc:mysql://"
-                    + MYSQL_HOST
-                    + ":"
-                    + MYSQL_PORT
-                    + "/"
-                    + TEST_DATABASE
-                    + "?"
-                    + MYSQL_PARAMETERS;
 
     /** bootstrap 管理员用户名；测试间清理时刻意保留该账号。 */
     private static final String ADMIN_USERNAME = "admin";
 
-    /** 测试用 bootstrap 管理员密码，每次用例前写回，避免上次运行的旧密码污染测试。 */
+    /** 测试用 bootstrap 管理员密码（application-test.yml 的默认值），每次用例前写回。 */
     private static final String TEST_ADMIN_PASSWORD = "test-admin-password";
 
     static {
-        createTestDatabase();
+        TestDatabases.ensureDatabase();
     }
 
     @Autowired private Environment environment;
@@ -111,61 +69,7 @@ class AuthFlowIntegrationTest {
 
     @Autowired private ErrorLogRecorder errorLogRecorder;
 
-    /**
-     * 读取可覆盖的测试环境变量，未设置时使用本机默认值。
-     *
-     * @param name 环境变量名
-     * @param fallback 默认值
-     * @return 非空环境变量值或默认值
-     */
-    private static String env(String name, String fallback) {
-        String value = System.getenv(name);
-        return value == null || value.isBlank() ? fallback : value;
-    }
-
     private String baseUrl;
-
-    /**
-     * 在 Spring 容器启动前创建独立测试库。
-     *
-     * <p>连接失败会抛出异常，使测试明确失败而不是跳过；类 Javadoc 已说明前置条件。
-     */
-    private static void createTestDatabase() {
-        String serverUrl =
-                "jdbc:mysql://" + MYSQL_HOST + ":" + MYSQL_PORT + "/?" + MYSQL_PARAMETERS;
-        try (Connection connection =
-                        DriverManager.getConnection(serverUrl, MYSQL_USERNAME, MYSQL_PASSWORD);
-                Statement statement = connection.createStatement()) {
-            statement.execute(
-                    "CREATE DATABASE IF NOT EXISTS `"
-                            + TEST_DATABASE
-                            + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci");
-        } catch (SQLException exception) {
-            throw new IllegalStateException(
-                    "无法连接本机 MySQL（"
-                            + MYSQL_HOST
-                            + ":"
-                            + MYSQL_PORT
-                            + "，账号 "
-                            + MYSQL_USERNAME
-                            + "）或无法创建测试库 "
-                            + TEST_DATABASE
-                            + "；集成测试要求本机 MySQL 已启动且测试凭据可用，不会跳过",
-                    exception);
-        }
-    }
-
-    /**
-     * 把数据源固定到本机独立测试库，覆盖 application-local.yml 中的开发库配置。
-     *
-     * @param registry Spring 动态属性注册表
-     */
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", () -> TEST_DATABASE_URL);
-        registry.add("spring.datasource.username", () -> MYSQL_USERNAME);
-        registry.add("spring.datasource.password", () -> MYSQL_PASSWORD);
-    }
 
     /**
      * 记录随机端口并清理上一个用例留下的会话、临时账号与管理员凭据，保证测试可重复执行。
@@ -521,16 +425,101 @@ class AuthFlowIntegrationTest {
         assertThat(loginWithNewPassword.body()).contains("\"code\":0");
     }
 
+    /** [AC-3] 管理员停用账号：refresh 会话立即吊销，旧 Cookie 刷新 40100（016 P1·03#01）。 */
+    @Test
+    void ac3_adminDisableRevokesRefreshSessions() throws Exception {
+        // 注册即登录：被停用用户先建立可用的 refresh 会话。
+        HttpClient userClient = newClient();
+        String userCsrf = csrfToken(userClient);
+        HttpResponse<String> register =
+                send(
+                        userClient,
+                        "POST",
+                        "/api/auth/register",
+                        Map.of(
+                                "email",
+                                "disable-target@example.com",
+                                "username",
+                                "disabletarget",
+                                "password",
+                                "disable-password"),
+                        Map.of("X-XSRF-TOKEN", userCsrf));
+        assertThat(register.statusCode()).as("register body=%s", register.body()).isEqualTo(200);
+        String userId = jsonField(register.body(), "id");
+        assertThat(userId).isNotBlank();
+        userCsrf = csrfToken(userClient);
+        HttpResponse<String> refreshBefore =
+                post(userClient, "/api/auth/refresh", null, Map.of("X-XSRF-TOKEN", userCsrf));
+        assertThat(refreshBefore.statusCode()).as("停用前 refresh 应可用").isEqualTo(200);
+
+        // 管理员登录并停用该用户（PATCH /api/admin/users/{id}/status）。
+        HttpClient adminClient = newClient();
+        String adminCsrf = csrfToken(adminClient);
+        HttpResponse<String> adminLogin =
+                send(
+                        adminClient,
+                        "POST",
+                        "/api/auth/login",
+                        Map.of("username", ADMIN_USERNAME, "password", TEST_ADMIN_PASSWORD),
+                        Map.of("X-XSRF-TOKEN", adminCsrf));
+        assertThat(adminLogin.statusCode()).isEqualTo(200);
+        String adminToken = accessToken(adminLogin.body());
+
+        adminCsrf = csrfToken(adminClient);
+        HttpResponse<String> disable =
+                send(
+                        adminClient,
+                        "PATCH",
+                        "/api/admin/users/" + userId + "/status",
+                        Map.of("enabled", false, "reason", "016 集成测试停用账号"),
+                        Map.of("X-XSRF-TOKEN", adminCsrf, "Authorization", bearer(adminToken)));
+        assertThat(disable.statusCode()).as("disable body=%s", disable.body()).isEqualTo(200);
+        assertThat(disable.body()).contains("\"enabled\":false");
+
+        // spring_session 中该 principal 的会话行已删除（吊销全部，不是只挡 enabled）。
+        Long sessionCount =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM spring_session WHERE PRINCIPAL_NAME = ?",
+                        Long.class,
+                        "disabletarget");
+        assertThat(sessionCount).as("停用后必须无残留会话行").isZero();
+
+        // 旧 Cookie 刷新 → 401 + 40100。
+        String csrfAfterDisable = csrfToken(userClient);
+        HttpResponse<String> refreshAfterDisable =
+                post(
+                        userClient,
+                        "/api/auth/refresh",
+                        null,
+                        Map.of("X-XSRF-TOKEN", csrfAfterDisable));
+        assertThat(refreshAfterDisable.statusCode()).isEqualTo(401);
+        assertThat(refreshAfterDisable.body()).contains("\"code\":40100");
+    }
+
     private HttpClient newClient() {
-        CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+        // test profile 下 XSRF-TOKEN 带 Secure 下发（SecurityConfig 仅对 local 关闭），
+        // 用忽略 Secure 的测试 CookieHandler 模拟浏览器本地握手（见 InsecureCookieHandler）。
         return HttpClient.newBuilder()
-                .cookieHandler(cookies)
+                .cookieHandler(new InsecureCookieHandler())
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
     }
 
     private static final Pattern CSRF_TOKEN = Pattern.compile("\"token\":\"([^\"]+)\"");
     private static final Pattern ACCESS_TOKEN = Pattern.compile("\"accessToken\":\"([^\"]+)\"");
+
+    /**
+     * 从 ApiResponse JSON 体中提取顶层 data 内的字符串字段（如 user.id）。
+     *
+     * @param body 响应体
+     * @param field 字段名
+     * @return 字段值
+     */
+    private static String jsonField(String body, String field) {
+        Matcher matcher = Pattern.compile("\"" + field + "\":\"([^\"]+)\"").matcher(body);
+        assertThat(matcher.find()).as("body=%s 缺少字段 %s", body, field).isTrue();
+        return matcher.group(1);
+    }
 
     private String csrfToken(HttpClient client) throws Exception {
         HttpResponse<String> response = get(client, "/api/auth/csrf", Map.of());
@@ -582,9 +571,22 @@ class AuthFlowIntegrationTest {
     private static String writeJson(Object body) {
         if (body instanceof Map<?, ?> map) {
             return map.entrySet().stream()
-                    .map(entry -> "\"" + entry.getKey() + "\":\"" + entry.getValue() + "\"")
+                    .map(entry -> "\"" + entry.getKey() + "\":" + jsonValue(entry.getValue()))
                     .collect(Collectors.joining(",", "{", "}"));
         }
         throw new IllegalArgumentException("unsupported test payload");
+    }
+
+    /**
+     * 单值 JSON 字面量：布尔直出，其余按字符串加引号。
+     *
+     * @param value 字段值
+     * @return JSON 字面量
+     */
+    private static String jsonValue(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool.toString();
+        }
+        return "\"" + value + "\"";
     }
 }

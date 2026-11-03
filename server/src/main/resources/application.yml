@@ -43,6 +43,11 @@ spring:
       host: ${YILIAN_REDIS_HOST:localhost}
       port: ${YILIAN_REDIS_PORT:6379}
       password: ${YILIAN_REDIS_PASSWORD:}
+      # 连接超时（016 P2·04#03）：只有命令超时(timeout)时，黑洞网络下建连阶段会阻塞到 TCP
+      # 层超时（可达数十秒），限流/缓存的 fail-open 承诺失效、主链路被拖死。两个超时共同
+      # 限定 Redis 故障的最坏阻塞窗口；到时后按既有降级语义处理（限流 fail-open、缓存回源 DB）。
+      connect-timeout: 2s
+      # 命令超时：到时抛查询超时异常，调用方按 fail-open / 回源降级，不阻塞主链路。
       timeout: 2s
   threads:
     virtual:

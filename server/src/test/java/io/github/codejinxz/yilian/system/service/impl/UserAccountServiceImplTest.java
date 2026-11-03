@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
+import io.github.codejinxz.yilian.common.session.RefreshSessionGuard;
 import io.github.codejinxz.yilian.system.dao.AppUserDao;
 import io.github.codejinxz.yilian.system.dao.InviteCodeDao;
 import io.github.codejinxz.yilian.system.entity.AppUser;
@@ -21,6 +22,8 @@ import io.github.codejinxz.yilian.system.service.vo.InviteCodeAdminView;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.session.FindByIndexNameSessionRepository;
+import org.springframework.session.Session;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.charset.StandardCharsets;
@@ -41,9 +44,18 @@ class UserAccountServiceImplTest {
 
     private final InviteCodeDao inviteCodeDao = mock(InviteCodeDao.class);
 
+    @SuppressWarnings("unchecked")
+    private final FindByIndexNameSessionRepository<? extends Session> refreshSessions =
+            mock(FindByIndexNameSessionRepository.class);
+
     private final UserAccountServiceImpl service =
             new UserAccountServiceImpl(
-                    appUserDao, inviteCodeDao, new BCryptPasswordEncoder(4), false);
+                    appUserDao,
+                    inviteCodeDao,
+                    new BCryptPasswordEncoder(4),
+                    false,
+                    refreshSessions,
+                    new RefreshSessionGuard());
 
     /** [AC-3] 自己停自己：业务失败（40900），不落库。 */
     @Test
@@ -71,6 +83,34 @@ class UserAccountServiceImplTest {
                 .isEqualTo(ApiCode.IDEMPOTENT_CONFLICT);
 
         verify(appUserDao, never()).save(any());
+    }
+
+    /** [AC-3] 停用账号即按用户名吊销全部 refresh 会话（016 P1·03#01：重新启用前旧 cookie 不得复活）。 */
+    @Test
+    void adminSetStatusDisableRevokesRefreshSessions_ac3() {
+        AppUser target = user(2L, "learner");
+        when(appUserDao.findById(2L)).thenReturn(Optional.of(target));
+        when(appUserDao.save(any(AppUser.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.adminSetStatus(1L, 2L, false, "违规停用");
+
+        verify(refreshSessions).findByPrincipalName("learner");
+        verify(appUserDao).save(any(AppUser.class));
+    }
+
+    /** [AC-3] 恢复（enable）不触发吊销：会话在停用时已删除，重复吊销无意义。 */
+    @Test
+    void adminSetStatusEnableDoesNotRevokeSessions_ac3() {
+        AppUser target = user(2L, "learner");
+        when(appUserDao.findById(2L)).thenReturn(Optional.of(target));
+        when(appUserDao.save(any(AppUser.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.adminSetStatus(1L, 2L, true, null);
+
+        verify(refreshSessions, never())
+                .findByPrincipalName(org.mockito.ArgumentMatchers.anyString());
     }
 
     /** [AC-5] 用户检索 keyword 做 LIKE 转义：用户输入的 %/_ 是字面量（015 修复轮 minor #5）。 */

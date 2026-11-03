@@ -1,5 +1,6 @@
 package io.github.codejinxz.yilian.system.service.impl;
 
+import io.github.codejinxz.yilian.common.session.RefreshSessionGuard;
 import io.github.codejinxz.yilian.common.util.PasswordUtils;
 import io.github.codejinxz.yilian.common.util.StringUtils;
 import io.github.codejinxz.yilian.common.util.UsernameUtils;
@@ -38,6 +39,7 @@ public class BootstrapAdminServiceImpl implements BootstrapAdminService {
     private final PasswordEncoder passwordEncoder;
     private final Environment environment;
     private final FindByIndexNameSessionRepository<? extends Session> sessionRepository;
+    private final RefreshSessionGuard refreshSessionGuard;
 
     /**
      * 注入配置、账号 Dao 与 refresh 会话仓库；后者用于改密后吊销旧会话。
@@ -47,18 +49,21 @@ public class BootstrapAdminServiceImpl implements BootstrapAdminService {
      * @param passwordEncoder 密码编码器
      * @param environment 用于判断是否 prod profile
      * @param sessionRepository Spring Session 仓库，按用户名吊销 refresh 会话
+     * @param refreshSessionGuard 吊销护栏：纪元先增再删会话，堵住并发刷新重建会话的窗口
      */
     public BootstrapAdminServiceImpl(
             BootstrapAdminProperties properties,
             AppUserDao appUserDao,
             PasswordEncoder passwordEncoder,
             Environment environment,
-            FindByIndexNameSessionRepository<? extends Session> sessionRepository) {
+            FindByIndexNameSessionRepository<? extends Session> sessionRepository,
+            RefreshSessionGuard refreshSessionGuard) {
         this.properties = properties;
         this.appUserDao = appUserDao;
         this.passwordEncoder = passwordEncoder;
         this.environment = environment;
         this.sessionRepository = sessionRepository;
+        this.refreshSessionGuard = refreshSessionGuard;
     }
 
     /**
@@ -91,10 +96,20 @@ public class BootstrapAdminServiceImpl implements BootstrapAdminService {
             AppUser admin = existing.get();
             boolean changed = false;
             if (properties.resetPasswordOnStartup()) {
-                admin.resetPassword(passwordEncoder.encode(password), Instant.now());
-                revokeRefreshSessions(username);
-                changed = true;
-                log.warn("bootstrap admin password reset username={}", username);
+                if (passwordEncoder.matches(password, admin.getPasswordHash())) {
+                    // 一次性开关的「用后自动失效」（016 P2·03#09）：管理员当前口令已等于配置口令，
+                    // 说明重置早已生效；开关忘关时重启不再静默覆盖口令、也不再重复吊销会话。
+                    // 如需再次重置，换一个配置口令值（或改完口令后关闭开关）。
+                    log.warn(
+                            "bootstrap admin reset-password-on-startup skipped:"
+                                    + " configured password already applied username={}",
+                            username);
+                } else {
+                    admin.resetPassword(passwordEncoder.encode(password), Instant.now());
+                    refreshSessionGuard.revoke(username, () -> revokeRefreshSessions(username));
+                    changed = true;
+                    log.warn("bootstrap admin password reset username={}", username);
+                }
             }
             if (!admin.isEnabled()) {
                 admin.enable();

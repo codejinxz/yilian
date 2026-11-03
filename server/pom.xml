@@ -163,7 +163,8 @@
       <!--
         JaCoCo 覆盖率（工作流 S3 增量覆盖门禁的数据源）：prepare-agent 挂载测试 JVM，
         report 绑定 test 阶段，`mvn test` 即产出 target/site/jacoco/{jacoco.xml,index.html}。
-        本期只接入工具，不在构建内设覆盖率卡口。
+        016 P2·06#06：补 check 阈值门禁——当前基线行覆盖 87.0%、分支 68.3%（846c99e 实测），
+        按「不回退 + 两个点余量」设 LINE ≥ 85%、BRANCH ≥ 65%，删测试或堆未测代码会直接红。
       -->
       <plugin>
         <groupId>org.jacoco</groupId>
@@ -182,6 +183,32 @@
               <goal>report</goal>
             </goals>
           </execution>
+          <execution>
+            <id>check</id>
+            <phase>test</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>LINE</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>0.85</minimum>
+                    </limit>
+                    <limit>
+                      <counter>BRANCH</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>0.65</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
         </executions>
       </plugin>
 
@@ -189,8 +216,7 @@
         google-java-format 门禁（AGENTS.md §3.2）：只提供显式目标，不绑定生命周期。
         - 本项目采用 AOSP 风格（4 空格缩进），与现有源码一致；
         - 编辑后用 `mvn fmt:format` 归一，用 `mvn fmt:check` 校验；
-        - 存量代码仍有 51 个文件与格式化输出存在 Javadoc 重排、空块换行等差异，因此 CI 先以
-          advisory 步骤运行 fmt:check，待 `mvn fmt:format` 统一后改为阻断，避免无关改动被格式问题卡住。
+        - fmt:check 为阻断门禁（CI 独立步骤，全量 Java 文件已归一）。
         使用 com.spotify.fmt 维护分支：com.coveo 原版最新仅 2.13（2021），内置
         google-java-format 1.13，无法正确处理 Java 21 语法；2.29 内置 1.28.0。
       -->

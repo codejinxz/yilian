@@ -10,6 +10,7 @@ import io.github.codejinxz.yilian.content.service.ContentImportService;
 import io.github.codejinxz.yilian.content.service.dto.SentenceContent;
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
 import io.github.codejinxz.yilian.content.service.vo.SentencePage;
+import io.github.codejinxz.yilian.support.TestDatabases;
 import io.github.codejinxz.yilian.upload.dto.ImportBatchViewResponse;
 import io.github.codejinxz.yilian.upload.dto.ImportPreviewResponse;
 import io.github.codejinxz.yilian.upload.service.ImportBatchService;
@@ -23,13 +24,18 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 导入批次五端点服务层集成测试 [AC-1/2/3/5]：真实 MySQL + 真实本地对象存储。
@@ -42,10 +48,9 @@ import java.util.List;
             "yilian.ratelimit.enabled=false",
             "yilian.security.captcha.enabled=false",
             "management.health.redis.enabled=false",
-            "yilian.security.jwt.secret=test-only-yilian-jwt-secret-0123456789abcdef",
             "yilian.import.reconcile-enabled=false"
         })
-@ActiveProfiles("local")
+@ActiveProfiles("test")
 class ImportBatchServiceIntegrationTest {
 
     private static final Timestamp T0 = Timestamp.valueOf(LocalDateTime.of(2026, 10, 30, 12, 0, 0));
@@ -64,21 +69,8 @@ class ImportBatchServiceIntegrationTest {
     @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
     private io.github.codejinxz.yilian.upload.dao.ImportBatchRowDao importBatchRowDao;
 
-    /**
-     * 测试库指向本机 yilian_test。
-     *
-     * @param registry 动态属性注册表
-     */
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add(
-                "spring.datasource.url",
-                () ->
-                        "jdbc:mysql://localhost:3306/yilian_test?useUnicode=true&characterEncoding=utf8"
-                                + "&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true"
-                                + "&allowPublicKeyRetrieval=true&useSSL=false");
-        registry.add("spring.datasource.username", () -> "root");
-        registry.add("spring.datasource.password", () -> "123456");
+    static {
+        TestDatabases.ensureDatabase();
     }
 
     /** 用例后清掉批次与内容表，避免残留行污染其他集成套件（AuthFlow 清 users）。 */
@@ -323,6 +315,154 @@ class ImportBatchServiceIntegrationTest {
         // 收敛后的批次与正常提交同语义：可回滚。
         ImportBatchViewResponse rolled = importBatchService.rollback(batchB, "对账后回滚", ADMIN);
         assertThat(rolled.status()).isEqualTo("ROLLED_BACK");
+    }
+
+    /** [AC-5] 并发双击回滚（016 P1·05#02）：批次行锁串行化，恰一次回收，后到者幂等返回。 */
+    @Test
+    @DisplayName("[AC-5] 并发回滚串行化：恰一次回收不二次 bump")
+    void ac5_concurrentRollbackRecyclesExactlyOnce() throws Exception {
+        long bankId = seedBank();
+        String batchId = previewAndCommit(bankId, fileJson(3, 0));
+
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Callable<ImportBatchViewResponse> first =
+                    () -> {
+                        start.await();
+                        return importBatchService.rollback(batchId, "并发回滚-1", ADMIN);
+                    };
+            Callable<ImportBatchViewResponse> second =
+                    () -> {
+                        start.await();
+                        return importBatchService.rollback(batchId, "并发回滚-2", ADMIN);
+                    };
+            Future<ImportBatchViewResponse> firstFuture = pool.submit(first);
+            Future<ImportBatchViewResponse> secondFuture = pool.submit(second);
+            start.countDown();
+
+            assertThat(firstFuture.get(45, TimeUnit.SECONDS).status()).isEqualTo("ROLLED_BACK");
+            assertThat(secondFuture.get(45, TimeUnit.SECONDS).status()).isEqualTo("ROLLED_BACK");
+        } finally {
+            pool.shutdownNow();
+        }
+        // 恰一次回收：3 题全部 RECYCLED、银行修订号 = commit 3 + 回滚 3 = 6；二次回收会是 9。
+        Long recycledCount =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM sentences WHERE bank_id = ? AND status = 'RECYCLED'",
+                        Long.class,
+                        bankId);
+        assertThat(recycledCount).isEqualTo(3L);
+        assertThat(bankVersion(bankId)).isEqualTo(6L);
+    }
+
+    /** [AC-5] 并发 rollback+commit（016 P1·05#02）：行锁串行化后状态机不撕裂。 */
+    @Test
+    @DisplayName("[AC-5] 并发 rollback+commit 状态机收敛")
+    void ac5_concurrentRollbackAndCommitConverge() throws Exception {
+        long bankId = seedBank();
+        String batchId = previewBatch(bankId, fileJson(2, 0));
+
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        boolean rollbackSucceeded = false;
+        try {
+            Callable<Object> commit =
+                    () -> {
+                        start.await();
+                        return importBatchService.commit(batchId, ADMIN);
+                    };
+            Callable<Object> rollback =
+                    () -> {
+                        start.await();
+                        return importBatchService.rollback(batchId, "并发竞态", ADMIN);
+                    };
+            Future<Object> commitFuture = pool.submit(commit);
+            Future<Object> rollbackFuture = pool.submit(rollback);
+            start.countDown();
+
+            // commit 对合法 PREVIEWED 批次必然成功；rollback 先于 commit 拿到行锁则 40904。
+            assertThat(commitFuture.get(45, TimeUnit.SECONDS))
+                    .isInstanceOf(ImportBatchViewResponse.class);
+            try {
+                rollbackFuture.get(45, TimeUnit.SECONDS);
+                rollbackSucceeded = true;
+            } catch (ExecutionException execution) {
+                assertThat(execution.getCause())
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                exception -> {
+                                    assertThat(exception.apiCode())
+                                            .isEqualTo(ApiCode.IMPORT_NOT_COMMITTABLE);
+                                    assertThat(exception.getMessage()).contains("只有已提交的批次可以回滚");
+                                });
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        // 终态二选一且自洽：ROLLED_BACK 意味着回收+二次 bump 都已发生；COMMITTED 意味着零回收。
+        ImportBatchViewResponse finalBatch =
+                importBatchService.detail(batchId, 1, 20, null).batch();
+        Long recycledCount =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM sentences WHERE bank_id = ? AND status = 'RECYCLED'",
+                        Long.class,
+                        bankId);
+        if (rollbackSucceeded) {
+            assertThat(finalBatch.status()).isEqualTo("ROLLED_BACK");
+            assertThat(recycledCount).isEqualTo(2L);
+            assertThat(bankVersion(bankId)).isEqualTo(4L);
+        } else {
+            assertThat(finalBatch.status()).isEqualTo("COMMITTED");
+            assertThat(recycledCount).isZero();
+            assertThat(bankVersion(bankId)).isEqualTo(2L);
+        }
+    }
+
+    /**
+     * 读取银行级修订号。
+     *
+     * @param bankId 题库 id
+     * @return 当前版本号
+     */
+    private Long bankVersion(long bankId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT version FROM sentence_banks WHERE id = ?", Long.class, bankId);
+    }
+
+    /** [AC-3] CSV 导入含逗号 chunks（016 P1·05#04）：RFC4180 解析后整批可预览可提交，不再 CHUNKS_EMPTY。 */
+    @Test
+    @DisplayName("[AC-3] CSV 含逗号 chunks 可预览可提交")
+    void ac3_csvImportWithCommaChunksCommits() {
+        long bankId = seedBank();
+        // zh/ref/chunks 三个单元格自身含逗号，全部按 RFC4180 引号包裹；chunks 内部引号用 "" 转义。
+        String csv =
+                "externalKey,zh,ref,note,chunks,blank,tags\n"
+                        + "c_1,\"这家餐厅的菜品,很出名。\",\"Dishes with, commas work.\","
+                        + "这是 CSV 含逗号语块的解析说明满足最小长度。,"
+                        + "\"[{\"\"index\"\":0,\"\"zh\"\":\"\"这\"\",\"\"answers\"\":[\"\"Dishes with, commas work.\"\"],"
+                        + "\"\"tag\"\":\"\"逗号\"\"}]\","
+                        + "[0],[\"逗号\"]\n";
+
+        ImportPreviewResponse preview =
+                importBatchService.preview(
+                        new MockMultipartFile(
+                                "file",
+                                "batch.csv",
+                                "text/csv",
+                                csv.getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                        bankId,
+                        "CSV",
+                        ADMIN);
+
+        assertThat(preview.totalRows()).isEqualTo(1);
+        assertThat(preview.validRows()).as("含逗号 chunks 不再断列降级").isEqualTo(1);
+        assertThat(preview.invalidRows()).isZero();
+
+        ImportBatchViewResponse committed = importBatchService.commit(preview.batchId(), ADMIN);
+        assertThat(committed.status()).isEqualTo("COMMITTED");
+        assertThat(committed.importedRows()).isEqualTo(1);
     }
 
     /**

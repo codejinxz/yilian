@@ -17,6 +17,7 @@ import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.security.AuthConstants;
 import io.github.codejinxz.yilian.common.security.SecurityUtils;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
+import io.github.codejinxz.yilian.common.session.RefreshSessionGuard;
 import io.github.codejinxz.yilian.common.util.DateTimeUtils;
 import io.github.codejinxz.yilian.common.util.PasswordUtils;
 import io.github.codejinxz.yilian.system.service.UserAccountService;
@@ -52,6 +53,7 @@ public class AuthServiceImpl implements AuthService {
     private final JwtTokenService jwtTokenService;
     private final FindByIndexNameSessionRepository<? extends Session> refreshSessions;
     private final CaptchaService captchaService;
+    private final RefreshSessionGuard refreshSessionGuard;
 
     /**
      * 依赖全部面向接口，便于测试时替换账号查询、token 签发与会话吊销。
@@ -61,6 +63,7 @@ public class AuthServiceImpl implements AuthService {
      * @param csrfTokenRepository CSRF 令牌仓库
      * @param jwtTokenService access token 签发服务
      * @param refreshSessions 按用户名索引的 refresh 会话仓库
+     * @param refreshSessionGuard 刷新与吊销的互斥锁与会话纪元护栏
      */
     public AuthServiceImpl(
             UserAccountService userAccountService,
@@ -68,13 +71,15 @@ public class AuthServiceImpl implements AuthService {
             CsrfTokenRepository csrfTokenRepository,
             JwtTokenService jwtTokenService,
             FindByIndexNameSessionRepository<? extends Session> refreshSessions,
-            CaptchaService captchaService) {
+            CaptchaService captchaService,
+            RefreshSessionGuard refreshSessionGuard) {
         this.userAccountService = userAccountService;
         this.passwordEncoder = passwordEncoder;
         this.csrfTokenRepository = csrfTokenRepository;
         this.jwtTokenService = jwtTokenService;
         this.refreshSessions = refreshSessions;
         this.captchaService = captchaService;
+        this.refreshSessionGuard = refreshSessionGuard;
     }
 
     @Override
@@ -133,6 +138,35 @@ public class AuthServiceImpl implements AuthService {
         if (session == null) {
             throw new BusinessException(ApiCode.AUTH_REQUIRED);
         }
+        // 与吊销（登出/改密/停用）按用户串行化，锁内复检纪元（016 P2·03#08）：会话持久化在请求
+        // 收尾完成，无纪元时「已吊销仍轮换出新会话」的竞态窗口无法靠删除时序闭合。
+        Object indexedName = session.getAttribute(AuthConstants.PRINCIPAL_NAME_ATTRIBUTE);
+        if (!(indexedName instanceof String principalName)) {
+            invalidateQuietly(session);
+            throw new BusinessException(ApiCode.AUTH_REQUIRED);
+        }
+        return refreshSessionGuard.withLock(
+                principalName, () -> refreshLocked(session, httpRequest, principalName));
+    }
+
+    /**
+     * 刷新的锁内主体：纪元复检 → 属性/绝对期校验 → 账号可用性复检 → 轮换 id → 签发。
+     *
+     * @param session 当前 refresh 会话
+     * @param httpRequest 当前请求
+     * @param principalName 会话归属的登录名
+     * @return 刷新后的认证响应
+     */
+    private AuthResponse refreshLocked(
+            HttpSession session, HttpServletRequest httpRequest, String principalName) {
+        Object epochValue = session.getAttribute(RefreshSessionGuard.EPOCH_ATTRIBUTE);
+        // 历史会话无纪元属性按 0 处理：与重启后内存纪元归零的口径一致，不强行全员下线。
+        long storedEpoch = epochValue instanceof Long stored ? stored : 0L;
+        if (storedEpoch != refreshSessionGuard.epoch(principalName)) {
+            // 会话诞生于上一次吊销之前（含并发吊销后滞留轮换的会话），按未登录收敛。
+            invalidateQuietly(session);
+            throw new BusinessException(ApiCode.AUTH_REQUIRED);
+        }
         Object refreshUserId = session.getAttribute(AuthConstants.REFRESH_USER_ID_ATTRIBUTE);
         if (!(refreshUserId instanceof Long userId)) {
             invalidateQuietly(session);
@@ -167,8 +201,10 @@ public class AuthServiceImpl implements AuthService {
             invalidateQuietly(session);
         }
         // 登出按用户吊销全部 refresh 会话，避免旧 cookie 或并发刷新把用户重新拉回。
+        // 纪元先增（guard.revoke）：并发 in-flight 刷新即便滞留轮换出新会话，下一次刷新也被拒。
         if (username != null) {
-            revokeRefreshSessions(username);
+            String principalName = username;
+            refreshSessionGuard.revoke(principalName, () -> revokeRefreshSessions(principalName));
         }
         SecurityContextHolder.clearContext();
     }
@@ -199,7 +235,8 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(ApiCode.WEAK_PASSWORD, "新密码不能与当前密码相同");
         }
         userAccountService.changePassword(userId, request.newPassword());
-        revokeRefreshSessions(user.username());
+        // 与登出同口径：纪元先增再删除会话，堵住并发刷新在删除后重建会话的窗口。
+        refreshSessionGuard.revoke(user.username(), () -> revokeRefreshSessions(user.username()));
         HttpSession session = httpRequest.getSession(false);
         if (session != null) {
             invalidateQuietly(session);
@@ -221,7 +258,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     /**
-     * 建立 refresh 会话；写 principal 索引以便按用户批量吊销。
+     * 建立 refresh 会话；写 principal 索引以便按用户批量吊销，并记录当前会话纪元。
      *
      * @param request 当前请求
      * @param user 已认证用户
@@ -231,6 +268,8 @@ public class AuthServiceImpl implements AuthService {
         session.setAttribute(AuthConstants.REFRESH_USER_ID_ATTRIBUTE, user.id());
         session.setAttribute(AuthConstants.REFRESH_CREATED_AT_ATTRIBUTE, DateTimeUtils.now());
         session.setAttribute(AuthConstants.PRINCIPAL_NAME_ATTRIBUTE, user.username());
+        session.setAttribute(
+                RefreshSessionGuard.EPOCH_ATTRIBUTE, refreshSessionGuard.epoch(user.username()));
         rotateSessionId(request);
     }
 

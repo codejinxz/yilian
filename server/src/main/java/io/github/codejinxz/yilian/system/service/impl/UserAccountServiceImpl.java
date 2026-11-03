@@ -3,6 +3,7 @@ package io.github.codejinxz.yilian.system.service.impl;
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.api.PageResponse;
+import io.github.codejinxz.yilian.common.session.RefreshSessionGuard;
 import io.github.codejinxz.yilian.common.util.PasswordUtils;
 import io.github.codejinxz.yilian.common.util.StringUtils;
 import io.github.codejinxz.yilian.common.util.UsernameUtils;
@@ -25,6 +26,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.session.FindByIndexNameSessionRepository;
+import org.springframework.session.Session;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -74,24 +77,32 @@ public class UserAccountServiceImpl implements UserAccountService {
     private final InviteCodeDao inviteCodeDao;
     private final PasswordEncoder passwordEncoder;
     private final boolean inviteRequired;
+    private final FindByIndexNameSessionRepository<? extends Session> refreshSessions;
+    private final RefreshSessionGuard refreshSessionGuard;
 
     /**
-     * 注入账号 Dao、邀请码 Dao 与密码编码器。
+     * 注入账号 Dao、邀请码 Dao、密码编码器与 refresh 会话吊销依赖。
      *
      * @param appUserDao 账号 Dao
      * @param inviteCodeDao 邀请码 Dao
      * @param passwordEncoder BCrypt 编码器
      * @param inviteRequired 是否强制邀请码注册
+     * @param refreshSessions 按用户名索引的 refresh 会话仓库（停用账号时吊销会话）
+     * @param refreshSessionGuard 吊销护栏：纪元先增再删会话，堵住并发刷新重建会话的窗口
      */
     public UserAccountServiceImpl(
             AppUserDao appUserDao,
             InviteCodeDao inviteCodeDao,
             PasswordEncoder passwordEncoder,
-            @Value("${yilian.registration.invite-required:false}") boolean inviteRequired) {
+            @Value("${yilian.registration.invite-required:false}") boolean inviteRequired,
+            FindByIndexNameSessionRepository<? extends Session> refreshSessions,
+            RefreshSessionGuard refreshSessionGuard) {
         this.appUserDao = appUserDao;
         this.inviteCodeDao = inviteCodeDao;
         this.passwordEncoder = passwordEncoder;
         this.inviteRequired = inviteRequired;
+        this.refreshSessions = refreshSessions;
+        this.refreshSessionGuard = refreshSessionGuard;
     }
 
     @Override
@@ -236,10 +247,30 @@ public class UserAccountServiceImpl implements UserAccountService {
                 throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "不能停用最后一个管理员");
             }
             target.disable(reason.trim(), Instant.now());
+            // 停用即吊销该用户全部 refresh 会话（016 P1·03#01，契约「登出/改密/停用吊销全部」）：
+            // 会话行若保留 30 天，重新启用后泄露的旧 cookie 无需密码即可复活。吊销护栏纪元先增，
+            // 并发 in-flight 刷新即便滞留重建会话，下一次刷新也被纪元拒绝。吊销动作发起于事务内
+            // 而 Spring Session 仓库自治事务：本事务若回滚，代价是多吊销（重新登录即可），方向安全。
+            revokeRefreshSessions(target.getUsername());
         } else {
             target.enable();
         }
         return AdminUserView.from(appUserDao.save(target));
+    }
+
+    /**
+     * 按用户名吊销全部 refresh 会话（纪元先增 + 会话行删除，见 {@link RefreshSessionGuard#revoke}）。
+     *
+     * @param username 目标用户的登录名
+     */
+    private void revokeRefreshSessions(String username) {
+        refreshSessionGuard.revoke(
+                username,
+                () ->
+                        refreshSessions
+                                .findByPrincipalName(username)
+                                .keySet()
+                                .forEach(refreshSessions::deleteById));
     }
 
     @Override

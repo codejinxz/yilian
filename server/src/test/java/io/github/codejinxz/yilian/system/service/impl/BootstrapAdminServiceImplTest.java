@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.codejinxz.yilian.common.session.RefreshSessionGuard;
 import io.github.codejinxz.yilian.system.bootstrap.BootstrapAdminProperties;
 import io.github.codejinxz.yilian.system.dao.AppUserDao;
 import io.github.codejinxz.yilian.system.entity.AppUser;
@@ -97,6 +98,36 @@ class BootstrapAdminServiceImplTest {
         assertThat(encoder.matches("new-password", existing.getPasswordHash())).isTrue();
         assertThat(encoder.matches("old-password", existing.getPasswordHash())).isFalse();
         verify(appUserDao).save(existing);
+        // 改密必须同时吊销 refresh 会话（03 评审 #16 的缺口：此前只断言口令被覆盖）。
+        verify(sessionRepository).findByPrincipalName("admin");
+    }
+
+    /** [AC-3] 一次性开关「用后自动失效」（016 P2·03#09）：口令已等于配置值时重启不再覆盖、不再吊销。 */
+    @Test
+    void resetSkipsWhenConfiguredPasswordAlreadyApplied() {
+        AppUser existing =
+                AppUser.newAdmin("admin", encoder.encode("same-password"), Instant.now());
+        when(appUserDao.findByUsername("admin")).thenReturn(Optional.of(existing));
+
+        service(new MockEnvironment(), "same-password", true).initialize();
+
+        assertThat(encoder.matches("same-password", existing.getPasswordHash())).isTrue();
+        verify(appUserDao, never()).save(any());
+        verify(sessionRepository, never()).findByPrincipalName("admin");
+    }
+
+    /** [AC-3] 开关保持 true 且配置了新口令：仍允许真实的恢复性重置（与「同值只生效一次」不冲突）。 */
+    @Test
+    void resetAppliesAgainOnlyForDifferentConfiguredPassword() {
+        AppUser existing =
+                AppUser.newAdmin("admin", encoder.encode("same-password"), Instant.now());
+        when(appUserDao.findByUsername("admin")).thenReturn(Optional.of(existing));
+
+        service(new MockEnvironment(), "recovery-password", true).initialize();
+
+        assertThat(encoder.matches("recovery-password", existing.getPasswordHash())).isTrue();
+        verify(appUserDao).save(existing);
+        verify(sessionRepository).findByPrincipalName("admin");
     }
 
     @Test
@@ -131,6 +162,7 @@ class BootstrapAdminServiceImplTest {
                 appUserDao,
                 encoder,
                 environment,
-                sessionRepository);
+                sessionRepository,
+                new RefreshSessionGuard());
     }
 }
