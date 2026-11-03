@@ -41,6 +41,15 @@ yilian:
     username: admin
     # 文档化的本地默认密码；prod 会拒绝该值。
     password: change-me-now
+  # 017 题目答疑 LLM 接入示例：取消注释并填入主人自己的 key 即可联调。
+  # base-url 指向智谱 bigmodel 的 OpenAI 兼容端点时，套餐 API 额度即被项目使用；
+  # model 缺省 glm-4.7；key 是密钥，更建议用环境变量 YILIAN_LLM_API_KEY 提供（不落盘）。
+  # 三态：base-url/api-key 任一缺失=答疑功能不存在（40400）；配置后默认关闭，
+  # 需管理员 PUT /api/admin/llm/config {"enabled":true} 开启（见 docs/API.md §8.14）。
+  # llm:
+  #   base-url: https://open.bigmodel.cn/api/paas/v4
+  #   api-key: ""
+  #   model: glm-4.7
 
 springdoc:
   api-docs:

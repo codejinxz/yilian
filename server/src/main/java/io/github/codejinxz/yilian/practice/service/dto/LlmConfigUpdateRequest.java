@@ -7,20 +7,21 @@ import jakarta.validation.constraints.NotNull;
 /**
  * 管理端 LLM 配置更新请求体（017）。
  *
- * <p>选型说明（AGENTS §3.4 密钥不入库）：{@code enabled} 与 baseUrl/model 覆盖值存 {@code app_settings} 键 {@code
- * llm.tutor}；{@code apiKey} 只能经环境变量 {@code YILIAN_LLM_API_KEY} 配置，本请求体虽然声明该字段（保持 017
- * 计划的请求形状），但传非空值一律 40000 拒绝，绝不落库。
+ * <p>实际行为（017 R1 语义修正）：本接口只受理 {@code enabled}；baseUrl/model/apiKey 三个字段仅为 017
+ * 计划的请求形状保留——<strong>传非空值一律 40000 拒绝</strong>，端点与凭据只走环境变量 {@code YILIAN_LLM_*}（AGENTS §3.4
+ * 密钥不入库），服务端不接受在线修改，也不存在「覆盖值」。
  *
- * @param enabled 是否开放答疑；true 且凭证未配置时拒绝
- * @param baseUrl 端点覆盖值；null/空白表示清除覆盖、回退环境变量
- * @param model 模型名覆盖值；null/空白表示清除覆盖、回退环境变量
- * @param apiKey 仅作形状兼容；非空即 40000，服务端不存储
+ * @param enabled 是否开放答疑；true 且环境变量凭证未配置完整时 40000 拒绝
+ * @param baseUrl 不受理：非空即 40000，端点只能经 YILIAN_LLM_BASE_URL 配置
+ * @param model 不受理：非空即 40000，模型名只能经 YILIAN_LLM_MODEL 配置
+ * @param apiKey 不受理：非空即 40000，API Key 只能经环境变量 YILIAN_LLM_API_KEY 配置
  */
-@Schema(description = "LLM 答疑配置更新请求")
+@Schema(description = "LLM 答疑配置更新请求：只受理 enabled；baseUrl/model/apiKey 非空即 40000（凭据与端点只走环境变量）")
 public record LlmConfigUpdateRequest(
         @Schema(description = "是否开放答疑", requiredMode = Schema.RequiredMode.REQUIRED)
                 @NotNull(message = "enabled 不能为空")
                 Boolean enabled,
-        @Schema(description = "端点覆盖值；空表示回退环境变量 YILIAN_LLM_BASE_URL") String baseUrl,
-        @Schema(description = "模型名覆盖值；空表示回退环境变量 YILIAN_LLM_MODEL") String model,
-        @Schema(description = "不受理：API Key 只能经环境变量 YILIAN_LLM_API_KEY 配置") String apiKey) {}
+        @Schema(description = "不受理：端点只能经环境变量 YILIAN_LLM_BASE_URL 配置，非空即 40000") String baseUrl,
+        @Schema(description = "不受理：模型名只能经环境变量 YILIAN_LLM_MODEL 配置，非空即 40000") String model,
+        @Schema(description = "不受理：API Key 只能经环境变量 YILIAN_LLM_API_KEY 配置，非空即 40000")
+                String apiKey) {}

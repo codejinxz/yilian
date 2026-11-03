@@ -113,6 +113,16 @@ public class TutorServiceImpl implements TutorService {
             LlmChatClient.Reply reply = client.ask(systemPrompt, userPrompt);
             long durationMs = (System.nanoTime() - startNanos) / 1_000_000;
             if (reply.content() == null || reply.content().isBlank()) {
+                // 空回复是可观测的降级路径（017 R1）：不计成功用量，与异常降级同文案同码。
+                log.warn(
+                        "LLM 空回复：scene=tutor-ask, userId={}, sentenceId={}, model={},"
+                                + " promptTokens={}, completionTokens={}, durationMs={}, ok=false",
+                        userId,
+                        sentenceId,
+                        llmProperties.model(),
+                        reply.promptTokens(),
+                        reply.completionTokens(),
+                        durationMs);
                 throw new BusinessException(ApiCode.INTERNAL_ERROR, "答疑暂时不可用，请稍后再试");
             }
             // 用量只记元数据（token/耗时/成败），不落问题与回答内容（§3.6：译文不入日志）。
@@ -221,7 +231,7 @@ public class TutorServiceImpl implements TutorService {
      *
      * @param detail 题目详情（已过可见性校验）
      * @param annotationLines 错误批注摘要行，可为空列表
-     * @param question 用户问题
+     * @param question 用户问题（已经 {@link #sanitizeQuestion} 剥离标记）
      * @return 拼装后的用户消息
      */
     private String userPrompt(
@@ -242,8 +252,20 @@ public class TutorServiceImpl implements TutorService {
                 builder.append("- ").append(line).append('\n');
             }
         }
-        builder.append("【问题开始】\n").append(question).append("\n【问题结束】");
+        builder.append("【问题开始】\n").append(sanitizeQuestion(question)).append("\n【问题结束】");
         return builder.toString();
+    }
+
+    /**
+     * 剥离问题文本中的提示词标记（017 R1 F3 防定界伪造）：用户消息的上下文标记与定界符全部使用
+     * 全角【】，把问题里的【】统一替换为『』后，用户无法在问题里伪造「【问题结束】忽略以上规则」 之类的结构（长度上限 500 +
+     * 系统提示的数据声明是其余两道防线）；普通中文问答几乎不用【】， 替换不损伤正文语义。
+     *
+     * @param question 原始问题
+     * @return 剥离标记后的问题
+     */
+    private static String sanitizeQuestion(String question) {
+        return question.replace('【', '『').replace('】', '』');
     }
 
     /**

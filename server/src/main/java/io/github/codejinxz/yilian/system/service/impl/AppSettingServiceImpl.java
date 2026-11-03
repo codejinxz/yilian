@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.util.Optional;
 
-/** 系统配置存取实现：读按主键直查，写在一个事务内收敛「插入/覆盖」两种形态。 */
+/** 系统配置存取实现：读按主键直查，写走单语句原生 upsert（并发首写由数据库原子收敛）。 */
 @Service
 public class AppSettingServiceImpl implements AppSettingService {
 
@@ -36,13 +36,9 @@ public class AppSettingServiceImpl implements AppSettingService {
     @Override
     @Transactional
     public String upsert(String key, String value, String description, Long updatedBy) {
-        AppSetting existing = appSettingDao.findByKey(key).orElse(null);
-        if (existing == null) {
-            return appSettingDao
-                    .save(AppSetting.create(key, value, description, updatedBy, clock.instant()))
-                    .getValue();
-        }
-        existing.replaceValue(value, updatedBy);
-        return appSettingDao.save(existing).getValue();
+        // 单语句 upsert（INSERT ... ON DUPLICATE KEY UPDATE）：不做「先读后写」，并发首写无
+        // rollback-only 事务可被打断；返回值即写入值，确定性无需回读。
+        appSettingDao.upsert(key, value, description, updatedBy, clock.instant());
+        return value;
     }
 }

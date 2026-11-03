@@ -3,12 +3,12 @@ package io.github.codejinxz.yilian.system.dao.jpa;
 import io.github.codejinxz.yilian.system.dao.AppSettingDao;
 import io.github.codejinxz.yilian.system.entity.AppSetting;
 
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.Optional;
 
-/** AppSettingDao 的 JPA 适配器；insert 并发撞键时收敛为覆盖更新，保证「末写胜出」。 */
+/** AppSettingDao 的 JPA 适配器；写入走单语句原生 upsert（见 {@link AppSettingJpaRepository#upsertNative}）。 */
 @Repository
 public class JpaAppSettingDao implements AppSettingDao {
 
@@ -29,16 +29,9 @@ public class JpaAppSettingDao implements AppSettingDao {
     }
 
     @Override
-    public AppSetting save(AppSetting setting) {
-        try {
-            // 立即 flush：主键冲突（两个管理员首次并发开启）当场暴露而不是等到事务提交。
-            return repository.saveAndFlush(setting);
-        } catch (DataIntegrityViolationException exception) {
-            // 并发首写同一键：以数据库已存在行为准，把新值覆盖上去（末写胜出）。
-            AppSetting existing =
-                    repository.findById(setting.getKey()).orElseThrow(() -> exception);
-            existing.replaceValue(setting.getValue(), setting.getUpdatedBy());
-            return repository.saveAndFlush(existing);
-        }
+    public void upsert(
+            String key, String value, String description, Long updatedBy, Instant updatedAt) {
+        // 单语句原子：并发首写/覆盖都在数据库层收敛，无「先读后写」的竞态窗口，也无需异常回退事务。
+        repository.upsertNative(key, value, description, updatedBy, updatedAt);
     }
 }

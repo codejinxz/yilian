@@ -11,10 +11,11 @@ import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 
 /**
- * 系统配置键值（app_settings 表，DATA-MODEL §5.x；V5 迁移建表，本切片首次启用）。
+ * 系统配置键值（app_settings 表，DATA-MODEL §5.x；V5 迁移建表，017 切片首次启用）。
  *
- * <p>value 为 JSON 文本，对象内必须带 {@code schemaVersion}（AGENTS/DATA-MODEL §6 约定）；结构由写入方 （当前只有 017 的
- * {@code llm.tutor} 键）自行分支解析。密钥不入库：任何含密钥的配置不得写进本表（AGENTS §3.4）。
+ * <p>本实体只承担读投影；写入走 {@code AppSettingDao#upsert} 的单语句原生 upsert （INSERT ... ON DUPLICATE KEY
+ * UPDATE），并发首写在数据库层原子收敛，不做实体合并。 value 为 JSON 文本，对象内必须带 {@code schemaVersion}（AGENTS/DATA-MODEL §6
+ * 约定）；结构由写入方 （当前只有 017 的 {@code llm.tutor} 键）自行分支解析。密钥不入库：任何含密钥的配置不得写进本表（AGENTS §3.4）。
  */
 @Entity
 @Table(name = "app_settings")
@@ -42,40 +43,6 @@ public class AppSetting {
 
     protected AppSetting() {
         // 供 JPA 反射实例化
-    }
-
-    /**
-     * 新建一条配置；version 从 1 起，并发更新不做乐观锁（单人后台、末写胜出语义，见 AppSettingService）。
-     *
-     * @param key 配置键（≤128）
-     * @param value JSON 文本（含 schemaVersion）
-     * @param description 描述，可空
-     * @param updatedBy 操作者 id，可空
-     * @param now 服务端时钟
-     * @return 未持久化的配置行
-     */
-    public static AppSetting create(
-            String key, String value, String description, Long updatedBy, Instant now) {
-        AppSetting setting = new AppSetting();
-        setting.key = key;
-        setting.value = value;
-        setting.description = description;
-        setting.version = 1;
-        setting.updatedBy = updatedBy;
-        setting.updatedAt = now;
-        return setting;
-    }
-
-    /**
-     * 覆盖配置值并推进版本与操作者；updated_at 由数据库 ON UPDATE 维护。
-     *
-     * @param newValue JSON 文本
-     * @param by 操作者 id，可空
-     */
-    public void replaceValue(String newValue, Long by) {
-        this.value = newValue;
-        this.version = this.version + 1;
-        this.updatedBy = by;
     }
 
     /**
