@@ -34,7 +34,7 @@
 | 事项 | 要求 |
 |---|---|
 | 会话吊销 | refresh 会话存 Spring Session JDBC；登出/改密/停用均按用户吊销全部 refresh 会话；access token 采用 15 分钟短 TTL，不做永久黑名单 |
-| 限流 | 登录按 IP + 账号双维度；邀请码与深度批改分别限流；429 带 Retry-After |
+| 限流 | 登录按 IP + 账号双维度（10 次/分钟，2026-11-04 与代码对齐，API §4.2）；邀请码与深度批改分别限流；`/api/banks**` 匿名读 120 次/分钟（IP）；`/api/admin/fsrs/optimize` 5 次/分钟（账号）；429 带 Retry-After |
 | 幂等 | `attemptId`、邀请码、预算扣减以数据库唯一约束兜底 |
 | 默认凭据 | 部署环境仍用默认密码时，启动即失败 |
 | 密码存储 | 当前 BCrypt（strength 10）；Argon2id 作为后续升级项；公网部署的管理员启用 2FA |

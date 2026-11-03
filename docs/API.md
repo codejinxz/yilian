@@ -387,6 +387,8 @@
 
 副作用：`Set-Cookie: YILIAN_REFRESH=...; Path=/api/auth; HttpOnly; SameSite=Strict; Max-Age=2592000`；session id 轮换。
 
+限流：`login` 场景 **10 次/60 秒，IP + 账号双维度**（账号取请求体 `username`，2026-11-04 015 修复轮与代码对齐——此前文档/任务稿写 5/min 与实现不符；双维度独立计数，任一超限即 429 并带 `Retry-After`）。
+
 错误：`40000`、`40001`、`40101`、`40301`、`42900`、`50000`。
 
 字段回溯：
@@ -523,7 +525,7 @@
 }
 ```
 
-规则：最多 100 条/次；逐条幂等；`kind`/`retryOfId` 规则同 §6.2；已存在同 `attemptId` 同载荷跳过；不同载荷返回 409 并整体回滚。
+规则：最多 100 条/次；逐条幂等；`kind`/`retryOfId` 规则同 §6.2；已存在同 `attemptId` 同载荷跳过；不同载荷返回 409 并整体回滚。并发同 `attemptId` 竞态（015 修复轮）：整批原子回滚、绝不 500——赢家同载荷回 `40900`（客户端原样重试即可，重试时按「已存在同载荷」跳过）、异载荷回 `40903`。
 
 响应：
 
@@ -531,7 +533,7 @@
 { "imported": 10, "skipped": 2, "conflicts": 0 }
 ```
 
-错误：`40000`、`40100`、`40903`、`50000`。
+错误：`40000`、`40100`、`40900`、`40903`、`50000`。
 
 字段回溯：`attempts.*`；`user_id` 由当前登录用户写入，不回填旧本地记录。
 
@@ -567,6 +569,8 @@
 ---
 
 ## 5. Content
+
+> 限流（2026-11-04 015 修复轮）：`GET /api/banks**` 三个读端点按 **IP 维度 120 次/60 秒**限流（`banks-read` 场景）——匿名可读入口的滥用防护；限流切面在缓存判定之前执行，被限流的请求不消耗缓存与数据库，放行请求照常走 Caffeine 分层缓存。
 
 ### 5.1 `GET /api/banks`（implemented）
 
@@ -732,6 +736,7 @@
 - 有效行写 `sentence_versions` + `sentences`；`sentences.version` 使用新银行修订号。
 - 失败整批回滚，批次 `FAILED`，不留下半批题目。
 - 重复 commit：已 `COMMITTED` 返回当前批次（幂等），不重复写。
+- **原子性（2026-11-04 015 修复轮）**：内容落库、行回写、状态推进在**同一个**数据库事务内完成，任一步失败整体回滚——不再出现「题目已入库而批次停在 COMMITTING」的死锁状态；并发重复 commit 靠批次行锁串行化，等锁后复检状态。历史版本残留的 `COMMITTING` 批次由定时对账任务按行数据收敛（行已关联题目→补 `COMMITTED`；否则→`FAILED`），对账动作写服务端日志。
 
 错误：`40000`、`40300`、`40405`、`40904`、`42200`、`50000`。
 
@@ -836,7 +841,9 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 | `excludeIds` | 多题排除（热身排除已练） | 支持（逗号分隔；trim/去空/去重，与 `excludeSentenceId` 合并） | 支持（逗号分隔） |
 | `tag` | 考点筛选（tags JSON 精确成员匹配） | 支持（到期召回/新题/错题池均生效） | 支持 |
 
-静默归一（与本地引擎一致，非法值不返回 400）：`errors` 只认 `"1"`；空白 `sentenceId`/`tag` 视为未提供；`excludeIds` 内空白段丢弃、重复去重。
+静默归一（与本地引擎一致，非法值不返回 400）：`errors` 只认 `"1"`；空白 `sentenceId`/`tag` 视为未提供；`excludeIds` 内空白段丢弃、重复去重，合并后超过 100 个时只保留先出现的 100 个（URL 长度防御，2026-11-04 015 修复轮明确）。
+
+`bankId` 前置校验（2026-11-04 015 修复轮，黑盒 D-1）：显式提供 `bankId` 且题库不存在/未发布/已软删/匿名访问他人私有库 → `40401`（登录访问他人私有库 → `40300`）；库可见但无题 → 保持 `data=null` 空态。校验在指定句分支之前，`bankId` 与 `sentenceId` 同给且库不可见时也回 `40401`。
 
 服务端与本地引擎/mock 的已知偏差（均按服务端契约优先）：
 
@@ -993,7 +1000,7 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 - `score<100` 时 `retryRequired=true`；必须重打或 `REVEAL` 才能下一题。
 - 只有 `FIRST`（或没有 FIRST 的 `REVEAL`）触发 FSRS；`RETRY` 不排程。
 - `REVEAL` 的 `score=null`；`review.rating=1`。
-- 幂等重复：同载荷返回同一响应，`replayed=true`；不同载荷 40903。**幂等口径（payloadHash）**：参与哈希的字段为 `sentenceId`、`sentenceVersionId`、`mode`、`kind`、`retryOfId`、`answer`、`hintsUsed`；**不含** `durationMs` 与 `clientCreatedAt`（耗时与本机时间不影响「同一次作答」的判定，重放/补交都按同一载荷幂等）。
+- 幂等重复：同载荷返回同一响应，`replayed=true`；不同载荷 40903。**幂等口径（payloadHash）**：参与哈希的字段为 `sentenceId`、`sentenceVersionId`、`mode`、`kind`、`retryOfId`、`answer`、`hintsUsed`；**不含** `durationMs` 与 `clientCreatedAt`（耗时与本机时间不影响「同一次作答」的判定，重放/补交都按同一载荷幂等）。并发同 `attemptId` 双发同样收敛到该口径（2026-11-04 015 修复轮）：数据库主键兜底，输家在独立事务里读回赢家行比对 payloadHash——同载荷按重放返回原结果（`replayed=true`），异载荷 40903，不再出现 500。
 
 错误：`40000`、`40001`、`40100`、`40402`、`40903`、`50000`。
 
@@ -1266,12 +1273,13 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 - 口径为「最新判分的有分数记录」；区间内无判分时 `correctRate`/`averageScore` 为 `null`（页面按 0 展示）。
 - `daily14` 补零输出完整 14 天（`end-13..end`，用户本地日界）；每档无判分时 `correctRate=null`。
 - `recent` 按提交时间倒序最多 10 条；`score` 为该提交最新判分（REVEAL 为 `null`）；**不含中文句**，展示层用题库缓存 join（前端 `ensureCachedSentences`）。
+- `from`/`to` 为用户本地日期，日界按**用户设置的 IANA 时区**换算 UTC 时刻（凌晨 00:30 的记录计入用户本地「今天」）；闭区间跨度上限 **92 天**，超出按 `40000` 拒绝（显式拒绝而非静默截断，2026-11-04 015 修复轮明确）。
 
 字段回溯：派生 `attempts` + `attempt_gradings`；`user_daily_stats` M3 聚合。
 
 ### 7.2 `GET /api/analytics/error-tags`（implemented）
 
-请求：`from`、`to`（用户本地日期，缺省最近 14 天）。
+请求：`from`、`to`（用户本地日期，缺省最近 14 天；日界按用户时区换算、闭区间上限 92 天，同 §7.1）。
 
 响应：
 
@@ -1361,7 +1369,7 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 
 - `keyword` 对 `action/actorName/targetType/targetId/reason` 拼串 contains（大小写不敏感；SQL LIKE 通配符已转义，检索语义为纯 contains）。
 - `module`/`action` 精确匹配，`actorId` 为数字（非数字 `40000`）。
-- `from`/`to` 为 `YYYY-MM-DD`（`to` 含当日）；**缺省兜底近 30 天**——`admin_audit_log` 是按月分区表，WHERE 恒含 `created_at` 范围。
+- `from`/`to` 为 `YYYY-MM-DD`（`to` 含当日）；**日界口径（2026-11-04 015 修复轮勘误）**：按管理员本地日换算 UTC 时刻——服务端配置项 `yilian.admin.day-zone`（默认 `Asia/Shanghai`，单产品默认），前端日期选择器发送的是浏览器本地日期，按 UTC 日界换算会在本地凌晨把「今天」的记录筛丢（012 冒烟观察项）；**缺省兜底近 30 天**——`admin_audit_log` 是按月分区表，WHERE 恒含 `created_at` 范围。
 - 排序 `created_at` 倒序、同刻按 `id` 倒序保证分页稳定。
 
 响应 `PageResponse<AdminAuditLogView>`：
@@ -1406,7 +1414,7 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 请求：`page`（1 起，默认 1）、`size`（默认 20，**上限 100，越界归 100**）、`keyword`、`module`、`from`、`to`。
 
 - `keyword` 对 `exceptionClass/message/traceId/operator` 拼串 contains（LIKE 通配符已转义）。
-- `module` 精确匹配；`from`/`to` 为 `YYYY-MM-DD`（`to` 含当日），**缺省兜底近 30 天**（分区表 WHERE 恒含 `created_at` 范围）。
+- `module` 精确匹配；`from`/`to` 为 `YYYY-MM-DD`（`to` 含当日），日界按管理员本地日（`yilian.admin.day-zone`，默认 `Asia/Shanghai`）换算，口径同 §8.4；**缺省兜底近 30 天**（分区表 WHERE 恒含 `created_at` 范围）。
 - 排序 `created_at` 倒序、同刻按 `id` 倒序。
 
 响应 `PageResponse<AdminErrorLogView>`：
@@ -1824,14 +1832,14 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 | Account | `GET /api/auth/csrf`、`POST /api/auth/login`、`POST /api/auth/refresh`、`POST /api/auth/logout`、`POST /api/auth/register`、`GET /api/auth/me`、`POST /api/auth/password` | 双 token、CSRF 轮换、邀请码注册；`passwordChanged` 已返回 | `AuthFlowIntegrationTest`（真实 HTTP：登录/刷新/登出/me 全链路、注册即登录与重复邮箱 40901、改密吊销会话、错误密码 40101、缺 CSRF 40301、伪造 token 401、非管理员 403）；限流口径另由 `AuthRateLimitAnnotationTest` 锁定 |
 | Account | `POST /api/auth/guest-upgrade` | 游客本机记录批量迁移：≤100 条/批、同 id 同载荷 skip、异载荷 40903 整体回滚；只落 attempts/attempt_gradings，不触发排程 | `AuthGuestUpgradeControllerTest`（切片：匿名 401/信封/限流注解） |
 | Account | `GET /api/me/settings`、`PUT /api/me/settings` | 主题/目标/评分标准/时区/保留率等 | `MeControllerTest`（切片：匿名 401、信封、40000 字段明细、40001、首登 40303）；DTO 注解层另由 `UserSettingsRequestValidationTest` 锁定 |
-| Content | `GET /api/banks`、`GET /api/banks/{bankId}`、`GET /api/banks/{bankId}/sentences` | PUBLIC_OR_USER：匿名仅公开题库；句子为 §5.3 增量游标契约 | `BankControllerTest`（切片：匿名放行与私有隔离、40004/40005/40401、tombstone 信封） |
-| Practice | `GET /api/practice/next`（D7 四参数 2026-11-03 服务端补齐，语义见 §6.1）、`POST /api/practice/attempts`（幂等 + norm-1/rubric-1 判分 + SRS 排程）、`GET /api/practice/attempts/{attemptId}`、批注 `appeal`/`dispute`（§6.4/§6.5）、`GET /api/practice/wrong-questions`、`GET /api/practice/reviews`、`POST /api/practice/reviews/{reviewId}/reset`、`GET /api/practice/reviews/overload`、`POST /api/practice/reviews/postpone`、`GET /api/practice/today` | 练习主链路（#8 波次三）；幂等口径 §6.2；复习卡一句一卡（DATA-MODEL §5.11 Q1）；next 指定句优先（MANUAL）/errors=1 错题池（与 §6.6 同口径）/excludeIds 合并去重/tag JSON 精确匹配，非法参数静默归一 | `PracticeControllerTest`（切片：全部 10 端点——匿名 401、mode 取值 40000、分页 40004、40903/40403/40404、信封形状、限流注解、D7 四参数归一透传）；`PracticeFlowIntegrationTest`（对拍：指定句优先/找不到退回、errors=1 错题口径与 exclude/tag/bankId 过滤） |
-| Analytics | `GET /api/analytics/accuracy`（含 `daily14`/`recent` 扩展）、`GET /api/analytics/error-tags` | 用户时区日界；disputed 批注排除 | `AnalyticsControllerTest`（切片：匿名 401、§7.1/§7.2 信封、参数透传、非法日期 40000、空 items=[]） |
-| Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 | `ImportBatchControllerTest`（切片：匿名 401/非管理员 403、multipart 绑定与缺参 40000、缺请求体 40001、40405/40904、PageResponse 信封） |
+| Content | `GET /api/banks`、`GET /api/banks/{bankId}`、`GET /api/banks/{bankId}/sentences` | PUBLIC_OR_USER：匿名仅公开题库；句子为 §5.3 增量游标契约 | `BankControllerTest`（切片：匿名放行与私有隔离、40004/40005/40401、tombstone 信封、限流注解契约 IP 120/60s）；keyword LIKE 转义字面量语义另由 `LikeEscapeIntegrationTest`（真实 MySQL：题库/题目/用户三链路）覆盖 |
+| Practice | `GET /api/practice/next`（D7 四参数 2026-11-03 服务端补齐，语义见 §6.1）、`POST /api/practice/attempts`（幂等 + norm-1/rubric-1 判分 + SRS 排程）、`GET /api/practice/attempts/{attemptId}`、批注 `appeal`/`dispute`（§6.4/§6.5）、`GET /api/practice/wrong-questions`、`GET /api/practice/reviews`、`POST /api/practice/reviews/{reviewId}/reset`、`GET /api/practice/reviews/overload`、`POST /api/practice/reviews/postpone`、`GET /api/practice/today` | 练习主链路（#8 波次三）；幂等口径 §6.2；复习卡一句一卡（DATA-MODEL §5.11 Q1）；next 指定句优先（MANUAL）/errors=1 错题池（与 §6.6 同口径）/excludeIds 合并去重/tag JSON 精确匹配，非法参数静默归一 | `PracticeControllerTest`（切片：全部 10 端点——匿名 401、mode 取值 40000、分页 40004、40903/40403/40404、信封形状、限流注解、D7 四参数归一透传）；`PracticeFlowIntegrationTest`（对拍：指定句优先/找不到退回、errors=1 错题口径与 exclude/tag/bankId 过滤、next 显式 bankId 40401/空态、并发同 attemptId 双发幂等收敛零 500） |
+| Analytics | `GET /api/analytics/accuracy`（含 `daily14`/`recent` 扩展）、`GET /api/analytics/error-tags` | 用户时区日界；disputed 批注排除 | `AnalyticsControllerTest`（切片：匿名 401、§7.1/§7.2 信封、参数透传、非法日期 40000、空 items=[]）；`AnalyticsIntegrationTest`（真实 MySQL：聚合对拍、dispute 排除、from/to 闭区间上限 92 天） |
+| Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 | `ImportBatchControllerTest`（切片：匿名 401/非管理员 403、multipart 绑定与缺参 40000、缺请求体 40001、40405/40904、PageResponse 信封）；`ImportBatchServiceIntegrationTest`（真实 MySQL：五端点语义、commit 原子性（回写失败整体回滚可恢复）、COMMITTING 残留对账收敛、重复 commit 幂等、回滚 tombstone） |
 | Admin | `GET /api/admin/overview`、`GET /api/admin/users`、`PATCH /api/admin/users/{id}/status`、`PATCH /api/admin/users/{id}/role`、`POST /api/admin/invites`、`GET /api/admin/invites`（011-a） | 概览聚合（活跃=attempts 当日去重用户，UTC 日界）、用户检索分页、启停/改角色（审计经 `OperationLogContext`）、邀请码生成（明文一次性）/前缀列表 | `AdminOverviewControllerTest`、`AdminUserControllerTest`、`AdminInviteControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse 形状、reason 越界 40000、40001、审计上下文断言）；service 分支另由 `UserAccountServiceImplTest`（自己停自己/自己降自己/邀请码哈希落库）、`AdminOverviewServiceImplTest`（补 0 与活动组装）覆盖 |
 | Admin | `GET/POST /api/admin/banks`、`GET/PATCH/DELETE /api/admin/banks/{bankId}`、`GET /api/admin/banks/{bankId}/sentences`、`GET /api/admin/sentences`、`POST /api/admin/sentences/bulk-status`、`POST /api/admin/sentences/bulk-move`、`PATCH /api/admin/sentences/{sentenceId}/status`、`PATCH /api/admin/sentences/{sentenceId}`（011-b） | 题库检索/新建/详情/部分更新/软删（状态流转 RECYCLED，恢复清 `deleted_at`）、题库内与跨题库题目检索（跨题库缺省隐藏回收站）、批量状态/移动（单事务；不存在的 id 与无变化 id 跳过、计数如实返回；每题递增银行修订号；移动预检指纹冲突 40000）、单题状态流转（幂等不推进）、行内编辑（zh/level/tags/note 走新版本行并回填指纹/content_hash，bankId/status 走元字段；编辑先于移动，预检用新指纹） | `AdminBankControllerTest`、`AdminSentenceControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse/SentenceView 形状、reason/ids/zh 校验 40000、缺体 40001、40401/40402、审计上下文断言）；批量与列表/编辑语义另由 `ContentAdminServiceImplTest`（每题递增版本、悲观锁按题库 id 升序、跳过语义、恢复清软删、版本字段新版本行、非法枚举 40000/分页 40004）覆盖 |
 | Admin | `GET /api/admin/audit-logs`、`GET /api/admin/error-logs`、`GET /api/admin/error-logs/{id}`、`POST /api/admin/generation/import`、`POST /api/admin/audit-events`（012） | 操作日志/异常日志检索（分区表强制时间兜底：from/to 缺省近 30 天；size 上限 100 越界归 100；keyword LIKE 转义纯 contains；异常列表剥离 stackTrace、详情含堆栈缺失 40400）、出题导入（复用 content 导入接缝，指纹去重 40904 整批回滚，行校验与文件导入同口径、拼接比对按前端 normLoose 宽松归一，不建 upload 批次）、审计事件（动作白名单防污染，返回字符串 id） | `AdminAuditLogControllerTest`、`AdminErrorLogControllerTest`、`AdminGenerationControllerTest`、`AdminAuditEventControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse/批次视图形状、stackTrace 剥离与详情、审计上下文/字符串 id 断言）；服务层分支另由 `AdminLogServiceImplTest`（时间兜底/转义/size 归一/40000/40400）、`AdminGenerationServiceImplTest`（行校验 fail-fast/接缝透传/40904 上抛）、`AdminAuditEventServiceImplTest`（白名单/行形状）覆盖；题库「空串清空说明」契约由 `ContentAdminServiceImplTest` 补测（012 AC-5） |
-| Admin/Practice | `POST /api/admin/fsrs/optimize`、`GET /api/admin/fsrs/parameters`、`POST /api/admin/fsrs/parameters/{id}/enable`（014/M2.1） | FSRS 参数版本管理：SGD 优化读指定用户 review_logs 产 GLOBAL CANDIDATE（样本 <50 40000 拒绝、metrics 携训练摘要）、版本列表、启用状态机（仅 CANDIDATE；旧 ACTIVE bulk UPDATE 即时退役防 uk 撞键；审计 FSRS_OPTIMIZE/FSRS_ENABLE）；启用后调度消费新权重（§6.1 四分支参数换源，原型种子逐值不变） | `AdminFsrsControllerTest`（切片：匿名 401/非管理员 403、40000/40001/41500、信封与视图形状、审计注解口径）；`FsrsAdminIntegrationTest`（真实 MySQL：真实日志训练产 CANDIDATE、样本不足不落行、启用状态机/40000/40400、启用后失败排程 stability=w[0]/difficulty=w[4] 且 weights_version_id 绑新版本）；优化器数学另由 `FsrsOptimizerTest`（FSRS-6 闭式/BCE 手算对拍、合成数据收敛）覆盖 |
+| Admin/Practice | `POST /api/admin/fsrs/optimize`、`GET /api/admin/fsrs/parameters`、`POST /api/admin/fsrs/parameters/{id}/enable`（014/M2.1） | FSRS 参数版本管理：SGD 优化读指定用户 review_logs 产 GLOBAL CANDIDATE（样本 <50 40000 拒绝、metrics 携训练摘要）、版本列表、启用状态机（仅 CANDIDATE；旧 ACTIVE bulk UPDATE 即时退役防 uk 撞键；审计 FSRS_OPTIMIZE/FSRS_ENABLE）；启用后调度消费新权重（§6.1 四分支参数换源，原型种子逐值不变） | `AdminFsrsControllerTest`（切片：匿名 401/非管理员 403、40000/40001/41500、信封与视图形状、审计注解口径）；`FsrsAdminIntegrationTest`（真实 MySQL：真实日志训练产 CANDIDATE、样本不足不落行、启用状态机/40000/40400、启用后失败排程 stability=w[0]/difficulty=w[4] 且 weights_version_id 绑新版本）；`AdminFsrsControllerTest` 补 optimize 限流注解契约（ACCOUNT 5/60s）；优化器数学另由 `FsrsOptimizerTest`（FSRS-6 闭式/BCE 手算对拍、合成数据收敛）覆盖 |
 | 运维 | `/actuator/health` | 非业务 | `AuthFlowIntegrationTest`（healthIsPublicAndUp） |
 
 ### 10.2 过渡实现（不纳入冻结契约）
@@ -1875,6 +1883,7 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 | 2026-10-31 | v0.3.1 | DoD 接口级测试补全：§10.1 新增「接口级测试」列（`AnalyticsControllerTest`、`ImportBatchControllerTest`、`MeControllerTest` 新建；`PracticeControllerTest` 补 next/getAttempt/reviews/reset/overload/postpone；`AuthFlowIntegrationTest` 补 register/password 真实 HTTP），矩阵与测试一一对应 | 测试工程师 |
 | 2026-11-01 | v0.3.2 | 011-a 管理端用户域落地：§8.1–8.3 改 implemented（§8.2 审计 action 修正为 USER_STATUS_CHANGE、refresh 会话语义对齐实现），新增 §8.9 概览与 §8.10 邀请码（GET 列表改回 codePrefix，明文仅 POST 一次性返回）；§10.1 矩阵补 Admin 行（AdminOverview/User/Invite ControllerTest + UserAccountServiceImplTest/AdminOverviewServiceImplTest） | 实现工程师 |
 | 2026-11-02 | v0.6 | 012 管理端收尾波次：§8.4–8.6 改 implemented（检索语义落地：分区表 from/to 缺省兜底近 30 天、size 越界归 100、keyword LIKE 转义、异常列表剥离 stackTrace、详情缺失 40400、原 planned 的 targetType/targetId 查询参数不实现）；新增 §8.11 出题导入（复用 content 导入接缝、指纹去重 40904、不建 upload 批次、审计 GENERATION_IMPORT）与 §8.12 audit-events（动作白名单、返回字符串 id）；§3 矩阵、§10.1/10.3/10.4 同步；题库「空串清空说明」契约随 AC-5 真实生效（§8.8 既有描述落地，前端不再把空说明归一为 null） | 实现工程师 |
+| 2026-11-04 | v0.7 | 015 修复轮（后端）：§5 限流口径（banks 读 IP 120/60s）、§4.2 login 限流勘误 10/min(IP+账号)、§4.8 guest-upgrade 并发竞态 40900/40903、§6.1 bankId 前置校验 40401 与 excludeIds ≤100、§6.2 并发同 attemptId 幂等收敛、§7.1/§7.2 区间上限 92 天与用户时区日界口径、§8.4/§8.5 from/to 改按管理员本地日界（yilian.admin.day-zone，默认 Asia/Shanghai）、§5.5 commit 单事务原子化与 COMMITTING 对账恢复、§8.13 fsrs/optimize 限流 5/min 与样本上限 5000；§10.1 矩阵补 `LikeEscapeIntegrationTest`/`PracticeDtoContractTest` 与各集成测试新增断言 | 实现工程师 |
 | 2026-11-03 | v0.7 | 014/M2.1 第一步：§6.1 D7 四参数服务端补齐（sentenceId 指定句优先 MANUAL/errors=1 错题池（与 §6.6 同口径，REVEAL 无错批注行不进池为与本地引擎的已登记偏差）/excludeIds 合并去重/tag JSON 精确匹配，非法值静默归一）；§10.1 同步 | 实现工程师 |
 | 2026-11-03 | v0.8 | 014/M2.1 第二步：新增 §8.13 admin/fsrs 三端点（SGD 优化产出 GLOBAL CANDIDATE、版本列表、启用状态机）；§10.1 同步 | 实现工程师 |
 
