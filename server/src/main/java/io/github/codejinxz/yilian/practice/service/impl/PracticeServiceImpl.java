@@ -263,6 +263,15 @@ public class PracticeServiceImpl implements PracticeService {
                         .findById(attemptId)
                         .filter(a -> a.getUserId().equals(userId))
                         .orElseThrow(() -> new BusinessException(ApiCode.ATTEMPT_NOT_FOUND));
+        // 回看统一口径（016 修复轮 2）：库可见或练习史豁免（本人已有卡），否则 40300——
+        // attempt 归属校验只保证「是本人提交」，不保证「当前仍可读该句内容」；无卡且库已转私的
+        // 提交回看不再回显参考译文与解析。submitAttempt 的幂等重放不走本判定：重放返回的是
+        // 提交时已交付过的判分结果，不构成新的内容访问。
+        SentenceDetail detail =
+                contentQueryService.findSentence(attempt.getSentenceId()).orElse(null);
+        if (detail != null && !accessibleForPractice(userId, detail)) {
+            throw new BusinessException(ApiCode.ACCESS_DENIED);
+        }
         return buildReplayView(attempt);
     }
 
@@ -475,11 +484,13 @@ public class PracticeServiceImpl implements PracticeService {
     }
 
     /**
-     * 题目校验：存在、可练（已发布未删）、所属库对当前用户可见、版本一致。
+     * 题目校验：存在、可练（已发布未删）、所属库对当前用户可访问、版本一致。
      *
-     * <p>可见性在版本校验之前判定（016 P0-1c）：库不可见（私有库非本人、匿名访问私有库、库未发布/已软删） 统一回 40300，不区分不可见原因、不回显句子内容——
-     * 「原文默认不可见」红线；题库所有者对自己私有库的题目提交不受影响。 40300 而非 40402 的取舍：交卷请求已携带具体题目，不可见属访问控制失败而非资源缺失， 统一码避免用
-     * 40401/40402 的区分反推库的存在性与发布状态。
+     * <p>可访问性在版本校验之前判定（016 P0-1c / 修复轮 2 统一口径）：库可见，或练习史豁免（本人已有该句
+     * 复习卡）。不可访问（私有库非本人、匿名访问私有库、库未发布/已软删，且无练习史） 统一回
+     * 40300，不区分不可访问原因、不回显句子内容——「原文默认不可见」红线；题库所有者对自己私有库的 题目提交不受影响。40300 而非 40402
+     * 的取舍：交卷请求已携带具体题目，不可访问属访问控制失败而非资源缺失， 统一码避免用 40401/40402 的区分反推库的存在性与发布状态。回收句在 practiceable 过滤处即
+     * 40402， 练习史豁免不适用于「句被回收」（见 {@link #practiceHistoryExempt}）。
      *
      * @param userId 当前用户 id
      * @param command 提交命令
@@ -491,13 +502,58 @@ public class PracticeServiceImpl implements PracticeService {
                         .findSentence(command.sentenceId())
                         .filter(SentenceDetail::practiceable)
                         .orElseThrow(() -> new BusinessException(ApiCode.SENTENCE_NOT_FOUND));
-        if (!contentQueryService.isBankVisibleToUser(Long.parseLong(detail.bankId()), userId)) {
+        if (!accessibleForPractice(userId, detail)) {
             throw new BusinessException(ApiCode.ACCESS_DENIED);
         }
         if (!command.sentenceVersionId().equals(detail.sentenceVersionId())) {
             throw new BusinessException(ApiCode.SENTENCE_NOT_FOUND, "题目版本与当前版本不一致");
         }
         return detail;
+    }
+
+    /**
+     * 练习端句级可访问性统一口径（016 修复轮 2 监督者裁决）：库可见，或练习史豁免（本人已有该句复习卡）。
+     *
+     * <p>五条练习路径统一：交卷（{@link #requirePracticeableSentence}）、MANUAL 指定句、DUE 到期召回、 错题池、getAttempt
+     * 回看。其中 DUE/错题池的候选本就来自本人复习卡（ {@code findDue/findLearning} 按 userId 过滤），豁免条件按构造成立，不做逐行复检；
+     * getAttempt 在入口做一次判定（见 {@link #getAttempt}）。豁免只针对「库 visibility 变化」，不豁免「句被回收」——回收句由各路径既有的
+     * practiceable 过滤排除，本判定不绕过它们。
+     *
+     * @param userId 当前用户 id
+     * @param detail 题目详情（调用方已过 practiceable 过滤或明确需要判定内容可读性）
+     * @return 可访问返回 true
+     */
+    private boolean accessibleForPractice(Long userId, SentenceDetail detail) {
+        Long bankId = parseBankIdQuietly(detail.bankId());
+        return (bankId != null && contentQueryService.isBankVisibleToUser(bankId, userId))
+                || practiceHistoryExempt(userId, detail.id());
+    }
+
+    /**
+     * 练习史豁免判定：本人已有该句复习卡即视为已获得过该内容的练习授权。 题库事后转为私有时，已有练习史的用户可继续到期复习、错题重练、交卷与回看， 消除「列表里看得到、交卷被 40300
+     * 拒」的断链；无卡且库不可见则保持各路径既有拒绝语义。 一句一卡（{@code uk_review_card (user_id, sentence_id)}）保证判定稳定。
+     *
+     * @param userId 当前用户 id
+     * @param sentenceId 题目 id
+     * @return 本人已有复习卡返回 true
+     */
+    private boolean practiceHistoryExempt(Long userId, String sentenceId) {
+        return reviewDao.findByUserIdAndSentenceId(userId, sentenceId).isPresent();
+    }
+
+    /**
+     * 题库 id 字符串安全解析（016 修复轮 2 minor 防御）：detail.bankId 理论上恒为数字（实体 Long 的 字符串化），脏数据时按「库不可见」静默处理，与
+     * NextQuery 的归一语义一致，不把解析异常放大成 500。
+     *
+     * @param bankId 题库 id 字符串
+     * @return 数值 id；非数字返回 null
+     */
+    private static Long parseBankIdQuietly(String bankId) {
+        try {
+            return Long.parseLong(bankId);
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     /**
@@ -813,8 +869,9 @@ public class PracticeServiceImpl implements PracticeService {
             contentQueryService.requireVisibleBank(query.bankId(), userId);
         }
         // 指定句优先（复习页「重练」/下一步训练的显式动作）：命中且可练直接返回，
-        // 忽略 bankId/tag/exclude/errors；找不到（已删/不可练）退回常规取题，不 404，
-        // 避免死链把练习页打成空白。有卡即 MANUAL（含重置后的 NEW 卡），无卡是首练按 NEW。
+        // 忽略 bankId/tag/exclude/errors；找不到（已删/不可练）或不可访问（库不可见且无练习史）
+        // 退回常规取题，不 404，避免死链把练习页打成空白。有卡即 MANUAL（含重置后的 NEW 卡），
+        // 无卡是首练按 NEW。
         if (query.sentenceId() != null) {
             Optional<SentenceDetail> specified =
                     contentQueryService
@@ -822,11 +879,9 @@ public class PracticeServiceImpl implements PracticeService {
                             .filter(SentenceDetail::practiceable)
                             // 所属库对当前用户不可见（私有库非本人、匿名访问私有库、库未发布/已软删）
                             // 与「找不到」同语义：静默退回常规取题，不泄露句存在性，也不回显内容
-                            // （016 P0-1b 裁决；原文默认不可见红线）。
-                            .filter(
-                                    detail ->
-                                            contentQueryService.isBankVisibleToUser(
-                                                    Long.parseLong(detail.bankId()), userId));
+                            // （016 P0-1b 裁决；练习史豁免见 accessibleForPractice——本人已有卡仍可
+                            // 指定句重练，库转私不断已开始的练习）。
+                            .filter(detail -> accessibleForPractice(userId, detail));
             if (specified.isPresent()) {
                 Review card =
                         reviewDao
@@ -852,6 +907,8 @@ public class PracticeServiceImpl implements PracticeService {
         }
         // 到期复习优先：due_at 升序取第一张可练卡的题目；tag 与排除集合与本地引擎
         // pickNext 同口径（显式筛选同样约束到期召回）。bankId 不约束 DUE 为既有服务端行为。
+        // 练习史豁免（016 修复轮 2）：候选即本人复习卡，可访问性按构造成立——库转私不断
+        // 已开始的到期复习；回收句由 practiceable 过滤排除（tombstone 跳过），豁免不适用。
         for (Review card : reviewDao.findDue(userId, Instant.now())) {
             if (query.excludes(card.getSentenceId())) {
                 continue;
@@ -934,6 +991,9 @@ public class PracticeServiceImpl implements PracticeService {
      * 推的题不在错题列表里」的割裂。行级语义：最近一次判分未全对（REVEAL 的 null 分也算未全对）；
      * 批注全被「不认同」且无其他错误的题隐藏（includeDisputed=false 时），看答案无批注的行同样 不进池（与既有错题列表行为一致，这里与本地引擎/mock 的唯一偏差，已在
      * API §6.1 登记）。 顺序沿用 {@code findLearning} 的 dueAt 升序，同 dueAt 保持稳定序。
+     *
+     * <p>练习史豁免（016 修复轮 2）：池候选即本人复习卡，可访问性按构造成立——库转私不断 错题重练；回收句由 practiceable 过滤排除（tombstone
+     * 不进池），豁免不适用。
      *
      * @param userId 用户 id
      * @param bankId 题库过滤，可空

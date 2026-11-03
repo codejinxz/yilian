@@ -297,7 +297,15 @@ public class UserAccountServiceImpl implements UserAccountService {
                 && appUserDao.countActiveAdminsForUpdate() <= 1) {
             throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "不能降级最后一个管理员");
         }
+        UserRole previousRole = target.getRole();
         target.changeRole(nextRole);
+        // 降级即吊销该用户全部 refresh 会话（016 修复轮 2，与 adminSetStatus 同款）：ADMIN 的
+        // access token 最长还有 10–15 分钟窗口，refresh 会话若保留，泄露的 cookie 在降级后仍可
+        // 静默续期；吊销强制重新登录，权限收敛即时生效。仅 ADMIN→非 ADMIN 触发——平调与升级
+        // 不收缩权限，不扰动会话；同角色重复提交无状态变化，同样不吊销。
+        if (previousRole == UserRole.ADMIN && nextRole != UserRole.ADMIN) {
+            revokeRefreshSessions(target.getUsername());
+        }
         return AdminUserView.from(appUserDao.save(target));
     }
 

@@ -929,6 +929,113 @@ class PracticeFlowIntegrationTest {
     }
 
     /**
+     * [AC-2] 练习史豁免（016 修复轮 2）：库转私后，本人已有卡的句子可继续 DUE 取题、交卷、回看—— 消除「列表里看得到、交卷被 40300
+     * 拒」的断链；无卡的本人在同库被拒、他人同样不可见； 回收句豁免不适用——本人有卡也照样被练习端排除（DUE 不出、MANUAL 退回、交卷 40402）。
+     */
+    @Test
+    @DisplayName("[AC-2] 练习史豁免：转私后本人可续练、无卡与他人被拒、回收句仍排除")
+    void ac2_practiceHistoryExemptWhenBankTurnsPrivate() {
+        // 公开官方题库（owner=NULL）导入两句；user 8 练错第一句（有卡），第二句不练（无卡）。
+        List<ImportedSentence> sentences = seedBankWithSentences(9008L, 2);
+        ImportedSentence practiced = sentences.get(0);
+        ImportedSentence untouched = sentences.get(1);
+        AttemptView historyAttempt =
+                practiceService.submitAttempt(USER_ID, failedFirstFor(practiced));
+        // 库转私有（owner 仍为 NULL）：对非 owner 一律不可见。
+        jdbcTemplate.update("UPDATE sentence_banks SET visibility = 'PRIVATE' WHERE id = 9008");
+
+        // 本人（有卡）：交卷放行（练习史豁免），新 attempt 正常落库排程。
+        AttemptView continued = practiceService.submitAttempt(USER_ID, failedFirstFor(practiced));
+        assertThat(continued.replayed()).isFalse();
+        assertThat(continued.score()).isEqualTo(0);
+        assertThat(continued.review().state()).isEqualTo("LEARNING");
+        // 本人（有卡）：回看放行，幂等重放语义完整。
+        AttemptView replayed = practiceService.getAttempt(USER_ID, historyAttempt.attemptId());
+        assertThat(replayed.replayed()).isTrue();
+        assertThat(replayed.attemptId()).isEqualTo(historyAttempt.attemptId());
+        // 本人（有卡）：DUE 可取——卡到期时间拨到过去后 next 返回该句。
+        jdbcTemplate.update(
+                "UPDATE reviews SET due_at = DATE_SUB(NOW(6), INTERVAL 1 MINUTE)"
+                        + " WHERE sentence_id = ?",
+                practiced.sentenceId());
+        NextPracticeView due =
+                practiceService.next(
+                        USER_ID, NextQuery.normalize(null, null, null, null, null, null));
+        assertThat(due.selection()).isEqualTo("DUE");
+        assertThat(due.sentence().id()).isEqualTo(practiced.sentenceId());
+
+        // 本人（无卡）对同库另一句：交卷 40300；MANUAL 指定句静默退回（不回显该句）。
+        assertThatThrownBy(() -> practiceService.submitAttempt(USER_ID, failedFirstFor(untouched)))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode()).isEqualTo(ApiCode.ACCESS_DENIED));
+        NextPracticeView manualFallback =
+                practiceService.next(
+                        USER_ID,
+                        NextQuery.normalize(null, untouched.sentenceId(), null, null, null, null));
+        assertThat(manualFallback).isNotNull();
+        assertThat(manualFallback.sentence().id()).isNotEqualTo(untouched.sentenceId());
+
+        // 他人（user 9，无卡）：交卷 40300；通用新题流不出现该库句子（候选 SQL 可见性过滤）。
+        assertThatThrownBy(() -> practiceService.submitAttempt(OWNER_ID, failedFirstFor(practiced)))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode()).isEqualTo(ApiCode.ACCESS_DENIED));
+        assertThat(
+                        contentQueryService
+                                .findPracticeCandidates(
+                                        OWNER_ID, null, java.util.List.of(), null, 50)
+                                .stream()
+                                .map(SentenceDetail::id)
+                                .toList())
+                .doesNotContain(practiced.sentenceId(), untouched.sentenceId());
+
+        // 回收句：豁免不适用——本人有卡也被练习端排除。DUE 跳过 tombstone、MANUAL 退回、交卷 40402。
+        jdbcTemplate.update(
+                "UPDATE sentences SET status = 'RECYCLED', deleted_at = NOW(6), deleted_by = 1"
+                        + " WHERE id = ?",
+                practiced.sentenceId());
+        // 通用取题:到期卡指向回收句被跳过,落到公开题库候选,回收句不再出现。
+        NextPracticeView afterRecycle =
+                practiceService.next(
+                        USER_ID, NextQuery.normalize(null, null, null, null, null, null));
+        assertThat(afterRecycle).isNotNull();
+        assertThat(afterRecycle.sentence().id()).isNotEqualTo(practiced.sentenceId());
+        // 显式 bankId 的入口校验按库判定、不豁免:私有库非 owner 一律 40300(与 016-1 口径一致)。
+        assertThatThrownBy(
+                        () ->
+                                practiceService.next(
+                                        USER_ID,
+                                        NextQuery.normalize(9008L, null, null, null, null, null)))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode()).isEqualTo(ApiCode.ACCESS_DENIED));
+        assertThat(
+                        practiceService
+                                .next(
+                                        USER_ID,
+                                        NextQuery.normalize(
+                                                null,
+                                                practiced.sentenceId(),
+                                                null,
+                                                null,
+                                                null,
+                                                null))
+                                .sentence()
+                                .id())
+                .isNotEqualTo(practiced.sentenceId());
+        assertThatThrownBy(() -> practiceService.submitAttempt(USER_ID, failedFirstFor(practiced)))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode())
+                                        .isEqualTo(ApiCode.SENTENCE_NOT_FOUND));
+    }
+
+    /**
      * [AC-3] 新题召回下推（016 P1）：25 句、前 20 句全部入队（LEARNING）后，next 仍能返回第 21 句—— 「未入队」在 SQL 过滤，LIMIT 20
      * 只作用于过滤后的窗口，不再被已练句子永久占满。
      */

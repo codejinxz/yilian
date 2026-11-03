@@ -241,6 +241,33 @@ class UserAccountServiceImplTest {
         assertThat(captor.getValue().getRole()).isEqualTo(UserRole.USER);
     }
 
+    /** [AC-3] ADMIN→USER 降级即按用户名吊销全部 refresh 会话（016 修复轮 2，与停用同款）：降级后泄露的旧 cookie 不得静默续期。 */
+    @Test
+    void adminSetRoleDemotionRevokesRefreshSessions_ac3() {
+        when(appUserDao.findById(3L)).thenReturn(Optional.of(adminUser(3L, "deputy")));
+        when(appUserDao.countActiveAdminsForUpdate()).thenReturn(2L);
+        when(appUserDao.save(any(AppUser.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.adminSetRole(1L, 3L, "USER", "降级");
+
+        verify(refreshSessions).findByPrincipalName("deputy");
+        verify(appUserDao).save(any(AppUser.class));
+    }
+
+    /** [AC-3] 平调/升级不吊销：USER→ADMIN 不收缩权限，不发起会话删除。 */
+    @Test
+    void adminSetRolePromotionDoesNotRevokeSessions_ac3() {
+        when(appUserDao.findById(3L)).thenReturn(Optional.of(user(3L, "learner")));
+        when(appUserDao.save(any(AppUser.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.adminSetRole(1L, 3L, "ADMIN", "接手运营");
+
+        verify(refreshSessions, never())
+                .findByPrincipalName(org.mockito.ArgumentMatchers.anyString());
+    }
+
     /** [AC-5] 停用最后一个管理员同样走行锁计数并拒绝（同一竞态的另一半）。 */
     @Test
     void adminSetStatusRejectsDisablingLastAdmin_ac5() {
