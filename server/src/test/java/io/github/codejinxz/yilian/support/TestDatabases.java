@@ -13,8 +13,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * {@code Unknown database} 失败（06 评审 #03）；同时各测试类各自硬编码数据源，本机 root 口令被复制了 10 份（06 评审
  * #01/#07）。现在数据源统一由入库的 {@code application-test.yml} 按环境变量提供，本类只负责 在 Spring 上下文启动前把测试库建出来。
  *
- * <p><strong>前置条件</strong>：可用的 MySQL 8 实例与 {@code YILIAN_TEST_DB_*} 环境变量
- * （口令必填，无默认值）。不满足时显式失败并给出可操作的提示——刻意不 skip，避免集成测试 被静默跳过。
+ * <p><strong>前置条件</strong>：可用的 MySQL 8 实例。凭据按「环境变量 &gt; 文档化 dev 默认值」 读取（与 application-test.yml
+ * 同步）：未设置 {@code YILIAN_TEST_DB_*} 时回落到本机开发默认 {@code root / 123456}——该值是 AGENTS §3.4 允许的**文档化本机 dev
+ * 凭据，不是机密**，仅限 本机开发，禁止复用到共享/生产环境；CI 必须用 {@code YILIAN_TEST_DB_PASSWORD} 覆盖注入。 MySQL
+ * 不可达时显式失败并给出可操作的提示——刻意不 skip，避免集成测试被静默跳过。
  */
 public final class TestDatabases {
 
@@ -27,8 +29,8 @@ public final class TestDatabases {
     /** 测试库账号。 */
     private static final String USERNAME = env("YILIAN_TEST_DB_USERNAME", "root");
 
-    /** 测试库口令；无默认值，缺失时按「凭据不可用」显式失败。 */
-    private static final String PASSWORD = System.getenv("YILIAN_TEST_DB_PASSWORD");
+    /** 测试库口令；缺省回落到文档化的本机 dev 默认值（非机密，仅限本机开发，禁止复用到 共享/生产；CI 必须用环境变量覆盖注入随机口令）。 */
+    private static final String PASSWORD = env("YILIAN_TEST_DB_PASSWORD", "123456");
 
     /** 测试库名。 */
     private static final String DATABASE = env("YILIAN_TEST_DB_NAME", "yilian_test");
@@ -46,19 +48,13 @@ public final class TestDatabases {
     /**
      * 幂等创建测试库；同 JVM 内多个测试类共享，只建一次。
      *
-     * <p>连接失败或口令缺失时抛出带修复指引的异常，让「环境没准备好」在类加载阶段显式失败， 而不是被误读为业务缺陷。
+     * <p>连接失败时抛出带修复指引的异常，让「环境没准备好」在类加载阶段显式失败， 而不是被误读为业务缺陷。
      *
-     * @throws IllegalStateException MySQL 不可达、凭据缺失或建库失败
+     * @throws IllegalStateException MySQL 不可达或建库失败
      */
     public static void ensureDatabase() {
         if (!ENSURED.compareAndSet(false, true)) {
             return;
-        }
-        if (PASSWORD == null || PASSWORD.isBlank()) {
-            throw new IllegalStateException(
-                    "集成测试缺少 MySQL 口令：请设置环境变量 YILIAN_TEST_DB_PASSWORD"
-                            + "（本机为 root 的真实口令，CI 由 workflow 注入），"
-                            + "详见 docs/BOOTSTRAP.md §5；集成测试不会跳过");
         }
         String serverUrl = "jdbc:mysql://" + HOST + ":" + PORT + "/?" + PARAMETERS;
         try (Connection connection = DriverManager.getConnection(serverUrl, USERNAME, PASSWORD);
@@ -77,8 +73,9 @@ public final class TestDatabases {
                             + USERNAME
                             + "）或无法创建测试库 "
                             + DATABASE
-                            + "；集成测试要求可用的 MySQL 与 YILIAN_TEST_DB_* 凭据"
-                            + "（详见 docs/BOOTSTRAP.md §5），不会跳过",
+                            + "；本机默认按文档化 dev 凭据 root/123456 连接，"
+                            + "可用 YILIAN_TEST_DB_* 环境变量覆盖（详见 docs/BOOTSTRAP.md §5）；"
+                            + "集成测试不会跳过",
                     exception);
         }
     }

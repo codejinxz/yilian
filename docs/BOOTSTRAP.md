@@ -222,13 +222,16 @@ git status --short
 
 - `mvn test` 会真实运行本机 MySQL 集成测试，不依赖 Docker / Testcontainers，也不 skip。
   测试使用独立库 `yilian_test`，不会读写开发库 `yilian`；数据源与 bootstrap/JWT 值统一由
-  随代码入库的 `server/src/test/resources/application-test.yml` 按 `YILIAN_TEST_DB_HOST`、
-  `YILIAN_TEST_DB_PORT`、`YILIAN_TEST_DB_USERNAME`、`YILIAN_TEST_DB_PASSWORD`、
-  `YILIAN_TEST_DB_NAME` 环境变量提供，仓库内不出现任何真实口令（016 P0 收敛）。
-  本机运行前至少设置口令（PowerShell，随 shell 会话生效）：
-  `$env:YILIAN_TEST_DB_PASSWORD = '<本机 MySQL root 口令>'`。
-- 前置条件：可用的 MySQL 测试实例与上述凭据；缺失或不可达时集成测试会在建库阶段
-  **显式失败并给出修复指引**（不是 skip）。集成测试关闭了 Redis 健康检查，不需要 Redis。
+  随代码入库的 `server/src/test/resources/application-test.yml` 提供，并按
+  `YILIAN_TEST_DB_HOST`、`YILIAN_TEST_DB_PORT`、`YILIAN_TEST_DB_USERNAME`、
+  `YILIAN_TEST_DB_PASSWORD`、`YILIAN_TEST_DB_NAME` 环境变量覆盖。测试库口令分三层
+  （016 裁决）：**本机**缺省回落到文档化的 dev 默认值 `root / 123456`（本机即开即测；
+  该值是 AGENTS §3.4 允许的公开文档化本机开发凭据，不是机密）；**开发者**可用上述环境
+  变量覆盖（PowerShell：`$env:YILIAN_TEST_DB_PASSWORD = '<本机 MySQL root 口令>'`）；
+  **CI** 必须用 `YILIAN_TEST_DB_PASSWORD` 注入每次运行的随机口令。dev 默认值仅限本机
+  开发，禁止复用到共享/生产环境。
+- 前置条件：可用的 MySQL 测试实例；不可达时集成测试会在建库阶段**显式失败并给出修复
+  指引**（不是 skip）。集成测试关闭了 Redis 健康检查，不需要 Redis。
 - 本机 MySQL/Redis 可用时，更直接的验收是 `application-local` 启动后按第 4 节 curl。
 - 首次 `mvnw` 会下载 Maven 与依赖，耗时取决于网络；Docker Compose 仅作为可选基础设施，
   需要单独提供数据库密码环境变量。

@@ -6,10 +6,12 @@
 # CI 干净检出上必然失败；且 10 个测试类硬编码本机 MySQL root 口令，违反
 # AGENTS §3「密钥不入库」。
 #
-# 使用方式：测试类统一 @ActiveProfiles("test")，数据源与口令全部走环境变量；
-# 本机运行前设置 YILIAN_TEST_DB_PASSWORD（见 docs/BOOTSTRAP.md §5），
-# CI 由 workflow 注入。口令无默认值：缺失时连接失败并显式报错，而不是把任何
-# 真实口令写进仓库。这里的默认值全部是「仅测试库可见」的无害占位值。
+# 使用方式：测试类统一 @ActiveProfiles("test")，数据源与口令全部按「环境变量 >
+# 文档化 dev 默认值」读取。口令分三层（016 裁决）：本机缺省回落到文档化的 dev
+# 默认值 root/123456（本机即开即测；该值是 AGENTS §3.4 允许的公开文档化本机
+# 开发凭据，不是机密）；开发者可用 YILIAN_TEST_DB_* 覆盖；CI 必须用
+# YILIAN_TEST_DB_PASSWORD 注入每次运行的随机口令。dev 默认值仅限本机开发，
+# 禁止复用到共享/生产环境。
 # ---------------------------------------------------------------------------
 spring:
   datasource:
@@ -17,8 +19,9 @@ spring:
     # 开发库口径一致（UTC 会话时区）。
     url: jdbc:mysql://${YILIAN_TEST_DB_HOST:localhost}:${YILIAN_TEST_DB_PORT:3306}/${YILIAN_TEST_DB_NAME:yilian_test}?useUnicode=true&characterEncoding=utf8&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&allowPublicKeyRetrieval=true&useSSL=false
     username: ${YILIAN_TEST_DB_USERNAME:root}
-    # 刻意不设默认口令：无库无凭据时显式失败（测试基建要求，不是 skip）。
-    password: ${YILIAN_TEST_DB_PASSWORD:}
+    # 缺省回落到文档化的本机 dev 默认值（非机密，仅限本机开发；CI 必须用环境变量
+    # 覆盖注入随机口令），与 TestDatabases 的建库连接同源。
+    password: ${YILIAN_TEST_DB_PASSWORD:123456}
 
 server:
   servlet:
