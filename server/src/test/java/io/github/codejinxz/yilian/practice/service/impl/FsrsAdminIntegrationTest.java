@@ -15,6 +15,7 @@ import io.github.codejinxz.yilian.practice.service.dto.AnswerPayload;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
 import io.github.codejinxz.yilian.practice.service.vo.FsrsParameterVersionView;
+import io.github.codejinxz.yilian.support.TestDatabases;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,8 +25,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import tools.jackson.databind.ObjectMapper;
 
@@ -46,10 +45,9 @@ import java.util.UUID;
         properties = {
             "yilian.ratelimit.enabled=false",
             "yilian.security.captcha.enabled=false",
-            "management.health.redis.enabled=false",
-            "yilian.security.jwt.secret=test-only-yilian-jwt-secret-0123456789abcdef"
+            "management.health.redis.enabled=false"
         })
-@ActiveProfiles("local")
+@ActiveProfiles("test")
 class FsrsAdminIntegrationTest {
 
     private static final Timestamp T0 = Timestamp.valueOf(LocalDateTime.of(2026, 10, 29, 12, 0, 0));
@@ -82,17 +80,8 @@ class FsrsAdminIntegrationTest {
 
     private Long seedVersionId;
 
-    /** 测试库指向本机 yilian_test。 */
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add(
-                "spring.datasource.url",
-                () ->
-                        "jdbc:mysql://localhost:3306/yilian_test?useUnicode=true&characterEncoding=utf8"
-                                + "&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true"
-                                + "&allowPublicKeyRetrieval=true&useSSL=false");
-        registry.add("spring.datasource.username", () -> "root");
-        registry.add("spring.datasource.password", () -> "123456");
+    static {
+        TestDatabases.ensureDatabase();
     }
 
     @BeforeEach

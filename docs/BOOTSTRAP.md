@@ -221,13 +221,14 @@ git status --short
 说明：
 
 - `mvn test` 会真实运行本机 MySQL 集成测试，不依赖 Docker / Testcontainers，也不 skip。
-  当前存在 7 个已知 Error（upload→preview/commit 重构半成品导致 `import_batch` 表缺失），
-  属存量问题，修复见 `docs/GAP-ANALYSIS.md` 当前状态。测试使用独立库 `yilian_test`，不会读写开发库
-  `yilian`；默认以 `root / 123456` 连接 `localhost:3306`，可用
-  `YILIAN_TEST_DB_HOST`、`YILIAN_TEST_DB_PORT`、`YILIAN_TEST_DB_USERNAME`、
-  `YILIAN_TEST_DB_PASSWORD`、`YILIAN_TEST_DB_NAME` 覆盖。
-- 前置条件：可用的 MySQL 测试实例；不满足时该集成测试会直接失败（不是 skip）。集成测试关闭了
-  Redis 健康检查，不需要 Redis。
+  测试使用独立库 `yilian_test`，不会读写开发库 `yilian`；数据源与 bootstrap/JWT 值统一由
+  随代码入库的 `server/src/test/resources/application-test.yml` 按 `YILIAN_TEST_DB_HOST`、
+  `YILIAN_TEST_DB_PORT`、`YILIAN_TEST_DB_USERNAME`、`YILIAN_TEST_DB_PASSWORD`、
+  `YILIAN_TEST_DB_NAME` 环境变量提供，仓库内不出现任何真实口令（016 P0 收敛）。
+  本机运行前至少设置口令（PowerShell，随 shell 会话生效）：
+  `$env:YILIAN_TEST_DB_PASSWORD = '<本机 MySQL root 口令>'`。
+- 前置条件：可用的 MySQL 测试实例与上述凭据；缺失或不可达时集成测试会在建库阶段
+  **显式失败并给出修复指引**（不是 skip）。集成测试关闭了 Redis 健康检查，不需要 Redis。
 - 本机 MySQL/Redis 可用时，更直接的验收是 `application-local` 启动后按第 4 节 curl。
 - 首次 `mvnw` 会下载 Maven 与依赖，耗时取决于网络；Docker Compose 仅作为可选基础设施，
   需要单独提供数据库密码环境变量。

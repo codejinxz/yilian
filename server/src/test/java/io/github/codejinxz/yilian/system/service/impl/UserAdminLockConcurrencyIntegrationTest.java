@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
+import io.github.codejinxz.yilian.support.TestDatabases;
 import io.github.codejinxz.yilian.system.dao.AppUserDao;
 import io.github.codejinxz.yilian.system.entity.AppUser;
 import io.github.codejinxz.yilian.system.service.UserAccountService;
@@ -17,8 +18,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.util.List;
@@ -34,15 +33,12 @@ import java.util.concurrent.TimeUnit;
  * 「最后一个管理员」行锁的并发回归测试（013 AC-5）：真实 MySQL + 真实事务。
  *
  * <p>复刻真实竞态：两个管理员并发互降（A 降 B、B 降 A）。没有行锁时两个事务都读到 旧计数 2、都放行，出现 0 管理员状态；行锁实现下必然一先一后——后到者在 FOR UPDATE 上
- * 等待先者提交，读到最新计数 1 而被拒绝。测试库为 yilian_test（前置条件与其他集成测试一致： 本机 MySQL root/123456）。
+ * 等待先者提交，读到最新计数 1 而被拒绝。测试库为 yilian_test（前置条件与其他集成测试一致： YILIAN_TEST_DB_* 环境变量，见 docs/BOOTSTRAP.md
+ * §5）。
  */
 @SpringBootTest(
-        properties = {
-            "yilian.ratelimit.enabled=false",
-            "management.health.redis.enabled=false",
-            "yilian.security.jwt.secret=test-only-yilian-jwt-secret-0123456789abcdef"
-        })
-@ActiveProfiles("local")
+        properties = {"yilian.ratelimit.enabled=false", "management.health.redis.enabled=false"})
+@ActiveProfiles("test")
 class UserAdminLockConcurrencyIntegrationTest {
 
     private static final String ADMIN_USERNAME = "admin";
@@ -55,21 +51,8 @@ class UserAdminLockConcurrencyIntegrationTest {
 
     @Autowired private JdbcTemplate jdbcTemplate;
 
-    /**
-     * 测试库指向本机 yilian_test，不读写开发库。
-     *
-     * @param registry 动态属性注册表
-     */
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add(
-                "spring.datasource.url",
-                () ->
-                        "jdbc:mysql://localhost:3306/yilian_test?useUnicode=true&characterEncoding=utf8"
-                                + "&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true"
-                                + "&allowPublicKeyRetrieval=true&useSSL=false");
-        registry.add("spring.datasource.username", () -> "root");
-        registry.add("spring.datasource.password", () -> "123456");
+    static {
+        TestDatabases.ensureDatabase();
     }
 
     /**

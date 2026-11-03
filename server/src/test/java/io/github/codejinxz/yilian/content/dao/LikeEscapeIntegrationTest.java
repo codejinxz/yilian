@@ -9,6 +9,7 @@ import io.github.codejinxz.yilian.content.service.ContentImportService;
 import io.github.codejinxz.yilian.content.service.dto.SentenceContent;
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
 import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
+import io.github.codejinxz.yilian.support.TestDatabases;
 import io.github.codejinxz.yilian.system.dao.AppUserDao;
 import io.github.codejinxz.yilian.system.entity.UserRole;
 
@@ -21,8 +22,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
@@ -39,10 +38,9 @@ import java.util.List;
         properties = {
             "yilian.ratelimit.enabled=false",
             "yilian.security.captcha.enabled=false",
-            "management.health.redis.enabled=false",
-            "yilian.security.jwt.secret=test-only-yilian-jwt-secret-0123456789abcdef"
+            "management.health.redis.enabled=false"
         })
-@ActiveProfiles("local")
+@ActiveProfiles("test")
 class LikeEscapeIntegrationTest {
 
     private static final Timestamp T0 = Timestamp.valueOf(LocalDateTime.of(2026, 10, 29, 10, 0, 0));
@@ -57,21 +55,8 @@ class LikeEscapeIntegrationTest {
 
     @Autowired private JdbcTemplate jdbcTemplate;
 
-    /**
-     * 测试库指向本机 yilian_test。
-     *
-     * @param registry 动态属性注册表
-     */
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add(
-                "spring.datasource.url",
-                () ->
-                        "jdbc:mysql://localhost:3306/yilian_test?useUnicode=true&characterEncoding=utf8"
-                                + "&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true"
-                                + "&allowPublicKeyRetrieval=true&useSSL=false");
-        registry.add("spring.datasource.username", () -> "root");
-        registry.add("spring.datasource.password", () -> "123456");
+    static {
+        TestDatabases.ensureDatabase();
     }
 
     /** 清空相关表并播种含通配符字面量的行；append-only 触发器摘除与重建同口径。 */

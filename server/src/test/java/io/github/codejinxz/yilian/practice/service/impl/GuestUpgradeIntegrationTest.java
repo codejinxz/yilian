@@ -14,6 +14,7 @@ import io.github.codejinxz.yilian.practice.service.dto.AnswerPayload;
 import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
 import io.github.codejinxz.yilian.practice.service.dto.GuestUpgradeCommand;
 import io.github.codejinxz.yilian.practice.service.vo.GuestUpgradeView;
+import io.github.codejinxz.yilian.support.TestDatabases;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,8 +24,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
@@ -42,10 +41,9 @@ import java.util.UUID;
         properties = {
             "yilian.ratelimit.enabled=false",
             "yilian.security.captcha.enabled=false",
-            "management.health.redis.enabled=false",
-            "yilian.security.jwt.secret=test-only-yilian-jwt-secret-0123456789abcdef"
+            "management.health.redis.enabled=false"
         })
-@ActiveProfiles("local")
+@ActiveProfiles("test")
 class GuestUpgradeIntegrationTest {
 
     private static final Timestamp T0 = Timestamp.valueOf(LocalDateTime.of(2026, 10, 29, 12, 0, 0));
@@ -66,21 +64,8 @@ class GuestUpgradeIntegrationTest {
 
     private ImportedSentence seededB;
 
-    /**
-     * 测试库指向本机 yilian_test。
-     *
-     * @param registry 动态属性注册表
-     */
-    @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry registry) {
-        registry.add(
-                "spring.datasource.url",
-                () ->
-                        "jdbc:mysql://localhost:3306/yilian_test?useUnicode=true&characterEncoding=utf8"
-                                + "&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true"
-                                + "&allowPublicKeyRetrieval=true&useSSL=false");
-        registry.add("spring.datasource.username", () -> "root");
-        registry.add("spring.datasource.password", () -> "123456");
+    static {
+        TestDatabases.ensureDatabase();
     }
 
     /** 清库并播种用户与两题。 */
