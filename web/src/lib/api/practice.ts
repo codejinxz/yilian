@@ -17,7 +17,9 @@ import {
   reviewPageSchema,
   reviewSchema,
   type Today,
+  type TutorAskResponse,
   todaySchema,
+  tutorAskResponseSchema,
   wrongQuestionPageSchema,
 } from "@/lib/schemas/practice";
 import { jsonRequest, parseData, toQueryString } from "./shared";
@@ -270,4 +272,20 @@ export async function postponeReviews(reason?: string): Promise<PostponeView> {
     reason === undefined ? undefined : { reason },
   );
   return parseData(postponeViewSchema, data);
+}
+
+/**
+ * 题目答疑（API §6.12，017）：就当前句一问一答；回答必带免责标注。
+ * 未配置模型凭证返回 40400、答疑未开放返回 40304，调用方据 ApiError.code 分支处理。
+ * @param sentenceId 题目 id
+ * @param question 用户问题（1-500 字符；服务端同样校验）
+ * @returns 回答与免责标注
+ */
+export async function askTutor(sentenceId: string, question: string): Promise<TutorAskResponse> {
+  const data = await jsonRequest<unknown>(
+    `/practice/${encodeURIComponent(sentenceId)}/ask`,
+    "POST",
+    { question },
+  );
+  return parseData(tutorAskResponseSchema, data);
 }

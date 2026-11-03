@@ -13,6 +13,7 @@ import {
 import { EmptyState, ErrorState, LoadingBlock, Notice } from "@/components/feedback";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { AskPanel } from "@/features/practice/AskPanel";
 import { BankPeekDrawer } from "@/features/practice/bank-peek-drawer";
 import {
   freeModeChips,
@@ -370,6 +371,13 @@ export function PracticePage() {
   /** 本会话内改对已确认（RETRY 成功）：豁免原 attempt 的 retryRequired，换句/重答即重置。 */
   const [retryFixed, setRetryFixed] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  /** 「问一问」面板开关（017）：只针对当前句。 */
+  const [askOpen, setAskOpen] = useState(false);
+  /**
+   * 答疑入口可见性（017 三态）：乐观可见；AskPanel 收到 40304（答疑未开放）或 40400（功能未配置）
+   * 后置 false 整体隐藏。不加探针端点——代价是未开放实例上首次提问才收起入口，已与计划确认。
+   */
+  const [askAvailable, setAskAvailable] = useState(true);
   const startedAtRef = useRef(Date.now());
   const toastTimerRef = useRef<number | null>(null);
   const skeletonRef = useRef<HTMLParagraphElement | null>(null);
@@ -1954,6 +1962,28 @@ export function PracticePage() {
               })
             )}
           </ol>
+
+          {/* 017 题目答疑：批注栏「问一问」入口；面板按句 key 重挂载，历史随换句清空。
+              未开放（40304）/未配置（40400）时经 onUnavailable 整体隐藏入口。 */}
+          {displaySentence && askAvailable ? (
+            <div className="mt-5 border-t border-rule pt-4">
+              {askOpen ? (
+                <AskPanel
+                  key={displaySentence.id}
+                  sentenceId={displaySentence.id}
+                  onClose={() => setAskOpen(false)}
+                  onUnavailable={() => {
+                    setAskAvailable(false);
+                    setAskOpen(false);
+                  }}
+                />
+              ) : (
+                <button type="button" className="linkish text-xs" onClick={() => setAskOpen(true)}>
+                  问一问
+                </button>
+              )}
+            </div>
+          ) : null}
         </aside>
       </div>
 

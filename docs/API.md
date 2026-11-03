@@ -74,6 +74,7 @@
 | `40301` | 403 | `CSRF_INVALID` | CSRF 令牌无效，请刷新页面后重试 | CSRF 缺失/不匹配 |
 | `40302` | 403 | `REGISTRATION_CLOSED` | 当前未开放注册 | 邀请制关闭 |
 | `40303` | 403 | `PASSWORD_CHANGE_REQUIRED` | 请先修改初始密码 | 首次登录强制改密 |
+| `40304` | 403 | `ASK_NOT_OPEN` | 答疑未开放 | 017：模型凭证已配置但管理员未开启答疑 |
 | `40400` | 404 | `NOT_FOUND` | 请求的资源不存在 | 通用路由/资源 |
 | `40401` | 404 | `BANK_NOT_FOUND` | 题库不存在 | 题库 |
 | `40402` | 404 | `SENTENCE_NOT_FOUND` | 题目不存在 | 题目 |
@@ -1231,6 +1232,34 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 
 字段回溯：`reviews.due_at/scheduled_days` 派生。
 
+### 6.12 `POST /api/practice/{sentenceId}/ask`（implemented，017）
+
+用途：题目答疑（017，PRD §5.4）——针对当前句的**被动一问一答**，非 AI 外教；不判分、不改批注、不进学习闭环，回答必带免责标注。
+
+上下文（服务端拼装）：题目中文原句 + 考点标签 + 该用户本人最近一次判分的错误批注摘要；**不把参考译文/解析喂给模型**，提示词要求引导思考而非直接给整句译文。用户问题以定界符包裹（≤500 字符），系统提示声明定界区内是数据不是指令（注入面缓解：无工具、无判分权限 + 长度上限 + 限流）。
+
+三态（017 裁决）：
+
+- 模型凭证未配置（`YILIAN_LLM_BASE_URL`/`YILIAN_LLM_API_KEY` 缺一）→ 功能不存在，返回 `40400`；前端隐藏入口。
+- 凭证已配置但管理员未开启 → `40304`「答疑未开放」。
+- 开启 → 可用。
+
+请求：`{ "question": "这里为什么用 attach importance to？" }`（1–500 字符；`40000` 空白/超长、`40001` 缺请求体）。
+
+响应：
+
+```json
+{ "answer": "先比较两个介词的搭配对象……", "disclaimer": "AI 生成，可能有误" }
+```
+
+- 限流：`@RateLimit(scene="tutor-ask", ACCOUNT, 5 次/60 秒)`；`42900` 带 `Retry-After`。
+- 模型调用超时 15s（`YILIAN_LLM_TIMEOUT`）；网络/超时/供应商错误统一降级 `50000`（文案「答疑暂时不可用，请稍后再试」），不外抛堆栈。
+- 可见性复用 016 口径（`accessibleForPractice`）：`40402` 题目不存在/不可练、`40300` 库不可见且无练习史豁免。
+- 用量观测：token 数/耗时/成败记结构化日志；`llm_usage` 落库**待批**（DATA-MODEL §5.18 为 M3 预留、迁移未建，本切片不自加迁移；问题与回答内容不入日志）。
+- 定级声明：答疑不贴等级、不改 FSRS 排程；会话历史仅存前端组件 state。
+
+字段回溯：派生（LLM 输出）；`disclaimer` 为服务端常量。
+
 ---
 
 ## 7. Analytics（implemented）
@@ -1735,6 +1764,32 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 
 字段回溯：`fsrs_parameter_versions.*`。
 
+### 8.14 `/api/admin/llm/config`（implemented，017）
+
+答疑 LLM 配置（017）：服务端 `ROLE_ADMIN`（AGENTS §3.7）；配置选型——`base-url`/`api-key`/`model` 只能经环境变量 `YILIAN_LLM_BASE_URL` / `YILIAN_LLM_API_KEY` / `YILIAN_LLM_MODEL` 配置（密钥不入库，AGENTS §3.4），后台可改的只有 `enabled` 开关，存 `app_settings` 键 `llm.tutor`（JSON：`{"schemaVersion":1,"enabled":bool}`）。
+
+#### 8.14.1 `GET /api/admin/llm/config`
+
+响应：
+
+```json
+{ "enabled": false, "baseUrl": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4.7", "hasKey": true }
+```
+
+- `baseUrl`/`model` 为生效值（环境变量，未配置为空串）；`model` 缺省 `glm-4.7`。
+- **API Key 不回读**（AGENTS §3.4），只回 `hasKey` 布尔；响应无 `apiKey` 字段。
+- `enabled` 读 `app_settings`；键不存在/JSON 损坏/版本不识别一律按 `false`（fail-closed）。
+
+#### 8.14.2 `PUT /api/admin/llm/config`
+
+请求：`{ "enabled": true, "baseUrl": null, "model": null, "apiKey": null }`（`enabled` 必填；其余三个字段为 017 计划请求形状保留，**传非空值一律 40000 拒绝**并提示走环境变量，不静默忽略）。
+
+- `enabled=true` 且凭证未配置完整 → `40000`「尚未配置 YILIAN_LLM_BASE_URL / YILIAN_LLM_API_KEY，无法开启答疑」。
+- 审计：`@OperationLog(module="llm", action="LLM_CONFIG_UPDATE")`；GET 不标（§3.6）。
+- 错误：`40100`、`40300`、`40000`、`40001`。
+
+字段回溯：`app_settings.value`（JSON）+ 环境变量；无独立表（`llm_providers` 全量模型配置域为 M3，DATA-MODEL §5.18）。
+
 ## 9. 字段回溯对照
 
 > 规则：每个字段必须能落到 `DATA-MODEL.md` 的表列；找不到的标“派生”，并写来源。嵌套对象按 `parent.child` 列。
@@ -1869,6 +1924,8 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 | Content | `GET /api/banks`、`GET /api/banks/{bankId}`、`GET /api/banks/{bankId}/sentences` | PUBLIC_OR_USER：匿名仅公开题库；句子为 §5.3 增量游标契约 | `BankControllerTest`（切片：匿名放行与私有隔离、40004/40005/40401、tombstone 信封、限流注解契约 IP 120/60s）；keyword LIKE 转义字面量语义另由 `LikeEscapeIntegrationTest`（真实 MySQL：题库/题目/用户三链路）覆盖 |
 | Practice | `GET /api/practice/next`（D7 四参数 2026-11-03 服务端补齐，语义见 §6.1）、`POST /api/practice/attempts`（幂等 + norm-1/rubric-1 判分 + SRS 排程）、`GET /api/practice/attempts/{attemptId}`、批注 `appeal`/`dispute`（§6.4/§6.5）、`GET /api/practice/wrong-questions`、`GET /api/practice/reviews`、`POST /api/practice/reviews/{reviewId}/reset`、`GET /api/practice/reviews/overload`、`POST /api/practice/reviews/postpone`、`GET /api/practice/today` | 练习主链路（#8 波次三）；幂等口径 §6.2；复习卡一句一卡（DATA-MODEL §5.11 Q1）；next 指定句优先（MANUAL）/errors=1 错题池（与 §6.6 同口径）/excludeIds 合并去重/tag JSON 精确匹配，非法参数静默归一 | `PracticeControllerTest`（切片：全部 10 端点——匿名 401、mode 取值 40000、分页 40004、40903/40403/40404、信封形状、限流注解、D7 四参数归一透传）；`PracticeFlowIntegrationTest`（对拍：指定句优先/找不到退回、errors=1 错题口径与 exclude/tag/bankId 过滤、next 显式 bankId 40401/空态、并发同 attemptId 双发幂等收敛零 500） |
 | Analytics | `GET /api/analytics/accuracy`（含 `daily14`/`recent` 扩展）、`GET /api/analytics/error-tags` | 用户时区日界；disputed 批注排除 | `AnalyticsControllerTest`（切片：匿名 401、§7.1/§7.2 信封、参数透传、非法日期 40000、空 items=[]）；`AnalyticsIntegrationTest`（真实 MySQL：聚合对拍、dispute 排除、from/to 闭区间上限 92 天） |
+| Practice | `POST /api/practice/{sentenceId}/ask`（017） | 题目答疑三态门（未配置凭证 40400 功能不存在 / 未开启 40304 / 开启可用；§6.12）、可见性复用 016 口径（40402/40300）、LLM 调用超时 15s 异常降级 50000 固定文案、限流 tutor-ask 5 次/分钟（账号）、question 1–500、回答必带 disclaimer（AI 生成，可能有误）；上下文只含题目中文/考点/本人最近错批注，不含参考译文 | `AskControllerTest`（切片：匿名 401、空白/超长 40000、缺体 40001、40400/40304/50000 透传、信封形状、限流注解契约）；`TutorServiceImplTest`（mock LLM：三态门、app_settings 损坏 fail-closed、上下文拼装不含参考译文、问题定界、空回复/异常降级、40300 透传、开关存取 apiKey/baseUrl/model 拒收 40000） |
+| Admin | `GET/PUT /api/admin/llm/config`（017） | 答疑 LLM 配置（§8.14）：enabled 存 `app_settings` 键 `llm.tutor`（fail-closed 解析）；base-url/model/apiKey 环境变量只读、PUT 传非空值 40000 拒绝（密钥不入库）；GET 回 hasKey 不回读 apiKey（响应无 apiKey 字段）；enabled=true 无凭证 40000；审计 LLM_CONFIG_UPDATE（GET 不标） | `AdminLlmConfigControllerTest`（切片：匿名 401/非管理员 403、GET 形状、PUT 透传与 enabled 缺失 40000、Service 拒收透传、审计注解口径） |
 | Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 | `ImportBatchControllerTest`（切片：匿名 401/非管理员 403、multipart 绑定与缺参 40000、缺请求体 40001、40405/40904、PageResponse 信封）；`ImportBatchServiceIntegrationTest`（真实 MySQL：五端点语义、commit 原子性（回写失败整体回滚可恢复）、COMMITTING 残留对账收敛、重复 commit 幂等、回滚 tombstone） |
 | Admin | `GET /api/admin/overview`、`GET /api/admin/users`、`PATCH /api/admin/users/{id}/status`、`PATCH /api/admin/users/{id}/role`、`POST /api/admin/invites`、`GET /api/admin/invites`（011-a）、`POST /api/admin/users/{id}/reset-password`、`DELETE /api/admin/users/{id}`（018） | 概览聚合（活跃=attempts 当日去重用户，UTC 日界）、用户检索分页、启停/改角色（审计经 `OperationLogContext`）、邀请码生成（明文一次性）/前缀列表、重置密码（一次性临时口令+40303 强制改密+吊销全部会话，§8.2b）、删除账号（软删+吊销会话+40400 幂等口径，§8.2c） | `AdminOverviewControllerTest`、`AdminUserControllerTest`、`AdminInviteControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse 形状、reason 越界 40000、40001、审计上下文断言；018 补 reset-password/delete 绑定校验与 403/401 矩阵）；service 分支另由 `UserAccountServiceImplTest`（自己停自己/自己降自己/邀请码哈希落库；018 补重置成功与自重置/已删/原因必填、删除成功与自删/已删/最后管理员）、`AdminOverviewServiceImplTest`（补 0 与活动组装）覆盖 |
 | Admin | `GET/POST /api/admin/banks`、`GET/PATCH/DELETE /api/admin/banks/{bankId}`、`GET /api/admin/banks/{bankId}/sentences`、`GET /api/admin/sentences`、`POST /api/admin/sentences/bulk-status`、`POST /api/admin/sentences/bulk-move`、`PATCH /api/admin/sentences/{sentenceId}/status`、`PATCH /api/admin/sentences/{sentenceId}`（011-b） | 题库检索/新建/详情/部分更新/软删（状态流转 RECYCLED，恢复清 `deleted_at`）、题库内与跨题库题目检索（跨题库缺省隐藏回收站）、批量状态/移动（单事务；不存在的 id 与无变化 id 跳过、计数如实返回；每题递增银行修订号；移动预检指纹冲突 40000）、单题状态流转（幂等不推进）、行内编辑（zh/level/tags/note 走新版本行并回填指纹/content_hash，bankId/status 走元字段；编辑先于移动，预检用新指纹） | `AdminBankControllerTest`、`AdminSentenceControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse/SentenceView 形状、reason/ids/zh 校验 40000、缺体 40001、40401/40402、审计上下文断言）；批量与列表/编辑语义另由 `ContentAdminServiceImplTest`（每题递增版本、悲观锁按题库 id 升序、跳过语义、恢复清软删、版本字段新版本行、非法枚举 40000/分页 40004）覆盖 |
@@ -1895,6 +1952,7 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 - §6.1 `sentenceId`/`errors`/`excludeIds`/`tag` 四个查询参数的服务端实现（M2.1，D7）。
 - Admin 剩余写接口（§8.7 `attempts/{id}/raw` 查看原文、§8 模型配置；审计/异常检索与出题导入/audit-events 已随 012 落地，用户管理与概览/邀请码已随 011-a 落地，题库管理与题目检索/批量/单题状态/行内编辑已随 011-b 落地）。模型/运维页签保留演示态（012 观察项，随模型域切片真实化）。
 - 深度批改（M3）、FSRS 排程真值（V2 字段已预留，M2.1 换函数体）、申诉 LLM 裁决（M3）。
+- 017 观察项：`llm_usage` 用量表落库（DATA-MODEL §5.18 M3 预留未建，当前 token/耗时记结构化日志，落库待批）；`llm_providers`/`prompt_versions` 全量模型配置域（M3，当前经 YILIAN_LLM_* 环境变量 + app_settings 单键过渡）。
 
 ### 10.5 待收口
 
@@ -1921,6 +1979,7 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 | 2026-11-03 | v0.7 | 014/M2.1 第一步：§6.1 D7 四参数服务端补齐（sentenceId 指定句优先 MANUAL/errors=1 错题池（与 §6.6 同口径，REVEAL 无错批注行不进池为与本地引擎的已登记偏差）/excludeIds 合并去重/tag JSON 精确匹配，非法值静默归一）；§10.1 同步 | 实现工程师 |
 | 2026-11-03 | v0.8 | 014/M2.1 第二步：新增 §8.13 admin/fsrs 三端点（SGD 优化产出 GLOBAL CANDIDATE、版本列表、启用状态机）；§10.1 同步 | 实现工程师 |
 | 2026-11-04 | v0.9 | 018 二轮评审修复+原型小项：新增 §8.2b reset-password（一次性临时口令+40303 强制改密+吊销会话，audit-events 白名单移除 RESET_PASSWORD 改真端点）与 §8.2c DELETE users/{id}（软删+吊销会话+已删 40400 幂等口径）；§6.11 顺延口径统一 3 天（对齐原型与本地引擎）；登录 40101 三分支补齐假 BCrypt 时序对齐（响应形状不变）；§10.1 矩阵同步 | 实现工程师 |
+| 2026-11-04 | v1.0 | 017 题目答疑 AI 机器人：新增 §6.12 `POST /api/practice/{sentenceId}/ask`（被动一问一答，三态 40400/40304/可用，LLM 降级 50000，限流 5/min 账号，disclaimer 常驻）与 §8.14 admin/llm/config（enabled 存 app_settings 键 llm.tutor，base-url/model/apiKey 环境变量只读、apiKey 不回读只回 hasKey，审计 LLM_CONFIG_UPDATE）；§1.3 增 40304 ASK_NOT_OPEN（计划原文 40301 已被 CSRF 占用，按「不改号不复用」启用新号）；Spring AI 2.0.0（BOM，openai starter，自动配置关闭手工装配）；llm_usage 落库待批记 §10.4；§10.1 矩阵同步 | 实现工程师 |
 
 ---
 

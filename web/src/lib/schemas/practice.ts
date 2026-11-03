@@ -182,6 +182,14 @@ export const appealResponseSchema = z.object({
 
 export type AppealResponse = z.infer<typeof appealResponseSchema>;
 
+/** 题目答疑回复（API §6.12）：disclaimer 为固定免责标注，前端必须常驻展示。 */
+export const tutorAskResponseSchema = z.object({
+  answer: z.string().min(1),
+  disclaimer: z.string().min(1),
+});
+
+export type TutorAskResponse = z.infer<typeof tutorAskResponseSchema>;
+
 export const todaySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   timezone: z.string(),
