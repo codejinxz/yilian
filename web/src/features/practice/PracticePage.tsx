@@ -14,7 +14,6 @@ import { EmptyState, ErrorState, LoadingBlock, Notice } from "@/components/feedb
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { AskPanel } from "@/features/practice/AskPanel";
-import { BankPeekDrawer } from "@/features/practice/bank-peek-drawer";
 import {
   freeModeChips,
   gradeCloze,
@@ -29,6 +28,7 @@ import {
   type SentenceDraft,
   saveDraft,
 } from "@/features/practice/practice-drafts";
+import { SentencePicker } from "@/features/practice/sentence-picker";
 import { RoundSummaryModal, type RoundTally } from "@/features/practice/session-summary";
 import { useFocusScroll } from "@/hooks/use-focus-scroll";
 import { useOnlineStatus } from "@/hooks/use-online-status";
@@ -38,7 +38,6 @@ import {
   disputeAnnotation,
   getAttempt,
   getNextPractice,
-  getReviews,
   submitAttempt,
 } from "@/lib/api/practice";
 import { isTransportError } from "@/lib/api-error";
@@ -417,6 +416,9 @@ export function PracticePage() {
   const selectedBankTotal =
     publishedBanks.find((bank) => bank.id === effectiveBankId)?.sentenceCount ?? null;
 
+  // 题库句子快照仅服务于进度序号 qidx（当前句在库内的 01/08 定位）；
+  // 选题面板的数据自取（§5.3.1 选题句列表，020 AC-2），练过态由服务端按当前用户投影，
+  // 不再像旧抽屉那样在页面里预拉复习队列。
   const bankSentencesQuery = useQuery({
     queryKey: ["content", "bank-sentences", effectiveBankId ?? ""],
     queryFn: ({ signal }) =>
@@ -425,38 +427,6 @@ export function PracticePage() {
     retry: false,
     staleTime: 60_000,
   });
-
-  // 抽屉里的「已练」标记：有非 NEW 复习卡即算练过（引擎「错才入队」，全对首练不建卡，
-  // 与队列口径一致；错题行必带 LEARNING 卡，天然覆盖）。只在打开抽屉时拉取；
-  // size 上限 100 是 mock/服务端分页校验的共同约束。
-  const practicedQuery = useQuery({
-    queryKey: queryKeys.reviews({ page: 1, size: 100 }),
-    queryFn: ({ signal }) => getReviews({ page: 1, size: 100 }, signal),
-    enabled: peekOpen,
-    staleTime: 30_000,
-  });
-  // 「在队列」口径：错才入队（state !== "NEW"），全对首练不建卡——与抽屉标签语义一致。
-  const queuedIds = useMemo(
-    () =>
-      new Set(
-        (practicedQuery.data?.items ?? [])
-          .filter((item) => item.state !== "NEW")
-          .map((item) => item.sentenceId),
-      ),
-    [practicedQuery.data],
-  );
-
-  // 抽屉句子行：题库全量句子（过滤删除行与墓碑），当前句在 qidx 定位里已有同源数据。
-  const peekSentences = useMemo(
-    () =>
-      (bankSentencesQuery.data?.items ?? [])
-        .filter(
-          (item): item is typeof item & { zh: string } =>
-            !item.deleted && typeof item.zh === "string" && item.zh.length > 0,
-        )
-        .map((item) => ({ id: item.id, zh: item.zh, level: item.level ?? null })),
-    [bankSentencesQuery.data],
-  );
   const peekBank = publishedBanks.find((bank) => bank.id === effectiveBankId) ?? null;
 
   // 错题模式不带「缺省回落」的题库：缺省 bankId 会把错题池静默收窄到第一个题库，
@@ -1054,9 +1024,9 @@ export function PracticePage() {
   }
 
   /**
-   * 从题库抽屉跳到指定句练习（原型 openBankPeek 的 data-peek 行为）。
+   * 从选题面板跳到指定句练习（原型 openBankPeek 的 data-peek 行为，020 AC-2）。
    * 有意不挡 retryRequired：跳走不等于把当前句「改对」，错句仍在学习队列里明天召回，
-   * 原型抽屉同样允许直接跳句——与「下一句」按钮的放行门槛是两个语义。
+   * 原型面板同样允许直接跳句——与「下一句」按钮的放行门槛是两个语义。
    * 跳句是显式的单句选择，同时结束错题模式（search 被整体替换）。
    * @param targetSentenceId 目标句 id
    */
@@ -1426,6 +1396,8 @@ export function PracticePage() {
                 {effectiveBankId ? (
                   <>
                     <span className="dot" aria-hidden="true" />
+                    {/* 020 AC-2 选题入口：仅有题库上下文时渲染——无 bankId 深链且无
+                        缺省库（如题库拉取失败）时面板无从列出句子，入口随之隐藏。 */}
                     <button type="button" onClick={() => setPeekOpen(true)} className="linkish">
                       题库
                     </button>
@@ -2002,19 +1974,10 @@ export function PracticePage() {
         }}
       />
 
-      <BankPeekDrawer
+      <SentencePicker
         open={peekOpen}
-        bankId={peekBank?.id ?? null}
-        bankName={peekBank?.name ?? null}
-        bankMeta={
-          peekBank
-            ? `${peekSentences.length} 句${peekBank.description ? ` · ${peekBank.description}` : ""}`
-            : null
-        }
-        sentences={peekSentences}
+        bank={peekBank}
         currentSentenceId={displaySentence?.id ?? null}
-        queuedIds={queuedIds}
-        sentencesLoading={bankSentencesQuery.isPending}
         onJump={peekJump}
         onClose={closePeek}
       />

@@ -30,6 +30,8 @@ export const queryKeys = {
   }) => ["practice", "reviews", params] as const,
   wrongQuestions: (params: Record<string, unknown>) =>
     ["practice", "wrong-questions", params] as const,
+  /** 练习选题句列表（020 AC-2）：按题库缓存，打开选题面板时取第一页。 */
+  pickerSentences: (bankId: string) => ["content", "picker-sentences", bankId] as const,
   accuracy: (params: { from: string; to: string }) => ["analytics", "accuracy", params] as const,
   errorTags: (params: { from: string; to: string }) => ["analytics", "error-tags", params] as const,
   admin: {

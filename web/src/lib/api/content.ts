@@ -4,6 +4,8 @@ import {
   type BankView,
   bankPageSchema,
   bankViewSchema,
+  type PickerSentence,
+  pickerSentencePageSchema,
   versionedSentencesSchema,
 } from "@/lib/schemas/content";
 import { parseData, toQueryString } from "./shared";
@@ -55,4 +57,29 @@ export async function getBankSentences(
     { signal },
   );
   return parseData(versionedSentencesSchema, data);
+}
+
+/**
+ * 练习选题句列表（API §5.3.1，020 AC-1）：题库内按页浏览 + 当前用户练过态；匿名可用（仅公开库）。
+ * @param bankId 题库 id
+ * @param params 分页与 keyword/level/status 筛选；status 缺省时服务端隐藏回收站
+ * @param signal 取消信号
+ * @returns 分页选题句
+ */
+export async function getPickerSentences(
+  bankId: string,
+  params: {
+    page?: number;
+    size?: number;
+    keyword?: string;
+    level?: string;
+    status?: string;
+  } = {},
+  signal?: AbortSignal,
+): Promise<PageResponse<PickerSentence>> {
+  const data = await apiRequest<unknown>(
+    `/banks/${encodeURIComponent(bankId)}/sentences/list${toQueryString(params)}`,
+    { signal },
+  );
+  return parseData(pickerSentencePageSchema, data);
 }

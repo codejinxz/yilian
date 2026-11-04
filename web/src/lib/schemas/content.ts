@@ -4,6 +4,7 @@ import {
   idSchema,
   isoDateTimeSchema,
   pageResponseSchema,
+  reviewStateSchema,
   visibilitySchema,
 } from "./common";
 
@@ -59,6 +60,23 @@ export const versionedSentencesSchema = z.object({
   nextSinceVersion: z.number().int().nonnegative(),
   hasMore: z.boolean(),
 });
+
+/**
+ * 练习选题句列表行（API §5.3.1，020 AC-1）：展示与跳转的最小字段，
+ * 完整内容由点选后的 next?sentenceId= 返回；reviewState/reviewDueAt 为 null 表示未学（匿名恒为未学）。
+ */
+export const pickerSentenceSchema = z.object({
+  id: z.string().min(1),
+  zh: z.string().min(1),
+  level: z.string().nullable(),
+  status: contentStatusSchema,
+  reviewState: reviewStateSchema.nullable(),
+  reviewDueAt: isoDateTimeSchema.nullable(),
+});
+
+export type PickerSentence = z.infer<typeof pickerSentenceSchema>;
+
+export const pickerSentencePageSchema = pageResponseSchema(pickerSentenceSchema);
 
 export const bankCreateRequestSchema = z.object({
   name: z.string().trim().min(1, "请填写题库名称").max(128, "题库名称最多 128 个字符"),
