@@ -25,7 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 /**
- * 安全响应头的 MVC 切片测试（013 AC-4）：加载真实 {@link SecurityConfig}， 对匿名放行的公开题库端点断言关键响应头。
+ * 安全响应头的 MVC 切片测试：加载真实 {@link SecurityConfig}， 对匿名放行的公开题库端点断言关键响应头。
  *
  * <p>CSP 资源来源白名单盘点记录在 {@code SecurityConfig} 常量注释中（自托管 + Google Fonts）。 测试环境未激活 local profile，走
  * prod 从紧 CSP；HSTS 由 Spring Security 只在 HTTPS 请求写入， 用 {@code secure(true)} 验证。

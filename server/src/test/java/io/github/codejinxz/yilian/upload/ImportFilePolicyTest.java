@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
 /**
  * 上传策略的边界测试：扩展名、MIME、5MB 上限与文件名归一化。
  *
- * <p>这些用例不启动 Spring、不写磁盘，直接验证策略层；413/415 的 HTTP 映射由 preview 端点 （波次二落地）的集成测试覆盖。
+ * <p>这些用例不启动 Spring、不写磁盘，直接验证策略层；413/415 的 HTTP 映射由 preview 端点的集成测试覆盖。
  */
 class ImportFilePolicyTest {
 

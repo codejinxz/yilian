@@ -419,7 +419,7 @@ function UserDrawer({
     onSuccess: () => onSettled(),
     onError: (error) => toast(error instanceof Error ? error.message : "操作失败"),
   });
-  // 018 AC-6a：重置密码接真端点——服务端生成一次性临时口令，明文只在本次 toast 显示。
+  // 重置密码接真端点——服务端生成一次性临时口令，明文只在本次 toast 显示。
   const resetPasswordMutation = useMutation({
     mutationFn: (reason: string) => resetAdminUserPassword(user.id, reason),
     onSuccess: (view) => {

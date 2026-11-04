@@ -92,7 +92,7 @@ const LEVEL_LABELS: Record<string, string> = {
 
 const SENTENCE_SNAPSHOT_PREFIX = "yilian.practice.sentence.";
 
-/** 答疑入口「本会话不可用」记忆键（017R2 DEF-01）；与会话快照共用前缀风格。 */
+/** 答疑入口「本会话不可用」记忆键；与会话快照共用前缀风格。 */
 const ASK_UNAVAILABLE_KEY = "yilian.practice.askUnavailable";
 
 /**
@@ -111,7 +111,7 @@ function isAskUnavailableMarked(): boolean {
 /**
  * 写入答疑入口的会话级隐藏记忆。
  *
- * <p>裁决（017R2 DEF-01）：未开放（40304）与未配置（40400）是服务端稳定状态，会话内重试
+ * <p>口径：未开放（40304）与未配置（40400）是服务端稳定状态，会话内重试
  * 没有意义——首次命中后记住，重进练习页不再重现入口，切断「问→面板消失→重进→再问→
  * 再消失」的循环困惑（test-engineer 017 实测复现两次）。记忆范围取 sessionStorage（标签页
  * 会话）而非模块级标志：模块级在 SPA 内等效但刷新即失；取 localStorage 又过重——新开标签
@@ -404,13 +404,12 @@ export function PracticePage() {
   /** 本会话内改对已确认（RETRY 成功）：豁免原 attempt 的 retryRequired，换句/重答即重置。 */
   const [retryFixed, setRetryFixed] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  /** 「问一问」面板开关（017）：只针对当前句。 */
+  /** 「问一问」面板开关：只针对当前句。 */
   const [askOpen, setAskOpen] = useState(false);
   /**
-   * 答疑入口可见性（017 三态）：乐观可见；AskPanel 收到 40304（答疑未开放）或 40400（功能未配置）
-   * 后整体隐藏。017R2：隐藏状态经 sessionStorage 在本会话内记忆（见 markAskUnavailable 的裁决
-   * 注释），重进练习页不再重现入口。不加探针端点——代价是未开放实例上首次提问才收起入口，
-   * 已与计划确认。
+   * 答疑入口可见性（三态）：乐观可见；AskPanel 收到 40304（答疑未开放）或 40400（功能未配置）
+   * 后整体隐藏。隐藏状态经 sessionStorage 在本会话内记忆（见 markAskUnavailable 的口径
+   * 注释），重进练习页不再重现入口。不加探针端点——代价是未开放实例上首次提问才收起入口。
    */
   const [askAvailable, setAskAvailable] = useState(() => !isAskUnavailableMarked());
   const startedAtRef = useRef(Date.now());
@@ -453,7 +452,7 @@ export function PracticePage() {
     publishedBanks.find((bank) => bank.id === effectiveBankId)?.sentenceCount ?? null;
 
   // 题库句子快照仅服务于进度序号 qidx（当前句在库内的 01/08 定位）；
-  // 选题面板的数据自取（§5.3.1 选题句列表，020 AC-2），练过态由服务端按当前用户投影，
+  // 选题面板的数据自取（§5.3.1 选题句列表），练过态由服务端按当前用户投影，
   // 不再像旧抽屉那样在页面里预拉复习队列。
   const bankSentencesQuery = useQuery({
     queryKey: ["content", "bank-sentences", effectiveBankId ?? ""],
@@ -617,7 +616,7 @@ export function PracticePage() {
       void queryClient.invalidateQueries({ queryKey: ["practice", "reviews"] });
     },
     onError: (error, submission) => {
-      // 014 冒烟根因（详见 submitAttempt 与 isTransportError 注释）：这里曾把一切
+      // 根因与 submitAttempt、isTransportError 注释同源：这里曾把一切
       // status===0 都当「离线」。三类失败混在一起：真断网、超时/响应丢失（服务端可能
       // 已判分成功）、2xx 后 body 校验失败（服务端必已成功）。后者走离线队列必然产生
       // 同载荷重放（AppShell 见队非空且在线会立即补交，服务端 replayed=true 去重），
@@ -1060,7 +1059,7 @@ export function PracticePage() {
   }
 
   /**
-   * 从选题面板跳到指定句练习（原型 openBankPeek 的 data-peek 行为，020 AC-2）。
+   * 从选题面板跳到指定句练习（原型 openBankPeek 的 data-peek 行为）。
    * 有意不挡 retryRequired：跳走不等于把当前句「改对」，错句仍在学习队列里明天召回，
    * 原型面板同样允许直接跳句——与「下一句」按钮的放行门槛是两个语义。
    * 跳句是显式的单句选择，同时结束错题模式（search 被整体替换）。
@@ -1255,7 +1254,7 @@ export function PracticePage() {
   }
 
   const isReveal = attempt?.kind === "REVEAL";
-  // 整句批改要点 chips（018 AC-6c，原型 L535/L1688）：语块×译文逐块 hasPhrase；
+  // 整句批改要点 chips（原型 L535/L1688）：语块×译文逐块 hasPhrase；
   // 看答案不展示，填空模式不展示（原型仅整句提交路径渲染 #chips）。
   const freeChips =
     displayMode === "FREE" && !isReveal && displaySentence
@@ -1432,7 +1431,7 @@ export function PracticePage() {
                 {effectiveBankId ? (
                   <>
                     <span className="dot" aria-hidden="true" />
-                    {/* 020 AC-2 选题入口：仅有题库上下文时渲染——无 bankId 深链且无
+                    {/* 选题入口：仅有题库上下文时渲染——无 bankId 深链且无
                         缺省库（如题库拉取失败）时面板无从列出句子，入口随之隐藏。 */}
                     <button type="button" onClick={() => setPeekOpen(true)} className="linkish">
                       题库
@@ -1973,7 +1972,7 @@ export function PracticePage() {
 
           {/* 017 题目答疑：批注栏「问一问」入口；面板按句 key 重挂载，历史随换句清空。
               未开放（40304）/未配置（40400）时经 onUnavailable 整体隐藏入口，并写入会话级
-              记忆（017R2），重进页面不再重现。 */}
+              记忆，重进页面不再重现。 */}
           {displaySentence && askAvailable ? (
             <div className="mt-5 border-t border-rule pt-4">
               {askOpen ? (

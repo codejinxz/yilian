@@ -7,8 +7,8 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
- * 管理端新增 provider 请求体（022，API §8.15.2）：只收元数据，<strong>不含 apiKey</strong>——密钥按 id 走环境变量 {@code
- * YILIAN_LLM_KEY_<大写ID>} 索引（AGENTS §3.4 密钥不入库）。
+ * 管理端新增 provider 请求体（API §8.15.2）：只收元数据，<strong>不含 apiKey</strong>——密钥按 id 走环境变量 {@code
+ * YILIAN_LLM_KEY_<大写ID>} 索引（密钥不入库）。
  *
  * @param id 目录内唯一标识；小写字母/数字/连字符（env 变量名按连字符→下划线大写映射），创建后不可改
  * @param name 展示名

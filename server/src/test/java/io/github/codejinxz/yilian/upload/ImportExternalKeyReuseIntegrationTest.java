@@ -29,12 +29,12 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * external_key 唯一键双入口回归（016 P1·02#01/05#01）：真实 MySQL yilian_test。
+ * external_key 唯一键双入口回归：真实 MySQL yilian_test。
  *
- * <p>此前 AI 导入 external_key 固定 {@code gen_%04d} 行号，行号每请求重排，同库第二次导入 必撞 {@code
+ * <p>回归背景：若 external_key 固定 {@code gen_%04d} 行号，行号每请求重排，同库第二次导入 必撞 {@code
  * uk_sentence_bank_external}：内容不同 → DataIntegrityViolation 冒 500；内容相同 → 本应按指纹
- * 40904。回滚批次后文件重导同文件也会撞被回收行仍占用的 key。修复后 AI 导入 的 key 带批次前缀（按请求隔离）；文件路径在唯一键兜底冲突时翻译为 40904（05#08），彻底
- * 放行需「仅活跃行」唯一键迁移（active_external_key，待项目主人批准，见 016 修复汇报）。
+ * 40904。回滚批次后文件重导同文件也会撞被回收行仍占用的 key。现 AI 导入 的 key 带批次前缀（按请求隔离）；文件路径在唯一键兜底冲突时翻译为 40904。
+ * 已知边界：唯一键仍覆盖已回收行，彻底放行需「仅活跃行」唯一索引迁移（active_external_key），尚未实施。
  */
 @SpringBootTest(
         properties = {

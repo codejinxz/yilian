@@ -4,11 +4,11 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * 练习候选只读查询 Dao（MyBatis 实现，AGENTS §3.1「MyBatis 负责复杂查询」）。
+ * 练习候选只读查询 Dao（MyBatis 实现，负责复杂查询）。
  *
  * <p>单条 JOIN 直出「当前用户可练且未入队」的候选：sentence_banks（发布且未删、公开或本人私有）× sentences（发布且未删）× 当前快照 × 无非 NEW
- * 复习卡；可见性在数据层过滤（016 P0-1a），「未入队」下推 NOT EXISTS（016 P1，防止 LIMIT 窗口被已练句子占满）； 业务代码只依赖本接口，实现在 {@code
- * dao.mybatis}（Mapper + 适配器）。
+ * 复习卡；可见性在数据层过滤，「未入队」下推 NOT EXISTS（防止 LIMIT 窗口被已练句子占满）； 业务代码只依赖本接口，实现在 {@code dao.mybatis}（Mapper +
+ * 适配器）。
  */
 public interface PracticeCandidateQueryDao {
 

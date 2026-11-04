@@ -11,7 +11,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param username bootstrap 管理员登录名
  * @param password bootstrap 管理员口令
  * @param resetPasswordOnStartup 一次性恢复开关：启动时把口令重置为配置值
- * @param resetMarkerFile 一次性开关的「已应用」标记文件路径（018 AC-3）；存上次生效配置口令的 BCrypt 哈希
+ * @param resetMarkerFile 一次性开关的「已应用」标记文件路径；存上次生效配置口令的 BCrypt 哈希
  */
 @ConfigurationProperties(prefix = "yilian.bootstrap-admin")
 public record BootstrapAdminProperties(

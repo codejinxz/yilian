@@ -530,7 +530,7 @@ describe("auth-state routing switch", () => {
 
     renderApp("/register");
 
-    // 话术（切片 §5.2）：说明本机记录去向与保留承诺；不含任何「定级/水平/等级」字样。
+    // 话术：说明本机记录去向与保留承诺；不含任何「定级/水平/等级」字样。
     expect(
       await screen.findByText(/注册后本机练习记录会并入账号；原始记录仍保留在本机/),
     ).toBeInTheDocument();

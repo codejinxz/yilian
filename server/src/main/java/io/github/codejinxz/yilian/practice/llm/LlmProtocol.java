@@ -3,7 +3,7 @@ package io.github.codejinxz.yilian.practice.llm;
 import java.util.Optional;
 
 /**
- * LLM 对话协议（022）：provider 目录条目按本枚举选择 {@link LlmChatClient} 实现。
+ * LLM 对话协议：provider 目录条目按本枚举选择 {@link LlmChatClient} 实现。
  *
  * <p>wire 值（{@code anthropic-messages} / {@code openai-chat} / {@code openai-responses}）是目录 JSON
  * 与管理端 契约里的稳定标识，发布后不改号；解析未知值一律 {@link #fromWire} 返回 empty，由调用方跳过该条目（fail-closed）， 不静默映射到其他协议。

@@ -374,7 +374,7 @@ function bankOf(db: MockDb, sentence: MockSentence): BankView {
 
 /**
  * 更新或创建复习卡；RETRY 不排程。
- * 间隔规则与 lib/local-engine/engine.ts 的 scheduleReview 保持一致（#8 服务端切片落地后统一）：
+ * 间隔规则与 lib/local-engine/engine.ts 的 scheduleReview 保持一致：
  * - 答错 / 看答案 → LEARNING、明天到期、lapses+1；
  * - 学习中全对 → 间隔 min(7, 原间隔+2)，间隔 ≥5 归档 MASTERED；
  * - 已归档全对 → 保持 MASTERED，只刷新复习痕迹，不动下次到期时间；

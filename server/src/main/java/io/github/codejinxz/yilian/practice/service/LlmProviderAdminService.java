@@ -7,8 +7,8 @@ import io.github.codejinxz.yilian.practice.service.vo.LlmProviderView;
 import java.util.List;
 
 /**
- * provider 目录管理用例（022）：CC Switch 式多 provider 元数据 CRUD 与激活切换（激活唯一）。密钥不入目录——按 provider id 走环境变量
- * {@code YILIAN_LLM_KEY_<大写ID>}（AGENTS §3.4），所有写操作由控制器审计 {@code LLM_CONFIG_UPDATE}。
+ * provider 目录管理用例：CC Switch 式多 provider 元数据 CRUD 与激活切换（激活唯一）。密钥不入目录——按 provider id 走环境变量 {@code
+ * YILIAN_LLM_KEY_<大写ID>}，所有写操作由控制器审计 {@code LLM_CONFIG_UPDATE}。
  */
 public interface LlmProviderAdminService {
 
@@ -47,7 +47,7 @@ public interface LlmProviderAdminService {
     void delete(String id, Long operatorId);
 
     /**
-     * 激活 provider（激活唯一）：激活条目即答疑等 AI 功能的数据源（017 答疑开关 llm.tutor 沿用，二者独立）。
+     * 激活 provider（激活唯一）：激活条目即答疑等 AI 功能的数据源（答疑开关 llm.tutor 沿用，二者独立）。
      *
      * @param id 目标 provider id
      * @param operatorId 操作管理员 id

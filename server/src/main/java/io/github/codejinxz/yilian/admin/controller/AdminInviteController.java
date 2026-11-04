@@ -51,7 +51,7 @@ public class AdminInviteController {
     public ApiResponse<InviteCodeCreatedView> create(
             @AuthenticationPrincipal YilianUserPrincipal actor) {
         InviteCodeCreatedView created = userAccountService.adminCreateInvite(actor.id());
-        // 审计只记前缀：明文邀请码不进日志（AGENTS §3.6 密钥与敏感值不入日志）。
+        // 审计只记前缀：明文邀请码不进日志（密钥与敏感值不入日志）。
         OperationLogContext.set("invite", created.codePrefix(), null);
         return ApiResponse.success(created);
     }

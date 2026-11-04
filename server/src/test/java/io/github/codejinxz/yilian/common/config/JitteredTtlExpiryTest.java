@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 
-/** {@link JitteredTtlExpiry} 的抖动边界与负缓存短 TTL 单测（013 AC-3 防雪崩/防穿透）。 */
+/** {@link JitteredTtlExpiry} 的抖动边界与负缓存短 TTL 单测（防雪崩/防穿透）。 */
 class JitteredTtlExpiryTest {
 
     private static final Duration BASE_TTL = Duration.ofMinutes(10);

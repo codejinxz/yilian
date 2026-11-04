@@ -8,7 +8,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * {@link LlmClientRegistry} 实现（022）：每次解析读 provider 目录快照，以快照为指纹做运行时缓存——目录（含激活
+ * {@link LlmClientRegistry} 实现：每次解析读 provider 目录快照，以快照为指纹做运行时缓存——目录（含激活
  * 态）未变时复用已装配的客户端，目录任何变更（增删改/激活切换）下下次调用自动换轨，「目录变更失效」无需重启也无 需显式失效钩子（app_settings 单行读很廉价，答疑另有 5
  * 次/分钟限流）。
  *
@@ -41,7 +41,7 @@ public class LlmClientRegistryImpl implements LlmClientRegistry {
      * 注入依赖。
      *
      * @param providerCatalog provider 目录存取
-     * @param legacyProperties legacy 环境变量配置（017/021 兼容轨）
+     * @param legacyProperties legacy 环境变量配置（兼容轨）
      */
     public LlmClientRegistryImpl(
             LlmProviderCatalog providerCatalog, LlmProperties legacyProperties) {

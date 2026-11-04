@@ -9,7 +9,7 @@ import io.github.codejinxz.yilian.common.api.PageResponse;
  * 管理端日志检索用例（操作日志 + 异常日志，API §8.4–§8.6）；纯只读，不做任何状态流转。
  *
  * <p>两张表都是按月分区表（主键含 created_at），检索强制时间窗口兜底： from/to 缺省时按「近 30 天」收口，避免全分区扫描；列表刻意剥离 {@code
- * stack_trace}，堆栈只在详情出现（AGENTS §3.6）。
+ * stack_trace}，堆栈只在详情出现。
  */
 public interface AdminLogService {
 

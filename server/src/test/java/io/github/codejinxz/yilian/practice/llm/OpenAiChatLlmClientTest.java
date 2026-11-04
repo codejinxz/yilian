@@ -6,9 +6,9 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link OpenAiChatLlmClient} 装配单测（017 引入为 SpringAiLlmClient，022 收编更名）：手工组装路径 （ClientOptions/OpenAI
- * SDK/ChatClient）在离线环境只做本地构造不发请求；输出 token 上限三协议同源（022 起单一定义 在 {@link
- * LlmChatClient#MAX_OUTPUT_TOKENS}，2048 起步——思考模型的 thinking 计入 max_tokens）。
+ * {@link OpenAiChatLlmClient} 装配单测：手工组装路径 （ClientOptions/OpenAI SDK/ChatClient）在离线环境只做本地构造不发请求；输出
+ * token 上限三协议同源（单一定义在 {@link LlmChatClient#MAX_OUTPUT_TOKENS}，2048 起步——思考模型的 thinking 计入
+ * max_tokens）。
  */
 class OpenAiChatLlmClientTest {
 

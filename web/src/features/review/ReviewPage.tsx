@@ -64,7 +64,7 @@ interface OverloadVM {
   pushLimit: number;
 }
 
-/** 顺延结果视图：postponed 为顺延张数，days 为顺延天数（018 AC-6d：两端统一 3 天）。 */
+/** 顺延结果视图：postponed 为顺延张数，days 为顺延天数（两端统一 3 天）。 */
 interface PostponeVM {
   postponed: number;
   days: number;
@@ -136,7 +136,7 @@ function ReviewToast({ message, visible }: { message: string | null; visible: bo
 /**
  * 复习页：view-review——降载条、三档汇总、四页签与中文句行列表。
  *
- * 数据源按登录态分流（切片 §5.3）：游客直连本地引擎 getReviewQueue（行自带中文句与考点，
+ * 数据源按登录态分流：游客直连本地引擎 getReviewQueue（行自带中文句与考点，
  * 客户端按页签过滤并分页）；登录用户走契约接口——getReviews 契约分页 + 三档汇总（三个
  * size=1 的 total）+ 降载/顺延走 §3.6 的 overload/postpone 端点，中文句用题库缓存 join
  * （ensureCachedSentences，匿名可拉）；mock 模式沿用 getReviews 契约分页与引擎降载能力
@@ -237,7 +237,7 @@ export function ReviewPage() {
     },
   });
 
-  /** 顺延：本地引擎 golden 基准 3 天（原型口径），服务端已对齐 POSTPONE_DAYS=3（018 AC-6d）。 */
+  /** 顺延：本地引擎 golden 基准 3 天（原型口径），服务端已对齐 POSTPONE_DAYS=3。 */
   const postponeMutation = useMutation({
     mutationFn: async (): Promise<PostponeVM> => {
       if (mock || guest) {

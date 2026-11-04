@@ -223,10 +223,7 @@ class ContentImportServiceIntegrationTest {
         assertThat(draftTombstoneStatus).isEqualTo("DRAFT");
     }
 
-    /**
-     * 回收归属与状态防御（016 P2·02#06）：不属于目标库的 id 与已回收（软删）的 id 一律跳过，
-     * 返回值只计实际回收——防止批次行错乱时用本库版本号改写他库题目并重复推进修订号。
-     */
+    /** 回收归属与状态防御：不属于目标库的 id 与已回收（软删）的 id 一律跳过， 返回值只计实际回收——防止批次行错乱时用本库版本号改写他库题目并重复推进修订号。 */
     @Test
     @DisplayName("[AC-4] 回收校验归属库与已回收状态")
     void ac4_recycleSkipsForeignBankAndAlreadyRecycledSentences() {

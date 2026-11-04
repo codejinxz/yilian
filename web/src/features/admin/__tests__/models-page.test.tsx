@@ -45,7 +45,7 @@ const CONFIGURED_ON: LlmConfigFixture = {
   credentialsComplete: true,
 };
 
-/** 主人 ZCode 网关的目录条目夹具（anthropic-messages 轨、无 env key、已激活）。 */
+/** ZCode 网关的目录条目夹具（anthropic-messages 轨、无 env key、已激活）。 */
 const ZCODE_GATEWAY: LlmProviderFixture = {
   id: "zcode-gateway",
   name: "ZCode 网关",

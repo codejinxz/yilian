@@ -239,7 +239,7 @@ class ContentAdminServiceImplTest {
         assertThat(view.status()).isEqualTo("PUBLISHED");
     }
 
-    /** [012 AC-5] 说明契约：null=不改、空串=清空——空串显式置 null 落库，null 保持原说明。 */
+    /** 说明契约：null=不改、空串=清空——空串显式置 null 落库，null 保持原说明。 */
     @Test
     void adminUpdateBankClearsDescriptionWithEmptyStringOnly() {
         SentenceBank bank = bank(5L, ContentStatus.DRAFT, 3);
@@ -773,9 +773,7 @@ class ContentAdminServiceImplTest {
         assertThat(view.status()).isEqualTo("DISABLED");
     }
 
-    /**
-     * 编辑草稿题保持 DRAFT（016 P2·02#03 裁决）：内容编辑只换版本指针，不隐式发布—— 「先降草稿、改好再发」的管理动作不再被一次行内编辑提前上线；发布必须走显式状态流转。
-     */
+    /** 编辑草稿题保持 DRAFT：内容编辑只换版本指针，不隐式发布—— 「先降草稿、改好再发」的管理动作不再被一次行内编辑提前上线；发布必须走显式状态流转。 */
     @Test
     void adminUpdateSentenceDetailKeepsDraftStatusOnContentEdit() {
         SentenceBank bank = bank(5L, ContentStatus.PUBLISHED, 7);
@@ -813,7 +811,7 @@ class ContentAdminServiceImplTest {
         assertThat(view.status()).isEqualTo("DRAFT");
     }
 
-    /** 深页码防御（016 P2·02#04）：page 超上限与负数页码统一 40004，不把输入错误放大成 500。 */
+    /** 深页码防御：page 超上限与负数页码统一 40004，不把输入错误放大成 500。 */
     @Test
     void adminListSentencesRejectsOutOfRangePage() {
         // (page-1)*size 在 int 上溢出为负 offset 的深页码 → 40004。
@@ -898,7 +896,7 @@ class ContentAdminServiceImplTest {
         when(sentenceDao.findById("01A")).thenReturn(Optional.of(sentence));
         when(sentenceDao.findVersionsByIds(List.of(11L))).thenReturn(List.of(currentVersion()));
         when(bankDao.findById(7L)).thenReturn(Optional.of(targetBank));
-        // 015 修复轮后统一锁序在指纹预检前加锁：源库与目标库都要可锁。
+        // 统一锁序在指纹预检前加锁：源库与目标库都要可锁。
         when(bankDao.lockById(5L)).thenReturn(Optional.of(sourceBank));
         when(bankDao.lockById(7L)).thenReturn(Optional.of(targetBank));
         when(sentenceDao.findActiveFingerprints(eq(7L), anyCollection()))
@@ -918,7 +916,7 @@ class ContentAdminServiceImplTest {
         verify(sentenceDao, never()).saveVersion(any());
     }
 
-    /** [AC-5] 行内编辑+移动统一锁序（015 修复轮 minor #6）：目标库 id 小于源库时也按升序先锁目标库，消除 ABBA 窗口。 */
+    /** [AC-5] 行内编辑+移动统一锁序：目标库 id 小于源库时也按升序先锁目标库，消除 ABBA 窗口。 */
     @Test
     void adminUpdateSentenceDetailLocksBanksInAscendingOrder_ac5() {
         SentenceBank sourceBank = bank(7L, ContentStatus.PUBLISHED, 10);

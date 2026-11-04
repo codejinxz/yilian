@@ -51,7 +51,7 @@ class AdminLogServiceImplTest {
         ReflectionTestUtils.setField(service, "clock", Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
-    /** [AC-5] from/to 按管理员本地日界换算（015 修复轮观察项 #13）：Asia/Shanghai 的「今天」含本地凌晨记录。 */
+    /** [AC-5] from/to 按管理员本地日界换算：Asia/Shanghai 的「今天」含本地凌晨记录。 */
     @Test
     void searchAuditLogsParsesDatesInAdminDayZone_ac5() {
         when(auditLogQueryDao.search(any(), any(), any(), any(), any(), any(), anyInt(), anyInt()))

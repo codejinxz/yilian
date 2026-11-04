@@ -96,7 +96,7 @@ class AdminLlmProviderControllerTest {
         verifyNoInteractions(providerAdminService);
     }
 
-    /** [AC-2] 非 ADMIN 登录用户：403 信封（code=40300），权限在服务端（AGENTS §3.7）。 */
+    /** [AC-2] 非 ADMIN 登录用户：403 信封（code=40300），权限在服务端。 */
     @Test
     void providerEndpointsRejectNonAdminWith403_ac2() throws Exception {
         mockMvc.perform(
@@ -305,7 +305,7 @@ class AdminLlmProviderControllerTest {
                 .andExpect(jsonPath("$.message").value("provider 不存在：ghost"));
     }
 
-    /** [AC-2] 审计口径：四个写操作标 @OperationLog(LLM_CONFIG_UPDATE)，GET 不标（AGENTS §3.6）。 */
+    /** [AC-2] 审计口径：四个写操作标 @OperationLog(LLM_CONFIG_UPDATE)，GET 不标。 */
     @Test
     void writesCarryAuditAndReadDoesNot_ac2() throws Exception {
         for (String method : new String[] {"create", "update", "delete", "activate"}) {

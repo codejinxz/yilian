@@ -60,7 +60,7 @@ public interface ContentQueryService {
             long bankId, long sinceVersion, int limit, Long userId, boolean admin);
 
     /**
-     * 练习选题句列表（API §5.3.1，020 AC-1）：题库内按页浏览 + 当前用户练过态。
+     * 练习选题句列表（API §5.3.1）：题库内按页浏览 + 当前用户练过态。
      *
      * <p>与 {@link #listSentences(long, long, int, Long, boolean)} 刻意不同形：增量端点服务 PWA 离线缓存（版本游标 +
      * tombstone）， 本端点服务练习页选题面板（页码分页 + keyword/level/status 筛选 + 逐行练过态）。可见性与题库详情同口径： 不存在/未发布/已软删回
@@ -115,7 +115,7 @@ public interface ContentQueryService {
      * 判断题库对当前用户可见（练习端口径，与 {@link #requireVisibleBank(long, Long)} 同规则的布尔版）：
      * 已发布、未软删，且为公开库或登录用户本人的私有库。
      *
-     * <p>供 practice 模块对「按 id 取到的句子」补所属库可见性校验（016 P0-1）：MANUAL 指定句不可见时 静默退回常规取题，交卷校验不可见时回
+     * <p>供 practice 模块对「按 id 取到的句子」补所属库可见性校验：MANUAL 指定句不可见时 静默退回常规取题，交卷校验不可见时回
      * 40300——两条路径都不回显题目内容（原文默认不可见红线）。
      *
      * @param bankId 题库 id
@@ -127,7 +127,7 @@ public interface ContentQueryService {
     /**
      * 练习候选：只返回当前用户可见题库中已发布、未入队（无非 NEW 复习卡）的题目。
      *
-     * <p>可见性与「未入队」均在数据层过滤（016 P0-1a / P1），limit 只作用于过滤后的候选窗口。
+     * <p>可见性与「未入队」均在数据层过滤，limit 只作用于过滤后的候选窗口。
      *
      * @param userId 当前用户 id，可为 null（匿名，仅公开题库参与候选）
      * @param bankId 题库 id，可为 null

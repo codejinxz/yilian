@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ACTION_FILTER_OPTIONS, ACTION_LABELS, actionLabel } from "@/features/admin/constants";
 
 /**
- * 后端 admin_audit_log 的实际动作全集（015 修复轮对照 server 源码核对）：
+ * 后端 admin_audit_log 的实际动作全集（对照 server 源码核对）：
  * OperationLog 注解各 action（AuthController/MeController/AdminUserController/
  * AdminBankController/AdminSentenceController/AdminGenerationController/
  * ImportBatchController）+ audit-events 白名单（AdminAuditEventServiceImpl）。
@@ -25,7 +25,7 @@ const BACKEND_ACTION_UNIVERSE: Array<[string, string]> = [
   ["USER_STATUS_CHANGE", "变更用户状态"],
   ["USER_ROLE_CHANGE", "变更用户角色"],
   ["INVITE_CREATE", "生成邀请码"],
-  // 012 冒烟发现缺席的动作：AI 出题导入（AdminGenerationController）
+  // AI 出题导入（AdminGenerationController）
   ["GENERATION_IMPORT", "生成导入"],
   // content 模块（@OperationLog）
   ["IMPORT_PREVIEW", "预览导入"],

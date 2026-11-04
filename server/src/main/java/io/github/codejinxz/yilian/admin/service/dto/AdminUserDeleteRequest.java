@@ -4,7 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 /**
- * 管理端删除账号请求体（API §8.2c，018 AC-6b）。
+ * 管理端删除账号请求体（API §8.2c）。
  *
  * <p>删除是软删（30 天冷静期），原因必填并随 {@code @OperationLog} 落审计；前端已按 {reason} 传体。
  *

@@ -34,10 +34,10 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 public class SecurityConfig {
 
     /**
-     * CSP 资源来源盘点（013 AC-4，依据 web/index.html 与 Vite 构建产物）： 脚本（Vite 打包）、样式（构建
-     * CSS）、图标、manifest、service worker 全部自托管（'self'）； 唯一外部依赖是 Google Fonts——样式表来自
-     * fonts.googleapis.com，字体文件来自 fonts.gstatic.com。 React 的内联 style 属性需要 style-src
-     * 'unsafe-inline'；Vite 会把小图标内联为 data: URI，故 img-src 带 data:。 PWA 为自托管部署，prod 策略从紧、不含任何第三方脚本来源。
+     * CSP 资源来源盘点（依据 web/index.html 与 Vite 构建产物）： 脚本（Vite 打包）、样式（构建 CSS）、图标、manifest、service worker
+     * 全部自托管（'self'）； 唯一外部依赖是 Google Fonts——样式表来自 fonts.googleapis.com，字体文件来自 fonts.gstatic.com。
+     * React 的内联 style 属性需要 style-src 'unsafe-inline'；Vite 会把小图标内联为 data: URI，故 img-src 带 data:。 PWA
+     * 为自托管部署，prod 策略从紧、不含任何第三方脚本来源。
      *
      * <p>包内可见供 {@code SecurityHeadersTest} 整段相等断言：测试直接引用本常量， 策略变更即测试同步失败，避免断言与真实 prod 策略漂移。
      */
@@ -128,7 +128,7 @@ public class SecurityConfig {
                         csrf ->
                                 csrf.csrfTokenRepository(csrfTokenRepository)
                                         .csrfTokenRequestHandler(csrfRequestHandler))
-                // 安全响应头（013 AC-4）：nosniff / X-Frame-Options:DENY / Referrer-Policy /
+                // 安全响应头：nosniff / X-Frame-Options:DENY / Referrer-Policy /
                 // HSTS / CSP。HSTS 由 Spring Security 仅在 HTTPS 请求上写入（request.isSecure()），
                 // local 的 http 自测自然不带；公网部署经反代终结 TLS 时需保证转发头还原 scheme。
                 // X-Frame-Options 取 DENY（比 SAMEORIGIN 更紧）：练习页与管理后台均无被嵌入需求，

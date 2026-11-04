@@ -15,7 +15,7 @@ import java.time.Instant;
  * <p>状态机：CANDIDATE（优化器产出/种子）→ ACTIVE（管理员启用，同 owner 至多一行， 由 uk_fsrs_active_owner 函数索引保证）→ RETIRED（被新
  * ACTIVE 顶替）。weights 原文 JSON 只增不改—— 「改参数 = 新行」，启用/退役只动 status 列。
  *
- * <p>V9 已播种 GLOBAL 原型占位权重行（owner_type=GLOBAL）；M2.1 优化器产出 GLOBAL CANDIDATE （单人产品语境：优化目标用户的
+ * <p>迁移已播种 GLOBAL 原型占位权重行（owner_type=GLOBAL）；优化器产出 GLOBAL CANDIDATE （单人产品语境：优化目标用户的
  * review_logs，但权重行本身是全局的）。
  */
 @Entity

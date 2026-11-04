@@ -1,14 +1,13 @@
 # ---------------------------------------------------------------------------
-# 集成测试专用配置（随代码入库，016 P0 修复）。
+# 集成测试专用配置（随代码入库）。
 #
-# 为什么存在：此前 9 个 @SpringBootTest 集成测试以 local profile 启动，依赖被
-# .gitignore 排除的 server/config/application-local.yml 提供 bootstrap 口令，
-# CI 干净检出上必然失败；且 10 个测试类硬编码本机 MySQL root 口令，违反
-# AGENTS §3「密钥不入库」。
+# 为什么存在：集成测试若以 local profile 启动，会依赖被 .gitignore 排除的
+# server/config/application-local.yml 提供 bootstrap 口令，CI 干净检出上必然失败；
+# 各测试类也不得硬编码本机口令（密钥不入库）。
 #
 # 使用方式：测试类统一 @ActiveProfiles("test")，数据源与口令全部按「环境变量 >
-# 文档化 dev 默认值」读取。口令分三层（016 裁决）：本机缺省回落到文档化的 dev
-# 默认值 root/123456（本机即开即测；该值是 AGENTS §3.4 允许的公开文档化本机
+# 文档化 dev 默认值」读取。口令分三层：本机缺省回落到文档化的 dev
+# 默认值 root/123456（本机即开即测；该值是公开文档化本机
 # 开发凭据，不是机密）；开发者可用 YILIAN_TEST_DB_* 覆盖；CI 必须用
 # YILIAN_TEST_DB_PASSWORD 注入每次运行的随机口令。dev 默认值仅限本机开发，
 # 禁止复用到共享/生产环境。

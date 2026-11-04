@@ -12,7 +12,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-/** refresh 会话吊销护栏单测：纪元只增、吊销「先增后删」、同用户刷新与吊销互斥（016 P2·03#08）。 */
+/** refresh 会话吊销护栏单测：纪元只增、吊销「先增后删」、同用户刷新与吊销互斥。 */
 class RefreshSessionGuardTest {
 
     private final RefreshSessionGuard guard = new RefreshSessionGuard();

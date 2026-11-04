@@ -9,7 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 导入批次对账任务：定时收敛残留 COMMITTING 状态的批次（015 缺陷 #3 的恢复面）。
+ * 导入批次对账任务：定时收敛残留 COMMITTING 状态的批次。
  *
  * <p>新版本的 commit 是单原子事务，COMMITTING 状态只存在于未提交事务内，对外不可见； 这里兜的是历史遗留的残留行（旧版分事务提交中断）。 启动后 2
  * 分钟首跑（覆盖「启动对账」），此后每 30 分钟一次；收敛动作与判定口径见 {@link

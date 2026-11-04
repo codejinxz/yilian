@@ -25,10 +25,10 @@ import java.util.List;
 /**
  * 日志检索实现：解析与兜底集中在服务层，Dao 只收已转义的关键字与非空时间窗口。
  *
- * <p>分区表纪律（012 计划 §AC-1/AC-2）：from/to 缺省按「近 30 天」收口，保证 XML WHERE 恒含 created_at 范围；size 上限 100（越界归
- * 100），页码/size 非法回 40004。keyword 做 LIKE 通配 转义（%、_、反斜杠），使检索语义与 mock 的纯「contains」一致，不暴露 SQL 通配符。
+ * <p>分区表纪律：from/to 缺省按「近 30 天」收口，保证 XML WHERE 恒含 created_at 范围；size 上限 100（越界归 100），页码/size 非法回
+ * 40004。keyword 做 LIKE 通配 转义（%、_、反斜杠），使检索语义与 mock 的纯「contains」一致，不暴露 SQL 通配符。
  *
- * <p>from/to 是**管理员本地日期**（前端日期选择器按浏览器本地日发送，012 冒烟发现 UTC 日界在凌晨 会把「今天」的记录筛丢）：服务端按配置的日界时区（默认
+ * <p>from/to 是**管理员本地日期**（前端日期选择器按浏览器本地日发送；服务端若按 UTC 日界换算， 本地凌晨的记录会被「今天」筛选漏掉）：服务端按配置的日界时区（默认
  * Asia/Shanghai，单产品默认，见 {@code yilian.admin.day-zone}）换算成 UTC 时刻窗口；口径已文档化到 API §8.5/§8.6。
  */
 @Service
@@ -189,7 +189,7 @@ public class AdminLogServiceImpl implements AdminLogService {
         }
         try {
             // 日期参数按管理员本地日界（dayZone）换算 UTC 时刻：凌晨 00:30 的记录在
-            // 「今天」筛选下可见（012 冒烟观察项，015 修复——旧实现按 UTC 日界会把本地凌晨漏掉）。
+            // 「今天」筛选下可见（按 UTC 日界换算会把本地凌晨漏掉）。
             return LocalDate.parse(value.trim()).atStartOfDay(dayZone).toInstant();
         } catch (DateTimeParseException exception) {
             throw new BusinessException(ApiCode.VALIDATION_FAILED, field + " 需为 YYYY-MM-DD 日期");

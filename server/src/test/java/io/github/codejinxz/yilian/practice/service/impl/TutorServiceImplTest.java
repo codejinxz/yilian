@@ -277,7 +277,7 @@ class TutorServiceImplTest {
         verifyNoInteractions(llmChatClient);
     }
 
-    /** [AC-3] GET 配置：apiKey 不回读只回 hasKey；enabled 来自存储值；022 起带 providerId/protocol/凭证齐备性。 */
+    /** [AC-3] GET 配置：apiKey 不回读只回 hasKey；enabled 来自存储值；带 providerId/protocol/凭证齐备性。 */
     @Test
     void getAdminConfigReturnsHasKeyInsteadOfKey_ac3() {
         LlmConfigView view = tutorService.getAdminConfig();

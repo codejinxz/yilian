@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * 管理端题目列表查询 Dao（只读）：sentences JOIN 当前内容快照，跨题库筛选分页。
  *
- * <p>管理端需要按快照列（zh/ref/level）过滤与展示，JPA 单表查询覆盖不了，按 AGENTS §3.1 归 MyBatis； 业务代码只依赖本接口，不注入 Mapper。
+ * <p>管理端需要按快照列（zh/ref/level）过滤与展示，JPA 单表查询覆盖不了，归 MyBatis； 业务代码只依赖本接口，不注入 Mapper。
  */
 public interface AdminSentenceQueryDao {
 

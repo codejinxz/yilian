@@ -143,7 +143,7 @@ class ContentQueryServiceImplTest {
         verify(bankDao).searchVisible(isNull(), eq("专八"), isNull(), any(Pageable.class));
     }
 
-    /** [AC-5] keyword 做 LIKE 转义：用户输入的 %/_/\ 是字面量（015 修复轮 minor #5）。 */
+    /** [AC-5] keyword 做 LIKE 转义：用户输入的 %/_/\ 是字面量。 */
     @Test
     void listBanksEscapesLikeWildcards_ac5() {
         when(bankDao.searchVisible(any(), any(), any(), any(Pageable.class)))
@@ -571,7 +571,7 @@ class ContentQueryServiceImplTest {
     /**
      * 构造已发布题目。
      *
-     * <p>pointToVersion 不再隐式把 DRAFT 翻成 PUBLISHED（016 P2·02#03），显式发布与导入路径同语义。
+     * <p>pointToVersion 不隐式把 DRAFT 翻成 PUBLISHED，显式发布与导入路径同语义。
      *
      * @param id ULID
      * @param version 银行级版本

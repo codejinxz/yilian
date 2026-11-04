@@ -99,7 +99,7 @@ public class Sentence {
     /**
      * 指向新的内容快照，并推进到银行级修订号；不改生命周期状态。
      *
-     * <p>编辑草稿题不再隐式发布（016 P2·02#03 裁决）：题目五态生命周期（DRAFT→PUBLISHED→…） 必须显式流转，编辑只换内容指针，状态保持原样——
+     * <p>编辑草稿题不隐式发布：题目五态生命周期（DRAFT→PUBLISHED→…） 必须显式流转，编辑只换内容指针，状态保持原样——
      * 否则「先降草稿、改好再发」的管理动作会被一次行内编辑提前上线。 导入落库的首次发布由 {@code ContentImportServiceImpl.importSentences}
      * 在指向快照后显式调用 {@link #changeStatus} 完成。
      *

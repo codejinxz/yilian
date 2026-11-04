@@ -18,7 +18,7 @@ public class JpaReviewDao implements ReviewDao {
 
     private final ReviewJpaRepository reviews;
 
-    /** 实体分离用：条件更新剎把卡撤出持久化上下文（018 AC-4）。 */
+    /** 实体分离用：条件更新前把卡撤出持久化上下文。 */
     @PersistenceContext private EntityManager entityManager;
 
     /**

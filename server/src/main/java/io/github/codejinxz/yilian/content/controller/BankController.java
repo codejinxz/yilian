@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 不做权限判断，只透传登录身份。 匿名时 {@code @AuthenticationPrincipal} 解析为 null（匿名 Authentication 的 principal 是字符串，
  * 与 {@link YilianUserPrincipal} 类型不匹配按 null 处理）。四个接口均为读操作，不标 {@code @OperationLog}。
  *
- * <p>匿名可读的入口需要 IP 维度限流（015 缺陷 #12）：120 次/分钟是正常刷题客户端碰不到的量级。 限流切面在 Service 的 {@code @Cacheable}
+ * <p>匿名可读的入口需要 IP 维度限流：120 次/分钟是正常刷题客户端碰不到的量级。 限流切面在 Service 的 {@code @Cacheable}
  * 之前执行——被限流的请求不会消耗缓存与数据库；放行的请求继续走既有缓存分层。
  */
 @Tag(name = "题库", description = "公开题库浏览与增量拉题；匿名可读公开题库，登录后附自己的私有题库。")
@@ -126,7 +126,7 @@ public class BankController {
     }
 
     /**
-     * 练习选题句列表（020 AC-1，API §5.3.1）。
+     * 练习选题句列表（API §5.3.1）。
      *
      * <p>与 {@link #listSentences} 的增量同步端点刻意不同形：本端点服务练习页选题面板—— 页码分页 + keyword/level/status 筛选 +
      * 逐行练过态（当前用户卡投影；匿名恒为「未学」）。 匿名仅公开库（私有库回 40100 提示登录），登录后本人私有库可见，非所有者 40300。

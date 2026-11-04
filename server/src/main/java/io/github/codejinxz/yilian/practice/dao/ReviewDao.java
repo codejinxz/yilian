@@ -35,7 +35,7 @@ public interface ReviewDao {
     Review save(Review review);
 
     /**
-     * 保存并立即 flush：并发同句建卡撞 {@code uk_review_card} 的唯一键冲突 必须在调用点被捕获（016 P1；调用方在 REQUIRES_NEW
+     * 保存并立即 flush：并发同句建卡撞 {@code uk_review_card} 的唯一键冲突 必须在调用点被捕获（调用方在 REQUIRES_NEW
      * 内层事务中调用，冲突留在内层干净回滚）。
      *
      * @param review 复习卡
@@ -78,8 +78,8 @@ public interface ReviewDao {
     List<Review> findAllByUser(Long userId);
 
     /**
-     * 排程字段的条件更新（018 AC-4 乐观锁）：以传入实体当前值整体覆盖排程列， WHERE 带 {@code last_review_at =
-     * expectedLastReviewAt} 令牌，并发更新只允许一个生效。
+     * 排程字段的条件更新（乐观锁）：以传入实体当前值整体覆盖排程列， WHERE 带 {@code last_review_at = expectedLastReviewAt}
+     * 令牌，并发更新只允许一个生效。
      *
      * <p>调用方必须先对实体 {@link #detach}，否则持久化上下文在提交时的脏检查会再发一条无条件 UPDATE， 绕过令牌守卫。影响行数为 0
      * 表示令牌过期（其他事务已更新该卡）。

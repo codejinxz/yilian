@@ -11,11 +11,11 @@ import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 
 /**
- * 系统配置键值（app_settings 表，DATA-MODEL §5.x；V5 迁移建表，017 切片首次启用）。
+ * 系统配置键值（app_settings 表，DATA-MODEL §5.x；V5 迁移建表）。
  *
  * <p>本实体只承担读投影；写入走 {@code AppSettingDao#upsert} 的单语句原生 upsert （INSERT ... ON DUPLICATE KEY
- * UPDATE），并发首写在数据库层原子收敛，不做实体合并。 value 为 JSON 文本，对象内必须带 {@code schemaVersion}（AGENTS/DATA-MODEL §6
- * 约定）；结构由写入方 （当前只有 017 的 {@code llm.tutor} 键）自行分支解析。密钥不入库：任何含密钥的配置不得写进本表（AGENTS §3.4）。
+ * UPDATE），并发首写在数据库层原子收敛，不做实体合并。 value 为 JSON 文本，对象内必须带 {@code schemaVersion}（DATA-MODEL §6
+ * 约定）；结构由写入方 （当前只有 {@code llm.tutor} 键）自行分支解析。密钥不入库：任何含密钥的配置不得写进本表。
  */
 @Entity
 @Table(name = "app_settings")

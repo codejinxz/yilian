@@ -26,8 +26,8 @@ import java.util.Map;
 /**
  * 概览聚合实现：活跃口径 = 当日（UTC 日界）attempts 有提交记录的独立用户数。
  *
- * <p>题库元数据、模型目录等热点读后续接入 Caffeine/Redis 分层缓存（AGENTS §3.8）；本切片直查库， 容量小、频次低，先保证口径正确。todos 为静态引导项，011-b
- * 接入真实待办（待提交批次、停用账号、待裁决申诉）。
+ * <p>题库元数据、模型目录等热点读后续接入 Caffeine/Redis 分层缓存；当前直查库， 容量小、频次低，先保证口径正确。todos 为静态引导项，后续接入
+ * 真实待办（待提交批次、停用账号、待裁决申诉）。
  */
 @Service
 public class AdminOverviewServiceImpl implements AdminOverviewService {
@@ -107,7 +107,7 @@ public class AdminOverviewServiceImpl implements AdminOverviewService {
     }
 
     /**
-     * 静态待办引导：011-a 先给入口，011-b 换成真实待办（待提交批次、停用账号、待裁决申诉）。
+     * 静态待办引导项：当前先给入口，后续换成真实待办（待提交批次、停用账号、待裁决申诉）。
      *
      * @return 引导项列表
      */

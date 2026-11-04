@@ -11,7 +11,7 @@ import type { BankView } from "@/lib/schemas/content";
 import type { PracticeSentence, Today } from "@/lib/schemas/practice";
 
 /**
- * PracticePage 的答疑入口会话记忆（017R2 DEF-01）：只覆盖「问一问」入口的显隐裁决，
+ * PracticePage 的答疑入口会话记忆：只覆盖「问一问」入口的显隐口径，
  * 答题/判分主链路由后端切片测试与既有 E2E 覆盖，这里不重复。
  *
  * mock 策略：router 用最小桩（页面只用 Link/useNavigate/useSearch），API 在模块边界整体替换
@@ -158,7 +158,7 @@ describe("PracticePage 答疑入口显隐（017 三态 + 017R2 会话记忆）",
   });
 
   /**
-   * [017R2 DEF-01] 40400 收敛链路：定向文案先展示、输入保留，约 1.5s 后入口整体收起，
+   * 40400 收敛链路：定向文案先展示、输入保留，约 1.5s 后入口整体收起，
    * 且隐藏状态写入会话记忆——卸载重挂（重进练习页）后入口不再重现，切断循环困惑。
    */
   it("keepsEntryHiddenAcrossRemountsAfterUnavailable_def01", async () => {

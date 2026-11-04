@@ -8,7 +8,7 @@ import io.github.codejinxz.yilian.upload.dto.ImportPreviewResponse;
 
 import org.springframework.web.multipart.MultipartFile;
 
-/** 导入批次服务（preview→commit→rollback 编排，切片设计 §4.1 五端点）。 */
+/** 导入批次服务（preview→commit→rollback 编排，五端点）。 */
 public interface ImportBatchService {
 
     /**
@@ -68,7 +68,7 @@ public interface ImportBatchService {
     ImportBatchDetailResponse detail(String batchId, int page, int size, String rowStatus);
 
     /**
-     * 对账恢复：把残留 COMMITTING 状态的批次收敛到终态，避免「重试 40904、回滚又要 COMMITTED」 的死锁状态（015 缺陷 #3 的恢复面）。
+     * 对账恢复：把残留 COMMITTING 状态的批次收敛到终态，避免「重试 40904、回滚又要 COMMITTED」 的死锁状态。
      *
      * <p>判定按行数据：存在已关联题目的行 → 内容确已入库，补 markCommitted； 否则原子事务未完成、什么都没入库，标记 FAILED（终态，管理员重新导入新批次）。
      *

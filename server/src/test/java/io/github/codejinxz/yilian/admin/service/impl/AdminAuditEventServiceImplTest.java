@@ -42,7 +42,7 @@ class AdminAuditEventServiceImplTest {
     void recordEventAcceptsAllFrontendActions_ac4() {
         List<String> frontendActions =
                 List.of(
-                        // RESET_PASSWORD 已迁移到真端点（018 AC-6a），从演示白名单移除。
+                        // RESET_PASSWORD 已迁移到真端点，从演示白名单移除。
                         "EXPORT_USER_DATA",
                         "SESSION_REVOKE",
                         "MODEL_CONFIG_UPDATE",

@@ -179,7 +179,7 @@ function createTimeoutSignal(
 /**
  * 把 fetch 抛出的异常归一为可展示的 ApiError；超时或中止提示重试，其余按网络失败处理。
  * 全部标记 networkKind="transport"：请求可能已到达服务端（超时/响应丢失时尤其如此），
- * 调用方必须凭幂等键重试去重，不能直接按离线降级——014 冒烟的误判根源就在这里。
+ * 调用方必须凭幂等键重试去重，不能直接按离线降级——误判根源就在这里。
  * @param error fetch 抛出的原始异常
  * @returns status 为 0 且 networkKind="transport" 的 ApiError
  */
@@ -525,7 +525,7 @@ async function request<T>(
  * 游客不登录真实可用的架构决策要求练习/复习/统计/今日全部本地应答；
  * auth、me、settings、banks 永远走网络（banks 匿名可访问，失败时引擎用旧缓存降级）。
  * `mode:"guest"` 表示该组**仅对游客**本地应答：登录用户（getAccessToken() 命中或
- * auth-state 探针确认）的请求放行到服务端——practice/analytics 服务端切片（#8）已落地，
+ * auth-state 探针确认）的请求放行到服务端，
  * 登录用户的练习/统计由服务端承担。把对应组的 enabled 改为 false 即可整体切回网络应答，
  * 仍不需要改动任何页面代码。
  */

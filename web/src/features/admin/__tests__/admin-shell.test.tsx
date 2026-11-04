@@ -293,7 +293,7 @@ describe("admin shell", () => {
     renderApp("/admin");
 
     expect(await screen.findByRole("heading", { name: /^管理/ })).toBeInTheDocument();
-    // 演示 Notice 已随 011 切片撤场；出题/模型/运维页签各自的页内演示横幅仍然足够提示。
+    // 演示 Notice 已撤场；出题/模型/运维页签各自的页内演示横幅仍然足够提示。
     expect(screen.queryByText(/演示数据模式/)).not.toBeInTheDocument();
     expect(screen.queryByText(/VITE_USE_MOCK=true 启动体验完整管理端/)).not.toBeInTheDocument();
   });

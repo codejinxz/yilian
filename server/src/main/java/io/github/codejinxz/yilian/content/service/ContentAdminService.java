@@ -7,7 +7,7 @@ import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 import java.util.List;
 
 /**
- * 内容管理用例（content 模块对 admin 模块的接缝，AGENTS §3.2 跨模块只依赖 service 接口）。
+ * 内容管理用例（content 模块对 admin 模块的接缝，跨模块只依赖 service 接口）。
  *
  * <p>管理端看全量生命周期（含 DRAFT/RECYCLED），写路径全部落在本模块既有实体上； visibility/status 用字符串承载，实现侧白名单校验（同 system 模块
  * role 的先例），非法值按参数校验失败返回。

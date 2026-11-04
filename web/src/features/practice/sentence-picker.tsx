@@ -80,7 +80,7 @@ function pickerMeta(sentence: PickerSentence, isCurrent: boolean): string {
 }
 
 /**
- * 练习选题面板（020 AC-2/AC-3）：练习页内的展开层（非独立路由页），列出当前题库的句子，
+ * 练习选题面板：练习页内的展开层（非独立路由页），列出当前题库的句子，
  * 点选一句经 next?sentenceId= 指定练习（MANUAL）；Esc/遮罩/×关闭回到当前句。
  * 一屏一句纪律：面板不改变练习页本身，关闭后当前句与作答状态原样保留。
  *
@@ -224,7 +224,7 @@ export function SentencePicker({
                   </span>
                   <span className="shrink-0 text-[11px] tracking-[0.04em] text-ink-muted opacity-75">
                     {/* 原型 peek-row：级别 · 状态 · 练过态连排；练过态来自 §5.3.1 的
-                        当前用户卡投影（020 AC-2），匿名/未学展示「未学」。 */}
+                        当前用户卡投影，匿名/未学展示「未学」。 */}
                     {pickerMeta(sentence, isCurrent)}
                   </span>
                 </button>

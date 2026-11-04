@@ -474,7 +474,7 @@ class PracticeFlowIntegrationTest {
         assertThat(practiceService.wrongQuestions(USER_ID, 1, 20, false, 9001L, null).total())
                 .isEqualTo(1L);
 
-        // 直插 DISPUTE 行（appeal 端点在后续波次）：overlay 排除后错题不再出现。
+        // 直接落一条 DISPUTE 行验证 overlay 排除：错题列表不再出现该题。
         jdbcTemplate.update(
                 "INSERT INTO appeals (attempt_id, annotation_key, sentence_id, chunk_index,"
                         + " user_id, kind, status, reason, created_at, updated_at)"
@@ -736,7 +736,7 @@ class PracticeFlowIntegrationTest {
         assertThat(tagged.sentence().id()).isEqualTo(seeded.sentenceId());
 
         // bankId 是显式筛选：错题在 9001，9002 视角下错题池为空。
-        // 015 修复轮后显式 bankId 需真实存在：先建空库 9002（015 major #4）。
+        // 显式 bankId 需真实存在：先建空库 9002。
         jdbcTemplate.update(
                 "INSERT INTO sentence_banks (id, owner_id, name, description, visibility, status,"
                         + " version, published_at, created_by, updated_by, created_at, updated_at,"
@@ -752,7 +752,7 @@ class PracticeFlowIntegrationTest {
                 .isNull();
     }
 
-    /** [AC-5] next 显式 bankId 前置校验：不存在 40401；库存在但无题保持 data=null（015 修复轮 major #4）。 */
+    /** [AC-5] next 显式 bankId 前置校验：不存在 40401；库存在但无题保持 data=null。 */
     @Test
     @DisplayName("[AC-5] next bankId 校验：40401 与空态")
     void ac5_nextBankIdNotFoundRejected() {
@@ -798,7 +798,7 @@ class PracticeFlowIntegrationTest {
     }
 
     /**
-     * [AC-2] 私有题库越权三路径全堵（016 P0-1）：①通用 next/候选不含他人私有库句子（登录/匿名双态，本人可见）； ②指定句指向不可见句时静默退回常规取题（不
+     * [AC-2] 私有题库越权三路径全堵：①通用 next/候选不含他人私有库句子（登录/匿名双态，本人可见）； ②指定句指向不可见句时静默退回常规取题（不
      * 404、不泄露存在性）；③对不可见句交卷 40300 且不落库， owner 对自己私有库不受影响；guest-upgrade 迁移同口径。
      */
     @Test
@@ -937,8 +937,8 @@ class PracticeFlowIntegrationTest {
     }
 
     /**
-     * [AC-2] 练习史豁免（016 修复轮 2）：库转私后，本人已有卡的句子可继续 DUE 取题、交卷、回看—— 消除「列表里看得到、交卷被 40300
-     * 拒」的断链；无卡的本人在同库被拒、他人同样不可见； 回收句豁免不适用——本人有卡也照样被练习端排除（DUE 不出、MANUAL 退回、交卷 40402）。
+     * [AC-2] 练习史豁免：库转私后，本人已有卡的句子可继续 DUE 取题、交卷、回看—— 消除「列表里看得到、交卷被 40300 拒」的断链；无卡的本人在同库被拒、他人同样不可见；
+     * 回收句豁免不适用——本人有卡也照样被练习端排除（DUE 不出、MANUAL 退回、交卷 40402）。
      */
     @Test
     @DisplayName("[AC-2] 练习史豁免：转私后本人可续练、无卡与他人被拒、回收句仍排除")
@@ -1044,7 +1044,7 @@ class PracticeFlowIntegrationTest {
     }
 
     /**
-     * [AC-3] 新题召回下推（016 P1）：25 句、前 20 句全部入队（LEARNING）后，next 仍能返回第 21 句—— 「未入队」在 SQL 过滤，LIMIT 20
+     * [AC-3] 新题召回下推：25 句、前 20 句全部入队（LEARNING）后，next 仍能返回第 21 句—— 「未入队」在 SQL 过滤，LIMIT 20
      * 只作用于过滤后的窗口，不再被已练句子永久占满。
      */
     @Test
@@ -1090,8 +1090,8 @@ class PracticeFlowIntegrationTest {
     }
 
     /**
-     * [AC-3] 并发同句双 FIRST 建卡收敛（016 P1）：uk_review_card 兜底，输家不回滚、复用赢家卡—— 双方都 2xx 且拿到 LEARNING
-     * 卡投影，一句一卡、两条 attempt 都落库。
+     * [AC-3] 并发同句双 FIRST 建卡收敛：uk_review_card 兜底，输家不回滚、复用赢家卡—— 双方都 2xx 且拿到 LEARNING 卡投影，一句一卡、两条
+     * attempt 都落库。
      */
     @Test
     @DisplayName("[AC-3] 并发同句双 FIRST 建卡收敛")
@@ -1141,7 +1141,7 @@ class PracticeFlowIntegrationTest {
         assertThat(count("attempts")).isEqualTo(2L * rounds);
     }
 
-    /** [AC-5] 并发同 attemptId 双发：零异常、恰一方真提交一方重放、结果一致（015 修复轮 major #2）。 */
+    /** [AC-5] 并发同 attemptId 双发：零异常、恰一方真提交一方重放、结果一致。 */
     @Test
     @DisplayName("[AC-5] 并发同 attemptId 双发幂等收敛")
     void ac5_concurrentSameAttemptIdDoubleSubmitConverges() throws Exception {
@@ -1373,7 +1373,7 @@ class PracticeFlowIntegrationTest {
                                 assertThat(exception.apiCode()).isEqualTo(ApiCode.ACCESS_DENIED));
         assertThat(count("appeals")).isEqualTo(1L);
 
-        // appeal：同一批注可与 DISPUTE 各存一条；M2 记 PENDING，proposedAnswer 落库。
+        // appeal：同一批注可与 DISPUTE 各存一条；当前记 PENDING，proposedAnswer 落库。
         AppealView appeal =
                 practiceService.submitAppeal(
                         USER_ID, wrong.attemptId(), "slot:0", "attach importance to", "更书面");

@@ -8,7 +8,7 @@ const MAX_BYTES = 5 * 1024 * 1024;
 
 /**
  * 题库页签第三段「导入」：选择文件 → 同步预览（行级错误就地展示）→ 确认提交入库 →
- * 可回滚（RECYCLED 软删 + 增量流下发 tombstone）。契约 /admin/uploads（切片设计 §4.1）。
+ * 可回滚（RECYCLED 软删 + 增量流下发 tombstone）。契约 /admin/uploads。
  * 权限由管理端路由门（AdminGate）统一把关，这里不再单独查 me。
  */
 export function ImportSection() {

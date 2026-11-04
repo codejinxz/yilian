@@ -61,7 +61,7 @@ public class AdminErrorLogController {
     }
 
     /**
-     * 异常详情：堆栈只在详情出现（AGENTS §3.6）；缺失回 40400。
+     * 异常详情：堆栈只在详情出现；缺失回 40400。
      *
      * @param id 异常行 id
      * @return 含堆栈的详情视图

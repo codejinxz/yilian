@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 class AnthropicMessagesLlmClientTest {
 
-    /** ZCode 网关 429 时的非标准错误体（主人 2026-11-05 实测形状）：error 是字符串而非标准 error 对象。 */
+    /** ZCode 网关 429 时的非标准错误体（实测形状）：error 是字符串而非标准 error 对象。 */
     private static final String GATEWAY_429_BODY =
             "{\"error\":\"ZCode 网关：所有账号尝试均失败\",\"attempts\":[{\"account\":\"eokfa899\","
                     + "\"ok\":false,\"error\":\"429 限流，冷却 1 分钟\"}]}";
@@ -43,7 +43,7 @@ class AnthropicMessagesLlmClientTest {
                     + "\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":12,\"output_tokens\":7}}";
 
     /**
-     * 思考模型响应形状（022 主人 curl 实测）：content 首块为 thinking（内部推理），正文在其后的 text 块；usage 含
+     * 思考模型响应形状（实测）：content 首块为 thinking（内部推理），正文在其后的 text 块；usage 含
      * cache_read_input_tokens。max_tokens 过小时（如 32）只有 thinking 块、stop_reason=max_tokens。
      */
     private static final String THINKING_THEN_TEXT_BODY =

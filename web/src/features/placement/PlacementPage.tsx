@@ -19,7 +19,7 @@ function linkishClass(): string {
   return "cursor-pointer border-b border-vermilion/35 bg-transparent text-[12px] text-vermilion";
 }
 
-/** 起点档位只描述「先从哪档开始」，绝不出现分数或证书类等级标签（契约 §2.8 红线）。 */
+/** 起点档位只描述「先从哪档开始」，绝不出现分数或证书类等级标签。 */
 function startLevelFor(correctCount: number): string {
   return correctCount >= 2 ? "中级·日常" : "初级·日常";
 }

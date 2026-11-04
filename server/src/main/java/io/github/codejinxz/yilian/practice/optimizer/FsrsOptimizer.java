@@ -13,8 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * FSRS-6 参数优化器（M2.1，纯函数核心，便于测试）：读某用户 review_logs 的评分序列， 用 BCE 损失对全部 21 维权重做全批梯度下降（数值梯度 +
- * 回溯半步），产出候选权重。
+ * FSRS-6 参数优化器（纯函数核心，便于测试）：读某用户 review_logs 的评分序列， 用 BCE 损失对全部 21 维权重做全批梯度下降（数值梯度 + 回溯半步），产出候选权重。
  *
  * <p>数学要点（与 py-fsrs/fsrs-rs 优化器同构，量级收紧为单人产品）：
  *
@@ -67,7 +66,7 @@ public final class FsrsOptimizer {
     /** 概率截断上界。 */
     private static final double P_MAX = 1 - 1e-6;
 
-    /** 优化器标识：落 metrics.optimizer，说明这是 M2.1 的 Java 全批 SGD。 */
+    /** 优化器标识：落 metrics.optimizer，说明这是 Java 全批 SGD 实现（历史取值含 m2.1 字样，变更需迁移）。 */
     public static final String OPTIMIZER_ID = "java-sgd-m2.1";
 
     /** 优化器版本：迭代/学习率等超参变化时递增。 */

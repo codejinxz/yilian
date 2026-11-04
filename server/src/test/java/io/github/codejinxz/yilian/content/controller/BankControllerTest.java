@@ -48,7 +48,7 @@ import java.util.List;
 /**
  * 题库只读接口的 MVC 切片测试：加载真实 {@link SecurityConfig} 验证匿名放行与鉴权边界， Service 用 Mockito 替身。
  *
- * <p>刻意不使用 @SpringBootTest：存量 ImportBatch 实体映射使全上下文无法启动（ddl-auto=validate）， 且本切片只需覆盖「路由 + 安全规则 +
+ * <p>刻意不使用 @SpringBootTest：存量 ImportBatch 实体映射使全上下文无法启动（ddl-auto=validate）， 且这里只需覆盖「路由 + 安全规则 +
  * 信封结构」，可见性判定逻辑由 {@code ContentQueryServiceImplTest} 的纯单元测试负责。
  */
 @WebMvcTest(controllers = BankController.class)
@@ -398,7 +398,7 @@ class BankControllerTest {
                 .andExpect(jsonPath("$.code").value(ApiCode.INVALID_PAGINATION.code()));
     }
 
-    /** [AC-5] 限流契约（015 修复轮 minor #12）：匿名可读 GET 都挂 IP 维度 120 次/60 秒，防滥用入口裸奔；020 选题句列表同规则。 */
+    /** [AC-5] 限流契约：匿名可读 GET 都挂 IP 维度 120 次/60 秒，防滥用入口裸奔；选题句列表同规则。 */
     @org.junit.jupiter.api.Test
     void readOnlyEndpointsHaveIpRateLimit_ac5() throws Exception {
         Class<?>[][] signatures = {

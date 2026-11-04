@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 导入行解析器：把整份文件文本拆成逐行（切片设计 §4.3 语义）。
+ * 导入行解析器：把整份文件文本拆成逐行。
  *
  * <ul>
  *   <li>JSON：顶层是数组，或对象带 {@code items} 数组（对齐 mock 契约）；不是 JSON Lines；
@@ -28,7 +28,7 @@ import java.util.Map;
 @Component
 public final class ImportRowParser {
 
-    /** 单批数据行上限（切片设计 Q7）。 */
+    /** 单批数据行上限。 */
     public static final int MAX_ROWS = 2000;
 
     private final ObjectMapper objectMapper;
@@ -59,7 +59,7 @@ public final class ImportRowParser {
      * @throws BusinessException 形状不合法（JSON 数组缺失、CSV 缺表头等）时抛 40001
      */
     public List<ParsedRow> parse(String format, String text) {
-        // 输入归一化（016 P2·05#07）：Excel「CSV UTF-8」等工具导出会带 UTF-8 BOM，不剥离会让
+        // 输入归一化：Excel「CSV UTF-8」等工具导出会带 UTF-8 BOM，不剥离会让
         // 首列表头变成 \uFEFFzh、JSON 分支直接解析失败，错误文案指不到真因；CRLF/CR 统一为 \n
         // 供 CSV 记录扫描。
         String normalized = text;
@@ -103,9 +103,8 @@ public final class ImportRowParser {
     /**
      * 解析 CSV：首行表头 + RFC4180 子集记录扫描；chunks/blank/tags 三列尝试 JSON 解析。
      *
-     * <p>为什么自写而不用 commons-csv（AGENTS §3.3 白名单外依赖须说明）：本项目只需要「双引号 包裹 + {@code ""} 转义 +
-     * 引号内逗号/换行」的最小子集，数十行可完整覆盖并单测；此前朴素 {@code split(",")} 把含逗号的 chunks JSON 一列切成多列，CSV 导入实际不可用（016
-     * P1·05#04）。
+     * <p>为什么自写而不用 commons-csv：本项目只需要「双引号 包裹 + {@code ""} 转义 + 引号内逗号/换行」的最小子集，数十行可完整覆盖并单测；朴素 {@code
+     * split(",")} 会把含逗号的 chunks JSON 一列切成多列，CSV 导入实际不可用。
      *
      * @param text 全文件文本（BOM 与换行已归一）
      * @return 数据行列表

@@ -188,7 +188,7 @@ function BigNum({ value, unit, label }: { value: number; unit: string; label: st
 /**
  * 统计页：view-stats——三个大数、14 天柱状、错误集中 Top5 与最近记录，别的不放。
  *
- * 数据源按登录态分流（切片 §5.3）：游客读本地引擎 getStatsSnapshot（本地引擎能力）；
+ * 数据源按登录态分流：游客读本地引擎 getStatsSnapshot（本地引擎能力）；
  * 登录用户走契约接口 getAccuracy（含 daily14/recent 扩展，streak 用 /practice/today）+
  * getErrorTags，recent 的中文句用题库缓存 join；mock 模式沿用 getAccuracy / getErrorTags
  * 与 getMockStatsDemo 演示数据。最近记录行只有内容与得分两列，不提供回看入口。

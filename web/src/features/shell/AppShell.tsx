@@ -72,7 +72,7 @@ export function AppShell() {
   // 有新版本待用户确认生效时为 true；状态由 pwa.ts 的 SW 事件驱动。
   const [updateReady, setUpdateReady] = useState(false);
   // 登录后自动迁移本机记录的结果提示；guest-upgrade 模块派发事件，壳层统一展示
-  // （迁移发生在登录页跳转瞬间，页面内 toast 挂不住，冒烟曾报「迁移成功无任何反馈」）。
+  // （迁移发生在登录页跳转瞬间，页面内 toast 挂不住，曾出现「迁移成功无任何反馈」）。
   const [upgradeMessage, setUpgradeMessage] = useState<string | null>(null);
   const upgradeTimerRef = useRef<number | null>(null);
 
@@ -147,7 +147,7 @@ export function AppShell() {
 
   const nextTheme = theme === "paper" ? "night" : "paper";
   // 游客在真实模式下读本地引擎的今日快照，能看到自己的连续天数；无数据时不显示，
-  // 避免拿 0 天制造打卡压力（契约 §2：不做惩罚性打卡）。
+  // 避免拿 0 天制造打卡压力（不做惩罚性打卡）。
   const streakDays = today.data?.streakDays ?? null;
   const avatarText = user ? ([...user.username][0] ?? "我") : "游";
   const avatarTitle = user
@@ -172,7 +172,7 @@ export function AppShell() {
               {item.label}
             </Link>
           ))}
-          {/* 管理入口只对管理员渲染；真正的权限校验在服务端（契约 §2.7）。 */}
+          {/* 管理入口只对管理员渲染；真正的权限校验在服务端。 */}
           {isAdmin ? (
             <Link
               to="/admin"
@@ -185,7 +185,7 @@ export function AppShell() {
         </nav>
 
         <div className="meta">
-          {/* 今日数据缺失时不显示连续天数，避免拿 0 天制造打卡压力（契约 §2：不做惩罚性打卡）。 */}
+          {/* 今日数据缺失时不显示连续天数，避免拿 0 天制造打卡压力（不做惩罚性打卡）。 */}
           {streakDays !== null ? <span className="streak">连续 {streakDays} 天</span> : null}
           <button
             type="button"

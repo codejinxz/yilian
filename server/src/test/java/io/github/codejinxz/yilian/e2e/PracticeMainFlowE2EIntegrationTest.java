@@ -35,7 +35,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * 「登录 → 拉题 → 提交 → 批改」主链路端到端集成测试（DoD 硬性项，016 P1·06#04）。
+ * 「登录 → 拉题 → 提交 → 批改」主链路端到端集成测试（DoD 硬性项）。
  *
  * <p>此前认证链路（{@code AuthFlowIntegrationTest}，真实 HTTP）与练习链路 （{@code PracticeFlowIntegrationTest}，直调
  * service）互不相连，controller ↔ 鉴权 ↔ 幂等切面 ↔ 真实判分/排程的组合从未在一条链路里验证过。本类在同一进程、同一真实 MySQL（yilian_test） 上用真实

@@ -60,7 +60,7 @@ export async function getBankSentences(
 }
 
 /**
- * 练习选题句列表（API §5.3.1，020 AC-1）：题库内按页浏览 + 当前用户练过态；匿名可用（仅公开库）。
+ * 练习选题句列表（API §5.3.1）：题库内按页浏览 + 当前用户练过态；匿名可用（仅公开库）。
  * @param bankId 题库 id
  * @param params 分页与 keyword/level/status 筛选；status 缺省时服务端隐藏回收站
  * @param signal 取消信号

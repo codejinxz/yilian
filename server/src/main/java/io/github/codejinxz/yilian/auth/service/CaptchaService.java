@@ -5,8 +5,8 @@ import io.github.codejinxz.yilian.auth.vo.CaptchaChallenge;
 /**
  * 图形验证码服务：生成挑战与一次性校验。
  *
- * <p>答案存进程内 Caffeine（单实例部署约定，AGENTS §3）；5 分钟过期、消费即作废， 防止同一挑战被反复试码。开关 {@code
- * yilian.security.captcha.enabled} 关闭时 {@link #verifyOrThrow} 直接放行，前端也不展示图形码。
+ * <p>答案存进程内 Caffeine（单实例部署约定）；5 分钟过期、消费即作废， 防止同一挑战被反复试码。开关 {@code yilian.security.captcha.enabled}
+ * 关闭时 {@link #verifyOrThrow} 直接放行，前端也不展示图形码。
  */
 public interface CaptchaService {
 

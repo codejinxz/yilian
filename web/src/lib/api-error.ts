@@ -35,7 +35,7 @@ export class ApiError extends Error {
 /**
  * 判断是否为传输层失败（超时/断网/连接重置）。
  *
- * <p>014 冒烟根因：提交链路曾把一切 {@code status===0} 都当离线，而 2xx 后 body 校验失败
+ * <p>根因：提交链路曾把一切 {@code status===0} 都当离线，而 2xx 后 body 校验失败
  * 也抛 status=0，导致「服务端已成功、前端判失败」把答卷误入离线队列再重放。
  * 只有 transport 类失败才允许走离线降级；response 类失败重试同一载荷即可自愈（幂等键去重）。
  *

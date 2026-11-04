@@ -15,7 +15,7 @@ import java.time.Instant;
 /**
  * 判分记录（append-only，attempt_gradings 表）；同一 attempt 按 sequence 递增。
  *
- * <p>result 为判分结果 JSON（schemaVersion=1，与本地引擎 GradingResult 同构）； grader 本期恒为 LOCAL。
+ * <p>result 为判分结果 JSON（schemaVersion=1，与本地引擎 GradingResult 同构）； grader 当前恒为 LOCAL。
  */
 @Entity
 @Table(name = "attempt_gradings")

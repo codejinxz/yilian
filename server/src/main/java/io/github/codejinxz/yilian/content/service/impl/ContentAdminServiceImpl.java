@@ -43,9 +43,9 @@ import java.util.stream.Collectors;
 /**
  * 内容管理用例实现：题库 CRUD 与生命周期、跨题库题目检索、批量状态/移动、单题状态流转与行内编辑。
  *
- * <p>写路径全部复用既有 JPA 实体（sentence_banks/sentences/sentence_versions），银行级修订号按「每题递增」推进 （切片设计 §4.5
- * P1-1：增量游标 {@code version > sinceVersion} 永不重版本分组）；批量操作单事务、 悲观锁按题库 id 升序获取，避免两个并发批量的 ABBA 死锁。
- * 行内编辑的 zh/level/tags/note 落在不可变内容快照上——新增版本行并回填指纹，而不是原地改历史行。
+ * <p>写路径全部复用既有 JPA 实体（sentence_banks/sentences/sentence_versions），银行级修订号按「每题递增」推进， 增量游标 {@code
+ * version > sinceVersion} 永不重版本分组；批量操作单事务、 悲观锁按题库 id 升序获取，避免两个并发批量的 ABBA 死锁。 行内编辑的
+ * zh/level/tags/note 落在不可变内容快照上——新增版本行并回填指纹，而不是原地改历史行。
  */
 @Service
 public class ContentAdminServiceImpl implements ContentAdminService {
@@ -55,7 +55,7 @@ public class ContentAdminServiceImpl implements ContentAdminService {
 
     /**
      * 页码上限（与 {@code AdminLogServiceImpl} 同口径）：题目列表的 offset 按 {@code (page-1)*size} 计算， 不设上限的深页码会
-     * int 溢出为负 offset 被 MyBatis 前置校验拒绝后落成 500（016 P2·02#04）， 10_000 页 × 100 条已远超现实数据量。
+     * int 溢出为负 offset 被 MyBatis 前置校验拒绝后落成 500， 10_000 页 × 100 条已远超现实数据量。
      */
     private static final int MAX_PAGE = 10_000;
 
@@ -113,7 +113,7 @@ public class ContentAdminServiceImpl implements ContentAdminService {
         this.objectMapper = objectMapper;
     }
 
-    /** 管理端题库列表：低频且要求实时，不走缓存（013 AC-2，理由见 {@link BankMetadataCache} 类注释）。 */
+    /** 管理端题库列表：低频且要求实时，不走缓存（理由见 {@link BankMetadataCache} 类注释）。 */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<BankView> adminListBanks(
@@ -121,7 +121,7 @@ public class ContentAdminServiceImpl implements ContentAdminService {
         requireValidPage(page, size);
         BankVisibility visibilityFilter = parseVisibility(visibility);
         ContentStatus statusFilter = parseContentStatus(status, "status 不受支持");
-        // keyword 走 LIKE 转义：用户输入的 %/_ 是字面量，检索语义=纯 contains（015 缺陷 #5）。
+        // keyword 走 LIKE 转义：用户输入的 %/_ 是字面量，检索语义=纯 contains。
         String normalizedKeyword = StringUtils.escapeLike(keyword);
         Page<SentenceBank> result =
                 bankDao.searchAdmin(
@@ -410,13 +410,13 @@ public class ContentAdminServiceImpl implements ContentAdminService {
         boolean contentChange =
                 zhEdit != null || levelProvided || tagsEdit != null || noteEdit != null;
         // 与当前状态相同则不推进修订号（前端编辑弹窗恒带当前 status，属常见空操作）；
-        // 纯空操作（内容/状态/移动都不变）不加锁、不落任何写，行为与 015 修复轮之前一致。
+        // 纯空操作（内容/状态/移动都不变）不加锁、不落任何写。
         boolean statusChange = statusTarget != null && sentence.getStatus() != statusTarget;
         Instant now = Instant.now();
 
-        // 统一锁序（015 缺陷 #6）：编辑、状态、移动涉及的全部题库按 id 升序一次加齐，
-        // 且加齐发生在任何题库行被修改之前。旧行为「applyContentEdit 先锁源库、moveSentence
-        // 再升序锁 {源,目标}」留下 ABBA 窗口——本请求持有源库等目标库、并发批量移动持有
+        // 统一锁序：编辑、状态、移动涉及的全部题库按 id 升序一次加齐，
+        // 且加齐发生在任何题库行被修改之前。若只对单次操作涉及的库逐个加锁
+        // （先锁源库、再升序锁 {源,目标}）会留下 ABBA 窗口——本请求持有源库等目标库、并发批量移动持有
         // 目标库等源库时会互相等待直至锁超时。
         Map<Long, SentenceBank> lockedBanks = Map.of();
         if (contentChange || statusChange || willMove) {
@@ -870,8 +870,8 @@ public class ContentAdminServiceImpl implements ContentAdminService {
     /**
      * 校验分页参数，越界统一抛 40004。
      *
-     * <p>页码带上限（016 P2·02#04）：深页码的 {@code (page-1)*size} 会 int 溢出为负 offset， 把客户端输入错误放大成 500；负数页码本就被
-     * {@code page < 1} 拒绝。
+     * <p>页码带上限：深页码的 {@code (page-1)*size} 会 int 溢出为负 offset， 把客户端输入错误放大成 500；负数页码本就被 {@code page <
+     * 1} 拒绝。
      *
      * @param page 页码，1–10_000
      * @param size 每页大小，1–100

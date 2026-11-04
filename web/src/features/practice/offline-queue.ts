@@ -71,7 +71,7 @@ export function removeQueuedAttempt(attemptId: string): void {
 
 /**
  * 尝试同步全部本地队列；传输失败立即停止，业务冲突保留在队列并返回提示，绝不静默丢弃。
- * 判定用 isTransportError 而非 status===0：014 冒烟发现 2xx 后 body 校验失败同样抛
+ * 判定用 isTransportError 而非 status===0：2xx 后 body 校验失败同样抛
  * status=0，把它说成「仍然离线」会误导用户（详见 api-error.ts 的根因注释）。
  * @returns 同步成功数与仍需处理的提示
  */

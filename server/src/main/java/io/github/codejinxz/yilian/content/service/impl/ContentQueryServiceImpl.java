@@ -74,7 +74,7 @@ public class ContentQueryServiceImpl implements ContentQueryService {
      * @param bankDao 题库 Dao
      * @param sentenceDao 题目与快照 Dao
      * @param practiceCandidateQueryDao 练习候选 JOIN 查询 Dao（MyBatis 实现）
-     * @param pickerSentenceQueryDao 选题句列表 JOIN 查询 Dao（MyBatis 实现，020 AC-1）
+     * @param pickerSentenceQueryDao 选题句列表 JOIN 查询 Dao（MyBatis 实现）
      * @param bankMetadataCache 题库元数据缓存（匿名公开读）
      * @param objectMapper Spring Boot 提供的 Jackson 3 映射器
      */
@@ -98,8 +98,8 @@ public class ContentQueryServiceImpl implements ContentQueryService {
      *
      * <p>可见集合由 Dao 固定为已发布且未软删；题数逐题统计，页容量有上限（≤100），代价可控。 请求其他状态时直接返回空页：可见集合里不可能有它们，静默空页比报错更贴近筛选语义。
      *
-     * <p>匿名请求走 L1 缓存（013 AC-2）：键为筛选参数指纹（见 {@link BankMetadataCache#listCacheKey}）， {@code sync =
-     * true} 防同键并发重建；登录请求结果含私有题库、键需带用户上下文， 不缓存。失效由写路径经 {@code BankMetadataCache#evictWrittenBanks}
+     * <p>匿名请求走 L1 缓存：键为筛选参数指纹（见 {@link BankMetadataCache#listCacheKey}）， {@code sync = true}
+     * 防同键并发重建；登录请求结果含私有题库、键需带用户上下文， 不缓存。失效由写路径经 {@code BankMetadataCache#evictWrittenBanks}
      * 在事务提交后执行。
      *
      * @param userId 当前用户 id，可为 null
@@ -131,7 +131,7 @@ public class ContentQueryServiceImpl implements ContentQueryService {
             return PageResponse.of(List.of(), page, size, 0);
         }
         // keyword 走 LIKE 转义（StringUtils.escapeLike）：用户输入的 %/_ 是字面量，
-        // 检索语义=纯 contains（015 缺陷 #5）。
+        // 检索语义=纯 contains。
         String normalizedKeyword = StringUtils.escapeLike(keyword);
         Page<SentenceBank> result =
                 bankDao.searchVisible(
@@ -148,7 +148,7 @@ public class ContentQueryServiceImpl implements ContentQueryService {
      *
      * <p>私有题库对匿名按「不存在」返回（40401），避免向未登录探测者泄露题库存在性； 登录后非所有者回 40300，与 API §5.2 的错误码约定一致。
      *
-     * <p>匿名请求走 L1 缓存（013 AC-2）：正缓存返回视图，负缓存（不存在/不可见）转 40401， 语义与直查库完全一致；登录/管理端维持直查库，理由见 {@link
+     * <p>匿名请求走 L1 缓存：正缓存返回视图，负缓存（不存在/不可见）转 40401， 语义与直查库完全一致；登录/管理端维持直查库，理由见 {@link
      * BankMetadataCache} 类注释。
      *
      * @param bankId 题库 id
@@ -183,7 +183,7 @@ public class ContentQueryServiceImpl implements ContentQueryService {
      * 按 sinceVersion 增量拉取题目。
      *
      * <p>不可练状态（DRAFT/DISABLED/RECYCLED/ARCHIVED）对练习端一律返回 tombstone——增量流不变式： 任何不可练状态都给
-     * tombstone（切片设计 §4.5 P1-2），客户端据此清理本地缓存；从未发布过的 DRAFT 行多给一条 tombstone 对客户端无害（未知 id 直接忽略）。
+     * tombstone，客户端据此清理本地缓存；从未发布过的 DRAFT 行多给一条 tombstone 对客户端无害（未知 id 直接忽略）。
      *
      * <p>游标语义遵循 API §1.6：{@code version > sinceVersion}，升序返回； {@code nextSinceVersion} 取本页最大
      * version，无数据时等于 {@code sinceVersion}； {@code hasMore} 以「取满 limit」近似，客户端拉到空页自然终止。
@@ -241,11 +241,11 @@ public class ContentQueryServiceImpl implements ContentQueryService {
     }
 
     /**
-     * 练习选题句列表（API §5.3.1，020 AC-1）。
+     * 练习选题句列表（API §5.3.1）。
      *
      * <p>可见性复用 {@link #requireVisibleBank(long, Long, boolean, boolean)}（匿名私有回 40100、 非所有者回
      * 40300、不存在/未发布/已软删回 40401）；练过态在 SQL 内 LEFT JOIN 当前用户复习卡取得， 匿名与未练过行两列为
-     * null（前端展示「未学」）。结果带逐行用户态与筛选指纹，组合爆炸，不做缓存—— 单页 ≤100 行、只读查询，直查库代价可控（016 的可见性布尔判定同样直查库）。
+     * null（前端展示「未学」）。结果带逐行用户态与筛选指纹，组合爆炸，不做缓存—— 单页 ≤100 行、只读查询，直查库代价可控（可见性布尔判定同样直查库）。
      *
      * @param bankId 题库 id
      * @param userId 当前用户 id，可为 null
@@ -269,7 +269,7 @@ public class ContentQueryServiceImpl implements ContentQueryService {
         requireValidPage(page, size);
         requireVisibleBank(bankId, userId, false, true);
         // keyword 走 LIKE 转义（StringUtils.escapeLike）：用户输入的 %/_ 是字面量，
-        // 检索语义=纯 contains（与管理端列表同口径，015 缺陷 #5）。
+        // 检索语义=纯 contains（与管理端列表同口径）。
         String normalizedKeyword = StringUtils.escapeLike(keyword);
         String normalizedLevel = level == null || level.isBlank() ? null : level.trim();
         // 缺省隐藏回收站（与管理端跨题库列表同契约）；显式传 status（含 RECYCLED）时按精确状态过滤。
@@ -332,8 +332,8 @@ public class ContentQueryServiceImpl implements ContentQueryService {
     /**
      * 练习候选：只返回当前用户可见题库中已发布、未入队（无非 NEW 复习卡）的题目。
      *
-     * <p>单条 MyBatis JOIN 直出（AGENTS §3.1 复杂查询归 MyBatis）；可见性与「未入队」都在 SQL 过滤 （016 P0-1a / P1，数据层为准），
-     * 快照缺失的候选在 JOIN 中天然丢弃：练习不能用残缺数据，宁可少一题也不能崩一次拉题。
+     * <p>单条 MyBatis JOIN 直出（复杂查询归 MyBatis）；可见性与「未入队」都在 SQL 过滤（数据层为准）， 快照缺失的候选在 JOIN
+     * 中天然丢弃：练习不能用残缺数据，宁可少一题也不能崩一次拉题。
      *
      * @param userId 当前用户 id，可为 null（匿名）
      * @param bankId 题库 id，可为 null

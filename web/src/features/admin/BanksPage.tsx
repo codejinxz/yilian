@@ -42,7 +42,7 @@ function levelChipClassName(): string {
   return "rounded-sm border border-rule bg-transparent px-[7px] py-[3px] font-mono text-[10px] text-ink-muted transition-colors hover:border-vermilion hover:text-vermilion";
 }
 
-/** 新建/编辑题库的表单载荷；说明空串原样透传——后端契约 null=不改、空串=清空（012 AC-5）。 */
+/** 新建/编辑题库的表单载荷；说明空串原样透传——后端契约 null=不改、空串=清空。 */
 interface BankFormInput {
   name: string;
   description: string | null;

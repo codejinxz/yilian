@@ -3,7 +3,7 @@ package io.github.codejinxz.yilian.practice.llm;
 import java.util.Optional;
 
 /**
- * LLM 客户端注册表（022）：按 provider 目录的激活条目（或 legacy 环境变量）在运行时装配 {@link LlmChatClient}，
+ * LLM 客户端注册表：按 provider 目录的激活条目（或 legacy 环境变量）在运行时装配 {@link LlmChatClient}，
  * 业务层（答疑）只依赖本接口——客户端随目录变更自动换轨，不要求重启。
  *
  * <p>三态语义与 017/021 一致：无可用客户端（目录空且 legacy 未配置、目录未激活、激活条目凭证不齐）时 {@link #chatHandle()}

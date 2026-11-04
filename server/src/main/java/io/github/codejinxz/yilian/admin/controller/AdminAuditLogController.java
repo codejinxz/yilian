@@ -15,8 +15,8 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 管理端操作日志检索（/api/admin/audit-logs，API §8.4）：只读倒序，不做状态流转。
  *
- * <p>审计表只增不改，本端点不标注 {@code @OperationLog}（读接口默认不标，AGENTS §3.6）。 管理员权限由 /api/admin/**
- * 路径矩阵（SecurityConfig hasRole("ADMIN")）服务端保证。
+ * <p>审计表只增不改，本端点不标注 {@code @OperationLog}（读接口默认不标）。 管理员权限由 /api/admin/** 路径矩阵（SecurityConfig
+ * hasRole("ADMIN")）服务端保证。
  */
 @RestController
 @RequestMapping("/api/admin/audit-logs")

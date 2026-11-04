@@ -127,7 +127,7 @@ public interface UserAccountService {
     List<InviteCodeAdminView> adminListInvites();
 
     /**
-     * 管理员重置目标用户密码（018 AC-6a）：生成一次性临时口令、回到强制改密态并吊销全部会话。
+     * 管理员重置目标用户密码：生成一次性临时口令、回到强制改密态并吊销全部会话。
      *
      * <p>临时口令只在本次响应返回一次；审计由控制器 {@code @OperationLog(action=RESET_PASSWORD)} 落库。
      *
@@ -139,7 +139,7 @@ public interface UserAccountService {
     AdminPasswordResetView adminResetPassword(long actorId, long targetId, String reason);
 
     /**
-     * 管理员删除账号（018 AC-6b）：软删置位并吊销全部会话；自己不能删自己，已删返回 40400。
+     * 管理员删除账号：软删置位并吊销全部会话；自己不能删自己，已删返回 40400。
      *
      * @param actorId 操作管理员 id
      * @param targetId 目标用户 id

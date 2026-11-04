@@ -84,15 +84,15 @@ public class PracticeServiceImpl implements PracticeService {
     /** deriveRating：全对且未用提示、耗时 ≤60s 记 EASY 的阈值（毫秒）。 */
     private static final long EASY_DURATION_MS = 60_000L;
 
-    /** 降载阈值：到期数超过该值进入降载（GAP P0「积压熔断」，本期常量）。 */
+    /** 降载阈值：到期数超过该值进入降载（当前为常量）。 */
     private static final int OVERLOAD_THRESHOLD = 20;
 
     /** 降载推送上限：降载时一次只推最早到期的 5 道。 */
     private static final int PUSH_LIMIT = 5;
 
     /**
-     * 顺延天数（018 AC-6d）：统一为 3 天。本地引擎是 golden 基准——{@code engine.ts postponeOverdue(days)} 参数化且调用方传
-     * 3（与原型一致），登录态服务端此前固定 1 天是与原型审计登记的偏差，此处对齐。
+     * 顺延天数：统一为 3 天。本地引擎是 golden 基准——{@code engine.ts postponeOverdue(days)} 参数化且调用方传
+     * 3（与原型一致），服务端按同一口径对齐。
      */
     private static final int POSTPONE_DAYS = 3;
 
@@ -201,7 +201,7 @@ public class PracticeServiceImpl implements PracticeService {
                         now);
         try {
             // 立即 flush：并发同 id 的主键冲突在本方法内被捕获；若延迟到 commit 阶段，
-            // 异常会绕过 catch 直接变成 500（015 缺陷 #2 的根因，见 blackbox-defects.md D-2）。
+            // 异常会绕过 catch 直接变成 500。
             attemptDao.saveAndFlush(attempt);
         } catch (DataIntegrityViolationException exception) {
             // 并发同 id 双发，PK 兜底（幂等以数据库唯一约束为准）。本事务的 INSERT 已失败：
@@ -270,7 +270,7 @@ public class PracticeServiceImpl implements PracticeService {
                         .findById(attemptId)
                         .filter(a -> a.getUserId().equals(userId))
                         .orElseThrow(() -> new BusinessException(ApiCode.ATTEMPT_NOT_FOUND));
-        // 回看统一口径（016 修复轮 2）：库可见或练习史豁免（本人已有卡），否则 40300——
+        // 回看统一口径：库可见或练习史豁免（本人已有卡），否则 40300——
         // attempt 归属校验只保证「是本人提交」，不保证「当前仍可读该句内容」；无卡且库已转私的
         // 提交回看不再回显参考译文与解析。submitAttempt 的幂等重放不走本判定：重放返回的是
         // 提交时已交付过的判分结果，不构成新的内容访问。
@@ -493,8 +493,7 @@ public class PracticeServiceImpl implements PracticeService {
     /**
      * 题目校验：存在、可练（已发布未删）、所属库对当前用户可访问、版本一致。
      *
-     * <p>可访问性在版本校验之前判定（016 P0-1c / 修复轮 2 统一口径）：库可见，或练习史豁免（本人已有该句
-     * 复习卡）。不可访问（私有库非本人、匿名访问私有库、库未发布/已软删，且无练习史） 统一回
+     * <p>可访问性在版本校验之前判定：库可见，或练习史豁免（本人已有该句 复习卡）。不可访问（私有库非本人、匿名访问私有库、库未发布/已软删，且无练习史） 统一回
      * 40300，不区分不可访问原因、不回显句子内容——「原文默认不可见」红线；题库所有者对自己私有库的 题目提交不受影响。40300 而非 40402
      * 的取舍：交卷请求已携带具体题目，不可访问属访问控制失败而非资源缺失， 统一码避免用 40401/40402 的区分反推库的存在性与发布状态。回收句在 practiceable 过滤处即
      * 40402， 练习史豁免不适用于「句被回收」（见 {@link #practiceHistoryExempt}）。
@@ -519,8 +518,8 @@ public class PracticeServiceImpl implements PracticeService {
     }
 
     /**
-     * 按句取可练习题目（017 答疑入口）：与 {@link #requirePracticeableSentence(Long, AttemptCommand)} 同一 016
-     * 口径（practiceable + 库可见或练习史豁免），但不做版本比对——答疑始终针对当前版本。
+     * 按句取可练习题目（答疑入口）：与 {@link #requirePracticeableSentence(Long, AttemptCommand)} 同一口径
+     * （practiceable + 库可见或练习史豁免），但不做版本比对——答疑始终针对当前版本。
      *
      * @param userId 当前用户 id
      * @param sentenceId 题目 id
@@ -540,7 +539,7 @@ public class PracticeServiceImpl implements PracticeService {
     }
 
     /**
-     * 练习端句级可访问性统一口径（016 修复轮 2 监督者裁决）：库可见，或练习史豁免（本人已有该句复习卡）。
+     * 练习端句级可访问性统一口径：库可见，或练习史豁免（本人已有该句复习卡）。
      *
      * <p>五条练习路径统一：交卷（{@link #requirePracticeableSentence}）、MANUAL 指定句、DUE 到期召回、 错题池、getAttempt
      * 回看。其中 DUE/错题池的候选本就来自本人复习卡（ {@code findDue/findLearning} 按 userId 过滤），豁免条件按构造成立，不做逐行复检；
@@ -570,8 +569,8 @@ public class PracticeServiceImpl implements PracticeService {
     }
 
     /**
-     * 题库 id 字符串安全解析（016 修复轮 2 minor 防御）：detail.bankId 理论上恒为数字（实体 Long 的 字符串化），脏数据时按「库不可见」静默处理，与
-     * NextQuery 的归一语义一致，不把解析异常放大成 500。
+     * 题库 id 字符串安全解析：detail.bankId 理论上恒为数字（实体 Long 的字符串化），脏数据时按「库不可见」静默处理，与 NextQuery
+     * 的归一语义一致，不把解析异常放大成 500。
      *
      * @param bankId 题库 id 字符串
      * @return 数值 id；非数字返回 null
@@ -706,7 +705,7 @@ public class PracticeServiceImpl implements PracticeService {
                                 params.failDifficulty(),
                                 now);
                 try {
-                    // 建卡走独立新事务（REQUIRES_NEW，016 P1）：并发同句双 FIRST 双方都读到无卡时，
+                    // 建卡走独立新事务（REQUIRES_NEW）：并发同句双 FIRST 双方都读到无卡时，
                     // uk_review_card 兜底——输家的 INSERT 冲突留在内层事务里干净回滚，外层会话不残留
                     // 失败动作。不能在外层事务直接 saveAndFlush：IDENTITY 插入失败后实体以无 id 的
                     // SAVING 状态挂在会话里，detach 因 EntityKey 缺失不可用，提交前再次 flush 会复现
@@ -719,7 +718,7 @@ public class PracticeServiceImpl implements PracticeService {
                     // 唯一键冲突同时证明赢家事务已提交（InnoDB 对未提交行的重复键插入会等待，
                     // 等到的是对方 commit），独立新事务的新快照必能读到卡：读回后原样复用，
                     // 输家本次不再重复计一次失败（同一作答动因重复 applyFailed 会双计 lapse），
-                    // 双方收敛到一张卡；输家的 review_logs 缺行是该裁决的已知代价。
+                    // 双方收敛到一张卡；输家的 review_logs 缺行是该设计的已知代价。
                     return freshTxTemplate.execute(
                             status ->
                                     reviewDao
@@ -800,10 +799,9 @@ public class PracticeServiceImpl implements PracticeService {
     }
 
     /**
-     * 既有卡排程更新的持久化（018 AC-4，review-verify-2 01#02）：条件 UPDATE 以更新前的 {@code last_review_at}
-     * 为乐观锁令牌，并发双端同时更新同一张学习卡时只有一方落库。
+     * 既有卡排程更新的持久化：条件 UPDATE 以更新前的 {@code last_review_at} 为乐观锁令牌，并发双端同时更新同一张学习卡时只有一方落库。
      *
-     * <p><strong>选型裁决</strong>：不用 JPA {@code @Version}——那需要新列（V11 迁移属保护路径待批）， 而排程路径上卡必有非空 {@code
+     * <p><strong>选型</strong>：不用 JPA {@code @Version}——那需要新列， 而排程路径上卡必有非空 {@code
      * last_review_at}（建卡与每次排程都写它，NEW 卡在上游被排除）， 是现成的天然令牌。影响行数为 0 时重试一档 （重读卡、以新令牌重放同一排程动因）而非直接
      * 409：双端并发的语义是「两次提交先后生效」， 重试即收敛，不把良性竞态变成用户可见失败； 重试后仍过期（极少见的持续争用）才按 40900 冲突拒绝，客户端重提交即可。
      * 重放会以最新卡状态重算 elapsedDays 并重写 review_logs 的 before 值，日志与卡保持一致。
@@ -830,7 +828,7 @@ public class PracticeServiceImpl implements PracticeService {
             }
             if (round == 0) {
                 // 重读必须用 REQUIRES_NEW：外层事务在 REPEATABLE READ 下同事务重读仍见旧快照，
-                // 重试必败；只有独立新事务才能读到赢家已提交的行（016 建卡竞态的同款结论）。
+                // 重试必败；只有独立新事务才能读到赢家已提交的行（与建卡竞态同一结论）。
                 // 内层只读不写，条件更新仍在外层事务执行，保住本次提交的原子性。
                 target =
                         freshTxTemplate.execute(
@@ -966,7 +964,7 @@ public class PracticeServiceImpl implements PracticeService {
     @Override
     public NextPracticeView next(Long userId, NextQuery query) {
         // 显式 bankId 过滤的前置校验（API §6.1 错误表）：库不存在/不可见回 40401，
-        // 不再吞成「无可练题」空态让客户端误判为该库无题（015 黑盒 D-1）；
+        // 不吞成「无可练题」空态让客户端误判为该库无题；
         // 库可见但无题仍返回 data=null 空态。
         if (query.bankId() != null) {
             contentQueryService.requireVisibleBank(query.bankId(), userId);
@@ -982,7 +980,7 @@ public class PracticeServiceImpl implements PracticeService {
                             .filter(SentenceDetail::practiceable)
                             // 所属库对当前用户不可见（私有库非本人、匿名访问私有库、库未发布/已软删）
                             // 与「找不到」同语义：静默退回常规取题，不泄露句存在性，也不回显内容
-                            // （016 P0-1b 裁决；练习史豁免见 accessibleForPractice——本人已有卡仍可
+                            // （练习史豁免见 accessibleForPractice——本人已有卡仍可
                             // 指定句重练，库转私不断已开始的练习）。
                             .filter(detail -> accessibleForPractice(userId, detail));
             if (specified.isPresent()) {
@@ -1010,7 +1008,7 @@ public class PracticeServiceImpl implements PracticeService {
         }
         // 到期复习优先：due_at 升序取第一张可练卡的题目；tag 与排除集合与本地引擎
         // pickNext 同口径（显式筛选同样约束到期召回）。bankId 不约束 DUE 为既有服务端行为。
-        // 练习史豁免（016 修复轮 2）：候选即本人复习卡，可访问性按构造成立——库转私不断
+        // 练习史豁免：候选即本人复习卡，可访问性按构造成立——库转私不断
         // 已开始的到期复习；回收句由 practiceable 过滤排除（tombstone 跳过），豁免不适用。
         for (Review card : reviewDao.findDue(userId, Instant.now())) {
             if (query.excludes(card.getSentenceId())) {
@@ -1025,7 +1023,7 @@ public class PracticeServiceImpl implements PracticeService {
             }
         }
         // 新题：可见性（公开库或本人私有库）与「未入队」（无非 NEW 卡）都已在候选 SQL 下推
-        // （016 P0-1a / P1，数据层为准），20 只是一次返回的窗口上限——被过滤行不占名额，
+        // （数据层为准），20 只是一次返回的窗口上限——被过滤行不占名额，
         // 前 20 句练完不再把召回窗口占满；与本地引擎 selectNew 同语义。
         for (SentenceDetail candidate :
                 contentQueryService.findPracticeCandidates(
@@ -1095,8 +1093,7 @@ public class PracticeServiceImpl implements PracticeService {
      * 批注全被「不认同」且无其他错误的题隐藏（includeDisputed=false 时），看答案无批注的行同样 不进池（与既有错题列表行为一致，这里与本地引擎/mock 的唯一偏差，已在
      * API §6.1 登记）。 顺序沿用 {@code findLearning} 的 dueAt 升序，同 dueAt 保持稳定序。
      *
-     * <p>练习史豁免（016 修复轮 2）：池候选即本人复习卡，可访问性按构造成立——库转私不断 错题重练；回收句由 practiceable 过滤排除（tombstone
-     * 不进池），豁免不适用。
+     * <p>练习史豁免：池候选即本人复习卡，可访问性按构造成立——库转私不断 错题重练；回收句由 practiceable 过滤排除（tombstone 不进池），豁免不适用。
      *
      * @param userId 用户 id
      * @param bankId 题库过滤，可空
@@ -1221,7 +1218,7 @@ public class PracticeServiceImpl implements PracticeService {
     public PostponeView postpone(Long userId, String reason) {
         List<Review> due = reviewDao.findDue(userId, Instant.now());
         long postponed = 0;
-        // 推送上限内的最早卡保留今日，其余整体顺延（GAP P0 降载口径；天数对齐原型 3 天，见 POSTPONE_DAYS）。
+        // 推送上限内的最早卡保留今日，其余整体顺延（降载口径；天数对齐原型 3 天，见 POSTPONE_DAYS）。
         for (int index = PUSH_LIMIT; index < due.size(); index++) {
             Review card = due.get(index);
             card.postponeDays(POSTPONE_DAYS);

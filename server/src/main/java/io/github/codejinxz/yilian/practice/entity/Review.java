@@ -13,9 +13,9 @@ import java.time.Duration;
 import java.time.Instant;
 
 /**
- * 复习卡（reviews 表，可变投影）；Q1 一句一卡：唯一键 (user_id, sentence_id)， mode 为最近练习模式。
+ * 复习卡（reviews 表，可变投影）；一句一卡：唯一键 (user_id, sentence_id)， mode 为最近练习模式。
  *
- * <p>state 是三档 UI 投影（NEW/LEARNING/MASTERED），fsrsState 是 FSRS 四态； 排程四分支与本地引擎逐值一致（切片设计 §3.6）。
+ * <p>state 是三档 UI 投影（NEW/LEARNING/MASTERED），fsrsState 是 FSRS 四态； 排程四分支与本地引擎逐值一致。
  */
 @Entity
 @Table(name = "reviews")
@@ -166,7 +166,7 @@ public class Review {
      * @param stability 变更前稳定度
      * @param difficulty 变更前难度
      * @param elapsedDays 距上次复习天数（不足一天记 0）
-     * @param lastReviewAt 变更前的最近复习时间；兼作条件更新的乐观锁令牌（018 AC-4， 无版本列方案的裁决见实体类注释）
+     * @param lastReviewAt 变更前的最近复习时间；兼作条件更新的乐观锁令牌（ 无版本列方案的选型见实体类注释）
      */
     public record Snapshot(
             FsrsState state,
@@ -297,8 +297,8 @@ public class Review {
     /**
      * 顺延 days 天（降载推送范围外的到期卡整体后移；非 FSRS 排程事件，不写 review_logs）。
      *
-     * @param days 顺延天数；调用方统一传 {@code POSTPONE_DAYS=3}（018 AC-6d 裁决：与本地引擎 {@code postponeOverdue(3)}
-     *     和原型的「顺延 3 天」口径对齐，登录态此前固定 1 天属于偏差）
+     * @param days 顺延天数；调用方统一传 {@code POSTPONE_DAYS=3}（与本地引擎 {@code postponeOverdue(3)} 和原型的「顺延 3
+     *     天」口径对齐）
      */
     public void postponeDays(int days) {
         this.dueAt = this.dueAt.plusSeconds(days * 86_400L);
@@ -413,7 +413,7 @@ public class Review {
     }
 
     /**
-     * 距上次复习天数（条件更新的数据源，018 AC-4）。
+     * 距上次复习天数（条件更新的数据源）。
      *
      * @return 天数
      */
@@ -431,7 +431,7 @@ public class Review {
     }
 
     /**
-     * 最近评分的原始存储值（条件更新的 JPQL 参数需要 Short 原值，018 AC-4）。
+     * 最近评分的原始存储值（条件更新的 JPQL 参数需要 Short 原值）。
      *
      * @return 1–4，可空
      */
@@ -440,7 +440,7 @@ public class Review {
     }
 
     /**
-     * 触发最近一次排程的 attempt id（条件更新的数据源，018 AC-4）。
+     * 触发最近一次排程的 attempt id（条件更新的数据源）。
      *
      * @return attempt ULID，可空
      */

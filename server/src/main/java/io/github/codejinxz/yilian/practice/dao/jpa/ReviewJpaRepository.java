@@ -64,9 +64,8 @@ public interface ReviewJpaRepository extends JpaRepository<Review, Long> {
     List<Review> findByUserId(Long userId);
 
     /**
-     * 排程列的条件更新（018 AC-4）：乐观锁令牌为 last_review_at 旧值，不新增版本列（V11
-     * 保护路径未批）。无版本列方案的选型裁决见实体/服务层注释：排程路径上卡必有非空 last_review_at（建卡与每次排程都写它，NEW 卡在上游被排除），可作天然令牌； OR
-     * 分支防御性兼容空值（ JPQL 参数 IS NULL）。
+     * 排程列的条件更新：乐观锁令牌为 last_review_at 旧值，不新增版本列。 无版本列方案的选型见实体/服务层注释：排程路径上卡必有非空
+     * last_review_at（建卡与每次排程都写它，NEW 卡在上游被排除），可作天然令牌； OR 分支防御性兼容空值（ JPQL 参数 IS NULL）。
      *
      * @param id 卡 id
      * @param mode 最近练习模式

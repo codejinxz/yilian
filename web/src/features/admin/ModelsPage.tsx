@@ -30,14 +30,14 @@ import {
 } from "./ui";
 
 /**
- * 模型页签（019 状态中心，022 升级 provider 目录管理）。
+ * 模型页签（provider 目录管理）。
  *
- * <p>架构裁决：模型凭据只走环境变量（AGENTS §3.4 密钥不入库）。022 起 provider 目录
+ * <p>架构口径：模型凭据只走环境变量（密钥不入库）。provider 目录
  * （app_settings 键 llm.providers/llm.active）管理多协议多 provider（CC Switch 式）：
  * 本页做元数据 CRUD 与激活切换，密钥按 id 经 YILIAN_LLM_KEY_&lt;大写ID&gt; 注入（UI 只显
  * hasKey 徽标）；目录为空时回退 legacy 单 provider（YILIAN_LLM_* 环境变量直配，只读展示）。
- * 激活的 provider 即答疑等 AI 功能的数据源；llm.tutor 开关（017）独立沿用。
- * mock 裁决：本页直连真实端点，mock 层不新增演示路径。
+ * 激活的 provider 即答疑等 AI 功能的数据源；llm.tutor 开关独立沿用。
+ * mock 口径：本页直连真实端点，mock 层不新增演示路径。
  */
 
 /** 任务路由原型占位值（与原型 index.html 一致）；M3 任务路由域落地前仅作展示参考。 */
@@ -104,7 +104,7 @@ const PROTOCOL_LABELS: Record<LlmProtocol, string> = {
   "openai-responses": "OpenAI Responses",
 };
 
-/** 主人 ZCode 网关的预设模板（022 AC-2）：一键预填，密钥仍需按 id 配 env。 */
+/** ZCode 网关的预设模板：一键预填，密钥仍需按 id 配 env。 */
 const ZCODE_PRESET = {
   id: "zcode-gateway",
   name: "ZCode 网关",
@@ -128,7 +128,7 @@ function configCellLabelClassName(): string {
 }
 
 /**
- * 答疑关联态的展示文案（017R2 OBS-1 展示归一）：enabled 只是开关（app_settings）、
+ * 答疑关联态的展示文案：enabled 只是开关（app_settings）、
  * credentialsComplete 是凭证按协议口径的齐备性（anthropic-messages 轨 key 可空），缺一功能都不可用。
  * 开关开着但凭证不齐时显示「未生效（缺凭证）」而非笼统的「未开放」，消除管理员视角
  * 「开关是开的、功能却不存在」的矛盾——服务端回 credentialsComplete，前端只做文案归一。
@@ -460,7 +460,7 @@ export function ModelsPage() {
           </p>
         ) : null}
         {config.enabled && !config.credentialsComplete ? (
-          // 017R2 OBS-1 的对称说明：与上方「配了凭证没开」的提示互补，讲清这一组合
+          // 对称说明：与上方「配了凭证没开」的提示互补，讲清这一组合
           // （开关已开、缺凭证）差什么、下一步做什么。
           <p className="mt-3 font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
             开关已开启但未生效（缺凭证）：配置好 provider 环境变量并重启服务端后自动可用；

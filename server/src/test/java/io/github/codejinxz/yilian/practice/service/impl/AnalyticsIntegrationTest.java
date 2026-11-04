@@ -151,7 +151,7 @@ class AnalyticsIntegrationTest {
         assertThat(afterDispute.items()).isEmpty();
     }
 
-    /** [AC-5] from/to 闭区间上限 92 天：超长 40000 拒绝、恰好 92 个本地日放行（015 修复轮）。 */
+    /** [AC-5] from/to 闭区间上限 92 天：超长 40000 拒绝、恰好 92 个本地日放行。 */
     @Test
     @DisplayName("[AC-5] accuracy/error-tags 区间上限 92 天")
     void ac5_analyticsRangeCappedAt92Days() {

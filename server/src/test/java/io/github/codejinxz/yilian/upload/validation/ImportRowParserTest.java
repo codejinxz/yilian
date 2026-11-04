@@ -76,7 +76,7 @@ class ImportRowParserTest {
         assertThat(rows.getFirst().rawJson()).contains("代词");
     }
 
-    /** [AC-3] CSV 引号内逗号：chunks JSON 不再被切列，完整解析为数组（016 P1·05#04）。 */
+    /** [AC-3] CSV 引号内逗号：chunks JSON 不再被切列，完整解析为数组。 */
     @Test
     void parsesCsvQuotedChunkCellContainingCommas() {
         // chunks 单元格整体加引号、内部引号按 RFC4180 用 "" 转义；ref 同样含逗号也需引号包裹。
@@ -98,7 +98,7 @@ class ImportRowParserTest {
         assertThat(rows.getFirst().rawJson()).contains("\"tag\":\"逗号\"");
     }
 
-    /** [AC-3] CSV 转义引号与引号内换行：按字面量保留在字段里（016 P1·05#04）。 */
+    /** [AC-3] CSV 转义引号与引号内换行：按字面量保留在字段里。 */
     @Test
     void parsesCsvEscapedQuotesAndEmbeddedNewline() {
         var rows =
@@ -113,7 +113,7 @@ class ImportRowParserTest {
         assertThat(note.asText()).contains("含\"引号\"与\n换行的说明满足二十字。");
     }
 
-    /** [AC-3] CSV 数据行列数与表头不一致：40001，拒绝静默错位（016 P1·05#04）。 */
+    /** [AC-3] CSV 数据行列数与表头不一致：40001，拒绝静默错位。 */
     @Test
     void rejectsCsvColumnCountMismatch() {
         assertThatThrownBy(
@@ -127,7 +127,7 @@ class ImportRowParserTest {
                                         .isEqualTo(ApiCode.MALFORMED_REQUEST));
     }
 
-    /** [AC-3] CSV 未闭合引号：40001（016 P1·05#04）。 */
+    /** [AC-3] CSV 未闭合引号：40001。 */
     @Test
     void rejectsCsvUnterminatedQuote() {
         assertThatThrownBy(
@@ -143,7 +143,7 @@ class ImportRowParserTest {
                                         .isEqualTo(ApiCode.MALFORMED_REQUEST));
     }
 
-    /** [AC-3] UTF-8 BOM 剥离：Excel 导出文件首列表头不再带 \uFEFF（016 P2·05#07）。 */
+    /** [AC-3] UTF-8 BOM 剥离：Excel 导出文件首列表头不再带 \uFEFF。 */
     @Test
     void stripsUtf8BomBeforeParsing() {
         var rows =
@@ -156,7 +156,7 @@ class ImportRowParserTest {
         assertThat(rows.getFirst().externalKey()).isEqualTo("s_1");
     }
 
-    /** [AC-3] JSON 输入带 BOM 同样剥离，不再 40001（016 P2·05#07）。 */
+    /** [AC-3] JSON 输入带 BOM 同样剥离，不再 40001。 */
     @Test
     void stripsUtf8BomForJsonPayload() {
         var rows = parser.parse("JSON", "\uFEFF[{\"externalKey\":\"a1\",\"zh\":\"第一句测试。\"}]");

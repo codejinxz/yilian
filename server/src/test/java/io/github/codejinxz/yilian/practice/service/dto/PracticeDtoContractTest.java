@@ -20,8 +20,8 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * practice 查询/命令 DTO 的契约单测 [AC-5]（015 修复轮 minor #7/#8）：retryOfId 长度上限对齐 attempts.retry_of_id
- * 列宽（CHAR(36)）；excludeIds 归一化截断 ≤100 的静默语义。
+ * practice 查询/命令 DTO 的契约单测 [AC-5]：retryOfId 长度上限对齐 attempts.retry_of_id 列宽（CHAR(36)）；excludeIds
+ * 归一化截断 ≤100 的静默语义。
  */
 class PracticeDtoContractTest {
 

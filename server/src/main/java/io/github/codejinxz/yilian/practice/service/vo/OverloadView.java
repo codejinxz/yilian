@@ -3,10 +3,10 @@ package io.github.codejinxz.yilian.practice.service.vo;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
- * 积压降载视图（GAP P0「积压熔断」，R-07 推后 V2 的最小服务端口径）。
+ * 积压降载视图（最小服务端口径）。
  *
  * <p>到期数超过阈值进入降载：取题只推 {@code pushLimit} 道，其余可经 POST /api/practice/reviews/postpone
- * 顺延。阈值与推送上限本期为常量，不落配置。
+ * 顺延。阈值与推送上限当前为常量，不落配置。
  *
  * @param dueCount 当前到期数
  * @param threshold 降载阈值

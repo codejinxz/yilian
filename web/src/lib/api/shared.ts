@@ -7,7 +7,7 @@ const FALLBACK_ERROR_CODE = -1;
 /**
  * 校验服务端响应；结构不合法时抛出统一 ApiError，避免脏数据进入 Query 缓存。
  * 标记 networkKind="response"：能走到这里说明 2xx 已收到、服务端处理必已发生，
- * 上层绝不能把它当「离线」降级——014 冒烟中「服务端已判分、前端却入离线队列」的假失败即此形态。
+ * 上层绝不能把它当「离线」降级——「服务端已判分、前端却入离线队列」的假失败即此形态。
  * @param schema 响应 schema
  * @param data 信封中的 data
  * @returns 通过校验的数据

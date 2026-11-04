@@ -239,7 +239,7 @@ class ImportBatchServiceIntegrationTest {
         assertThat(failed.status()).isEqualTo("FAILED");
     }
 
-    /** [AC-5] 提交原子性（015 修复轮 major #3）：行回写失败 → 整体回滚、批次 FAILED、零题目入库；随后同库可重新导入。 */
+    /** [AC-5] 提交原子性：行回写失败 → 整体回滚、批次 FAILED、零题目入库；随后同库可重新导入。 */
     @Test
     @DisplayName("[AC-5] commit 原子性：回写失败整体回滚可恢复")
     void ac5_commitWritebackFailureRollsBackAtomically() {
@@ -286,7 +286,7 @@ class ImportBatchServiceIntegrationTest {
         assertThat(recovered.status()).isEqualTo("COMMITTED");
     }
 
-    /** [AC-5] COMMITTING 残留对账（015 修复轮 major #3）：行未关联 → FAILED；行已关联 → 补 COMMITTED。 */
+    /** [AC-5] COMMITTING 残留对账：行未关联 → FAILED；行已关联 → 补 COMMITTED。 */
     @Test
     @DisplayName("[AC-5] COMMITTING 残留对账收敛")
     void ac5_reconcileCommittingBatchesConverges() {
@@ -317,7 +317,7 @@ class ImportBatchServiceIntegrationTest {
         assertThat(rolled.status()).isEqualTo("ROLLED_BACK");
     }
 
-    /** [AC-5] 并发双击回滚（016 P1·05#02）：批次行锁串行化，恰一次回收，后到者幂等返回。 */
+    /** [AC-5] 并发双击回滚：批次行锁串行化，恰一次回收，后到者幂等返回。 */
     @Test
     @DisplayName("[AC-5] 并发回滚串行化：恰一次回收不二次 bump")
     void ac5_concurrentRollbackRecyclesExactlyOnce() throws Exception {
@@ -356,7 +356,7 @@ class ImportBatchServiceIntegrationTest {
         assertThat(bankVersion(bankId)).isEqualTo(6L);
     }
 
-    /** [AC-5] 并发 rollback+commit（016 P1·05#02）：行锁串行化后状态机不撕裂。 */
+    /** [AC-5] 并发 rollback+commit：行锁串行化后状态机不撕裂。 */
     @Test
     @DisplayName("[AC-5] 并发 rollback+commit 状态机收敛")
     void ac5_concurrentRollbackAndCommitConverge() throws Exception {
@@ -431,7 +431,7 @@ class ImportBatchServiceIntegrationTest {
                 "SELECT version FROM sentence_banks WHERE id = ?", Long.class, bankId);
     }
 
-    /** [AC-3] CSV 导入含逗号 chunks（016 P1·05#04）：RFC4180 解析后整批可预览可提交，不再 CHUNKS_EMPTY。 */
+    /** [AC-3] CSV 导入含逗号 chunks：RFC4180 解析后整批可预览可提交，不再 CHUNKS_EMPTY。 */
     @Test
     @DisplayName("[AC-3] CSV 含逗号 chunks 可预览可提交")
     void ac3_csvImportWithCommaChunksCommits() {

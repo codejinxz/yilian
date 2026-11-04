@@ -7,16 +7,16 @@ import java.sql.Statement;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 集成测试数据库基建（016 P0 修复）：统一「幂等建库」与凭据读取。
+ * 集成测试数据库基建：统一「幂等建库」与凭据读取。
  *
  * <p>为什么存在：全仓只有 AuthFlowIntegrationTest 曾在静态块建库，其余集成测试依赖 Surefire 的类执行顺序恰好让它先跑，单类运行或 CI 空实例上直接
  * {@code Unknown database} 失败（06 评审 #03）；同时各测试类各自硬编码数据源，本机 root 口令被复制了 10 份（06 评审
  * #01/#07）。现在数据源统一由入库的 {@code application-test.yml} 按环境变量提供，本类只负责 在 Spring 上下文启动前把测试库建出来。
  *
  * <p><strong>前置条件</strong>：可用的 MySQL 8 实例。凭据按「环境变量 &gt; 文档化 dev 默认值」 读取（与 application-test.yml
- * 同步）：未设置 {@code YILIAN_TEST_DB_*} 时回落到本机开发默认 {@code root / 123456}——该值是 AGENTS §3.4 允许的**文档化本机 dev
- * 凭据，不是机密**，仅限 本机开发，禁止复用到共享/生产环境；CI 必须用 {@code YILIAN_TEST_DB_PASSWORD} 覆盖注入。 MySQL
- * 不可达时显式失败并给出可操作的提示——刻意不 skip，避免集成测试被静默跳过。
+ * 同步）：未设置 {@code YILIAN_TEST_DB_*} 时回落到本机开发默认 {@code root / 123456}——该值是**文档化本机 dev 凭据，不是机密**，仅限
+ * 本机开发，禁止复用到共享/生产环境；CI 必须用 {@code YILIAN_TEST_DB_PASSWORD} 覆盖注入。 MySQL 不可达时显式失败并给出可操作的提示——刻意不
+ * skip，避免集成测试被静默跳过。
  */
 public final class TestDatabases {
 

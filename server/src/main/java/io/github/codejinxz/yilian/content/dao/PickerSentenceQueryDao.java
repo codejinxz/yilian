@@ -5,8 +5,8 @@ import java.util.List;
 /**
  * 练习选题句列表查询 Dao（只读）：sentences JOIN 当前快照 LEFT JOIN 当前用户复习卡，题库内分页。
  *
- * <p>练习面板需要按快照列（zh/level）过滤并逐行携带练过态，JPA 单表查询覆盖不了， 按 AGENTS §3.1 归 MyBatis；业务代码只依赖本接口，不注入 Mapper。
- * 练过态经 SQL 内 JOIN reviews 取得，不跨模块引入 practice 的 Java 类型（与 {@link PracticeCandidateQueryDao} 同口径）。
+ * <p>练习面板需要按快照列（zh/level）过滤并逐行携带练过态，JPA 单表查询覆盖不了，归 MyBatis；业务代码只依赖本接口，不注入 Mapper。 练过态经 SQL 内 JOIN
+ * reviews 取得，不跨模块引入 practice 的 Java 类型（与 {@link PracticeCandidateQueryDao} 同口径）。
  */
 public interface PickerSentenceQueryDao {
 

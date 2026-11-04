@@ -63,7 +63,7 @@ function attemptResponse(attemptId: string, replayed = false) {
 
 /**
  * 服务端排程后的内嵌复习卡：严格按 API §6.2 的字段集——只有排程投影，
- * 不带 sentenceId/mode（020 AC-0 根因：前端曾要求必填导致 200 响应误判失败）。
+ * 不带 sentenceId/mode（前端曾要求必填导致 200 响应误判失败）。
  */
 function serverReviewCard(): Record<string, unknown> {
   return {

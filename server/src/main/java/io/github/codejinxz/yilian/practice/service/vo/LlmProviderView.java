@@ -3,7 +3,7 @@ package io.github.codejinxz.yilian.practice.service.vo;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
- * 管理端 provider 目录条目视图（022，API §8.15.1）：元数据 + 密钥存在性（env 索引，不回读）+ 激活态。
+ * 管理端 provider 目录条目视图（API §8.15.1）：元数据 + 密钥存在性（env 索引，不回读）+ 激活态。
  *
  * @param id 目录内唯一 id
  * @param name 展示名

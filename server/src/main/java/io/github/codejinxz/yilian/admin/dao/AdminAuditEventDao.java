@@ -4,8 +4,8 @@ package io.github.codejinxz.yilian.admin.dao;
  * 审计事件写入 Dao（{@code admin_audit_log} 单行 append）。
  *
  * <p>admin_audit_log 是 V5 按月分区表（主键含 created_at），没有 JPA 实体；写路径与 common 的 {@code
- * JdbcOperationLogRecorder} 同款走 JdbcTemplate（AGENTS §3.1 例外说明：无实体的审计表， append-only 单行写入不引入
- * MyBatis/JPA 映射）。动作名白名单校验在服务层完成，本 Dao 只落库。
+ * JdbcOperationLogRecorder} 同款走 JdbcTemplate（无实体的审计表， append-only 单行写入不引入 MyBatis/JPA
+ * 映射）。动作名白名单校验在服务层完成，本 Dao 只落库。
  */
 public interface AdminAuditEventDao {
 

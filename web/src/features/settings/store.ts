@@ -39,7 +39,7 @@ interface SettingsState extends PersistedSettings {
   setGradingMode: (mode: GradingMode) => void;
   /** 记录「仅本地批改」开关；当前版本全部本地判分，开关为深度批改预留。 */
   setLocalOnly: (value: boolean) => void;
-  /** 记录游客时区；本期仅存储，不参与本地引擎计算。null 表示未设置。 */
+  /** 记录游客时区；当前仅存储，不参与本地引擎计算。null 表示未设置。 */
   setTimezoneLocal: (value: string | null) => void;
   /** 记录游客评分标准镜像；登录用户走服务端，此值仅在游客态展示与保存。 */
   setRatingStandardLocal: (value: LocalRatingStandard) => void;

@@ -5,11 +5,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 
 /**
- * 管理端 LLM 配置更新请求体（017）。
+ * 管理端 LLM 配置更新请求体。
  *
- * <p>实际行为（017 R1 语义修正）：本接口只受理 {@code enabled}；baseUrl/model/apiKey 三个字段仅为 017
- * 计划的请求形状保留——<strong>传非空值一律 40000 拒绝</strong>，端点与凭据只走环境变量 {@code YILIAN_LLM_*}（AGENTS §3.4
- * 密钥不入库），服务端不接受在线修改，也不存在「覆盖值」。
+ * <p>实际行为：本接口只受理 {@code enabled}；baseUrl/model/apiKey 三个字段仅为 请求形状兼容保留——<strong>传非空值一律 40000
+ * 拒绝</strong>，端点与凭据只走环境变量 {@code YILIAN_LLM_*}（ 密钥不入库），服务端不接受在线修改，也不存在「覆盖值」。
  *
  * @param enabled 是否开放答疑；true 且环境变量凭证未配置完整时 40000 拒绝
  * @param baseUrl 不受理：非空即 40000，端点只能经 YILIAN_LLM_BASE_URL 配置

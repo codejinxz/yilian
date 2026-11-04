@@ -251,7 +251,7 @@ export function retypedMatchesReference(reference: string, retyped: string): boo
 }
 
 /**
- * 词边界短语匹配；整句批改「要点命中」chips 的判定核心（018 AC-6c）。
+ * 词边界短语匹配；整句批改「要点命中」chips 的判定核心。
  *
  * <p>与原型 submitFree/hasPhrase（prototype/index.html L1237）同语义：命中答案的每个语块打一枚
  * 绿勾 chip。归一差异：原型只归一短语、对原始全文匹配，多重空格或全角标点会导致漏判；
@@ -280,7 +280,7 @@ export interface FreeChunkChip {
 /**
  * 整句模式的「要点命中」chips 数据：句子全部语块逐一比对整句译文，命中任一可接受答案即命中。
  *
- * <p>数据源裁决（018 AC-6c）：chips 是展示层派生数据，句子 chunks 与提交文本页面本就有，
+ * <p>数据源：chips 是展示层派生数据，句子 chunks 与提交文本页面本就有，
  * 原型也是客户端现算——批改响应保持紧凑，不为此新增字段；服务端批注（free:0 聚合一条）形状不变。
  *
  * @param chunks 句子语块（含可接受答案）

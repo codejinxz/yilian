@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 const QUESTION_MAX = 500;
 
 /**
- * 三态门禁「不可用」两态的定向文案（017R2 DEF-01）。服务端对这两态只回短文案
+ * 三态门禁「不可用」两态的定向文案。服务端对这两态只回短文案
  * （40304=「答疑未开放」、40400=通用「请求的资源不存在」），用户无从下手；前端按
  * API §6.12 的三态语义展开为可执行的提示，措辞对齐 API.md §8.14 的变量名与管理端入口。
  */
@@ -22,13 +22,13 @@ const UNAVAILABLE_MESSAGES: Record<number, string> = {
 };
 
 /**
- * 收起前的停留时长（017R2 DEF-01）：让用户来得及读到原因、看到自己的问题还在，
+ * 收起前的停留时长：让用户来得及读到原因、看到自己的问题还在，
  * 再触发 {@link AskPanelProps.onUnavailable} 收起；约 1.5s 够扫一眼又不至于像卡死。
  */
 const UNAVAILABLE_DELAY_MS = 1500;
 
 /**
- * 答疑回答的 Markdown 容器样式（022 AC-4）：react-markdown + remark-gfm 渲染代码块/列表/
+ * 答疑回答的 Markdown 容器样式：react-markdown + remark-gfm 渲染代码块/列表/
  * 粗体/表格，不传 rehype-raw——原始 HTML 一律按纯文本展示（默认安全面，无 XSS 注入口）。
  * 用子元素变体逐类给样式（稿纸语言：无圆角阶差、1px rule、等宽小字号代码），不引
  * @tailwindcss/typography 依赖。用户问句不走 Markdown（仍纯文本），避免问句里的
@@ -44,7 +44,7 @@ const MARKDOWN_BODY_CLASS = cn(
   "[&_strong]:font-semibold [&_table]:my-1.5 [&_table]:border-collapse [&_td]:border [&_td]:border-rule [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-rule [&_th]:px-2 [&_th]:py-1 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5",
 );
 
-/** 会话内的一条消息；历史只存组件 state，不持久化、不落库（017 裁决）。 */
+/** 会话内的一条消息；历史只存组件 state，不持久化、不落库。 */
 interface AskMessage {
   /** 会话内自增 id，作为列表 key（消息无业务主键，不能用数组下标）。 */
   id: number;
@@ -55,12 +55,12 @@ interface AskMessage {
 }
 
 /**
- * 题目答疑面板（017，PRD §5.4）：被动一问一答，非 AI 外教。
+ * 题目答疑面板（PRD §5.4）：被动一问一答，非 AI 外教。
  *
  * <p>三态显示策略：入口默认可见（乐观渲染），收到 40304「答疑未开放」或 40400「功能未配置」时
- * 先在面板内展示定向文案、问句与输入原样保留（017R2 DEF-01：此前直接收起，零提示且问题丢失），
+ * 先在面板内展示定向文案、问句与输入原样保留（避免直接收起导致零提示且问题丢失），
  * 停留约 {@link UNAVAILABLE_DELAY_MS} 后再经 {@link AskPanelProps.onUnavailable} 通知父级整体
- * 隐藏——不加探针端点，代价是未开放实例上首次提问才会收起入口（已与计划确认）。
+ * 隐藏——不加探针端点，代价是未开放实例上首次提问才会收起入口。
  * 会话历史保留在组件 state（换句/离开即清空），免责行常驻。
  *
  * @param props.sentenceId 当前句 id
@@ -109,7 +109,7 @@ export function AskPanel({
     },
     onError: (error: unknown) => {
       if (error instanceof ApiError && (error.code === 40304 || error.code === 40400)) {
-        // 未开放/未配置（017R2 DEF-01）：先讲清原因、问句与输入原样保留（submit 失败不清
+        // 未开放/未配置：先讲清原因、问句与输入原样保留（submit 失败不清
         // input，问句气泡已在 messages 里），停留约 1.5s 再通知父级收起——此前直接
         // onUnavailable() 静默卸载，用户问题跟着消失、重进页面再问再消失，循环困惑。
         setErrorText(UNAVAILABLE_MESSAGES[error.code] ?? "答疑暂不可用");
@@ -166,7 +166,7 @@ export function AskPanel({
                 <b className="mr-1.5 font-mono text-[9px] font-medium uppercase tracking-[0.08em] text-vermilion">
                   答
                 </b>
-                {/* 回答走 Markdown 渲染（022 AC-4）：默认不渲染原始 HTML；问句保持纯文本。 */}
+                {/* 回答走 Markdown 渲染：默认不渲染原始 HTML；问句保持纯文本。 */}
                 <div className={MARKDOWN_BODY_CLASS}>
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
                 </div>
@@ -184,7 +184,7 @@ export function AskPanel({
       )}
 
       {askMutation.isPending ? (
-        // 017R2 OBS-2：写明最长等待预期——网关 5xx 有 30s 退避重试，超出本地判分的即时反馈
+        // 写明最长等待预期——网关 5xx 有 30s 退避重试，超出本地判分的即时反馈
         // 节奏，不设预期会被误判为卡死而反复提交（5/min 限流后反而 42900）。
         <p role="status" className="mb-2 text-xs text-ink-faint">
           正在思考…（最长约 30 秒）

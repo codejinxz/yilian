@@ -3,10 +3,9 @@ package io.github.codejinxz.yilian.practice.service.vo;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
- * 顺延结果（GAP P0「顺延」）：把降载推送范围外的到期卡整体顺延 3 天（018 AC-6d）。
+ * 顺延结果：把降载推送范围外的到期卡整体顺延 3 天。
  *
- * <p>顺延不写 review_logs（非 FSRS 排程事件），只改 reviews.due_at；用户动作，非自动化。 「顺延有上限，超限转重学」依赖顺延计数字段，R-07 推后
- * V2，本期不做上限。
+ * <p>顺延不写 review_logs（非 FSRS 排程事件），只改 reviews.due_at；用户动作，非自动化。 「顺延有上限，超限转重学」依赖顺延计数字段，暂未实现， 当前不做上限。
  *
  * @param postponed 实际顺延张数
  * @param kept 保留在今日队列的张数（推送上限内）

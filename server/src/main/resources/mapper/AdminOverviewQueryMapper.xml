@@ -4,7 +4,7 @@
 
     <!--
       管理端概览统计（只读聚合）：全部 #{} 占位，无 ${} 拼接。
-      库内 DATETIME(6) 均为 UTC（AGENTS §3），DATE_FORMAT 直接产出 UTC 日期串；
+      库内 DATETIME(6) 均为 UTC，DATE_FORMAT 直接产出 UTC 日期串；
       活跃口径 = 时间窗内 attempts 有提交记录的独立 user_id（不按单用户时区切分，管理端聚合口径）。
     -->
     <select id="countUsers" resultType="long">

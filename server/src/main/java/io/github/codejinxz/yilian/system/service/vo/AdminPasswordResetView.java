@@ -1,7 +1,7 @@
 package io.github.codejinxz.yilian.system.service.vo;
 
 /**
- * 管理端重置密码回执（API §8.2b，018 AC-6a）。
+ * 管理端重置密码回执（API §8.2b）。
  *
  * <p>临时口令只在本次响应返回一次，库里只落 BCrypt；前端负责提示管理员转交并强调一次性。
  *

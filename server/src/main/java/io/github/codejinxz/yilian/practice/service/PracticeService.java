@@ -38,7 +38,7 @@ public interface PracticeService {
     AttemptView submitAttempt(Long userId, AttemptCommand command);
 
     /**
-     * 取一道可练习的题目详情（016 统一口径：practiceable + 库可见或练习史豁免），供题目答疑（017） 复用同一可见性判定，避免口径分叉。
+     * 取一道可练习的题目详情（统一口径：practiceable + 库可见或练习史豁免），供题目答疑 复用同一可见性判定，避免口径分叉。
      *
      * @param userId 当前用户 id
      * @param sentenceId 题目 id
@@ -57,7 +57,7 @@ public interface PracticeService {
     AttemptView getAttempt(Long userId, String attemptId);
 
     /**
-     * 提交批注申诉（「我觉得也对」）：M2 只记录 PENDING 待裁决，M3 接 LLM。
+     * 提交批注申诉（「我觉得也对」）：只记录 PENDING 待裁决，LLM 接入为后续增强。
      *
      * <p>提交必须属于当前用户（40403 不存在 / 40300 非本人）；批注 key 必须存在于该提交 最新判分结果的批注列表（40000）；同一 (attempt, key,
      * kind) 只能提交一次（40900）。
@@ -149,7 +149,7 @@ public interface PracticeService {
     OverloadView overload(Long userId);
 
     /**
-     * 顺延：把推送上限之外的到期卡整体顺延 3 天（POSTPONE_DAYS，018 AC-6d）；用户动作，不写 review_logs。
+     * 顺延：把推送上限之外的到期卡整体顺延 3 天（POSTPONE_DAYS）；用户动作，不写 review_logs。
      *
      * @param userId 当前用户 id
      * @param reason 用户填写的理由，可空，仅进结构化日志

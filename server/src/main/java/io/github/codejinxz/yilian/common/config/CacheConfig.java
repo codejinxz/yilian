@@ -14,9 +14,9 @@ import java.time.Duration;
  * 目前只启用 L1（Caffeine）缓存。L2（Redis）依赖已引入但尚未接入业务缓存或限流； refresh 会话由 Spring Session JDBC 保存，不使用
  * Redis。真正需要跨实例热点缓存时再组合两级缓存， 避免多重缓存带来的一致性问题。
  *
- * <p>缓存名契约（013 AC-2）：只接受本类显式登记的缓存名清单，禁用运行期动态隐式建缓存—— 防止误用方法名建缓存、共享到不合适的统一 spec。命名 {@code
- * {module}:{topic}:{version}}， 版本段进缓存名：条目结构或键语义变更时改版本号（如 v1→v2）即整体失效，无需灰度迁移； 与 AGENTS §3.8 的 Redis
- * 键 {@code yilian:{env}:{module}:{key}:{version}} 的版本思想一致。
+ * <p>缓存名契约：只接受本类显式登记的缓存名清单，禁用运行期动态隐式建缓存—— 防止误用方法名建缓存、共享到不合适的统一 spec。命名 {@code
+ * {module}:{topic}:{version}}， 版本段进缓存名：条目结构或键语义变更时改版本号（如 v1→v2）即整体失效，无需灰度迁移； 与 Redis 键 {@code
+ * yilian:{env}:{module}:{key}:{version}} 的版本思想一致。
  */
 @Configuration
 @EnableCaching
@@ -28,7 +28,7 @@ public class CacheConfig {
     /** 题库列表缓存（匿名公开读）；末段 v1 为键结构版本（键 = 筛选参数指纹，见 BankMetadataCache#listCacheKey）。 */
     public static final String CACHE_BANK_LIST = "content:bank:list:v1";
 
-    /** 元数据基准 TTL：写后失效负责主动清，TTL 只是自愈兜底（分析报告 §3 建议元数据 5–15 分钟）。 */
+    /** 元数据基准 TTL：写后失效负责主动清，TTL 只是自愈兜底（元数据基准 5–15 分钟）。 */
     private static final Duration BASE_TTL = Duration.ofMinutes(10);
 
     /** 负缓存（不存在/不可见）TTL：远短于正缓存，防穿透同时让「暂不可见」尽快收敛到真实状态。 */

@@ -7,7 +7,7 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * 导入批次/行动态查询 Dao（MyBatis 只读 DTO，AGENTS §3.1「MyBatis 负责复杂查询」）。
+ * 导入批次/行动态查询 Dao（MyBatis 只读 DTO，负责复杂查询）。
  *
  * <p>批次列表支持题库/状态/时间范围动态筛选；行查询支持状态过滤。写入仍走 JPA Dao。
  */

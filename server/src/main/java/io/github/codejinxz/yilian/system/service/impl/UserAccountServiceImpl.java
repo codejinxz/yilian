@@ -216,7 +216,7 @@ public class UserAccountServiceImpl implements UserAccountService {
             throw new BusinessException(ApiCode.INVALID_PAGINATION, "status 不受支持");
         }
         // keyword 走 LIKE 转义（StringUtils.escapeLike）：用户输入的 %/_ 是字面量，
-        // 检索语义=纯 contains（015 缺陷 #5）。
+        // 检索语义=纯 contains。
         String normalizedKeyword = StringUtils.escapeLike(keyword);
         Page<AppUser> result =
                 appUserDao.search(
@@ -251,7 +251,7 @@ public class UserAccountServiceImpl implements UserAccountService {
                 throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "不能停用最后一个管理员");
             }
             target.disable(reason.trim(), Instant.now());
-            // 停用即吊销该用户全部 refresh 会话（016 P1·03#01，契约「登出/改密/停用吊销全部」）：
+            // 停用即吊销该用户全部 refresh 会话（契约「登出/改密/停用吊销全部」）：
             // 会话行若保留 30 天，重新启用后泄露的旧 cookie 无需密码即可复活。吊销护栏纪元先增，
             // 并发 in-flight 刷新即便滞留重建会话，下一次刷新也被纪元拒绝。吊销动作发起于事务内
             // 而 Spring Session 仓库自治事务：本事务若回滚，代价是多吊销（重新登录即可），方向安全。
@@ -273,7 +273,7 @@ public class UserAccountServiceImpl implements UserAccountService {
             throw new BusinessException(ApiCode.NOT_FOUND, "用户已删除");
         }
         if (targetId == actorId) {
-            // 自己重置自己被拒（018 AC-6a）：管理员有自助改密端点，走 /me/password；
+            // 自己重置自己被拒：管理员有自助改密端点，走 /me/password；
             // 40300 与「自己删自己」同口径——这是权限边界而非状态冲突。
             throw new BusinessException(ApiCode.ACCESS_DENIED, "不能重置自己的密码，请走自助改密");
         }
@@ -295,14 +295,14 @@ public class UserAccountServiceImpl implements UserAccountService {
         }
         AppUser target = requireUser(targetId);
         if (target.getDeletedAt() != null) {
-            // 已删按 40400 收敛（018 AC-6b 裁决）：与 adminSetStatus/adminSetRole 的软删口径一致；
+            // 已删按 40400 收敛：与 adminSetStatus/adminSetRole 的软删口径一致；
             // 幂等 200 会把「目标不存在」伪装成成功，审计行也会失真，故显式报「用户已删除」。
             throw new BusinessException(ApiCode.NOT_FOUND, "用户已删除");
         }
         if (targetId == actorId) {
             throw new BusinessException(ApiCode.ACCESS_DENIED, "不能删除自己的账号");
         }
-        // 与「停用最后一个管理员」同款护栏（013 AC-5 行锁先例）：删除即失去登录能力，
+        // 与「停用最后一个管理员」同款护栏（行锁）：删除即失去登录能力，
         // 两个管理员并发互删时行锁串行化，任何时刻不出现 0 活跃管理员。
         if (target.getRole() == UserRole.ADMIN && appUserDao.countActiveAdminsForUpdate() <= 1) {
             throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "不能删除最后一个管理员");
@@ -358,7 +358,7 @@ public class UserAccountServiceImpl implements UserAccountService {
         if (targetId == actorId) {
             throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "不能变更自己的角色");
         }
-        // 最后管理员行锁（013 AC-5）：降级前在事务内锁定全部现存管理员行（FOR UPDATE）再计数，
+        // 最后管理员行锁：降级前在事务内锁定全部现存管理员行（FOR UPDATE）再计数，
         // 把「读-判-写」串行化——两个并发降级必然一先一后，后到者在锁上读到提交后的最新计数，
         // count<=1 时拒绝，任何时刻都不可能出现 0 管理员状态。选型说明：count 聚合无法直接
         // FOR UPDATE，JPA 侧改为 @Lock(PESSIMISTIC_WRITE) 锁定管理员行集合后按行数计数；
@@ -370,7 +370,7 @@ public class UserAccountServiceImpl implements UserAccountService {
         }
         UserRole previousRole = target.getRole();
         target.changeRole(nextRole);
-        // 降级即吊销该用户全部 refresh 会话（016 修复轮 2，与 adminSetStatus 同款）：ADMIN 的
+        // 降级即吊销该用户全部 refresh 会话（与 adminSetStatus 同款）：ADMIN 的
         // access token 最长还有 10–15 分钟窗口，refresh 会话若保留，泄露的 cookie 在降级后仍可
         // 静默续期；吊销强制重新登录，权限收敛即时生效。仅 ADMIN→非 ADMIN 触发——平调与升级
         // 不收缩权限，不扰动会话；同角色重复提交无状态变化，同样不吊销。

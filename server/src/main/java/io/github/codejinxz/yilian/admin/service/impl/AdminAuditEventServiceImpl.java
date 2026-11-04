@@ -36,7 +36,7 @@ public class AdminAuditEventServiceImpl implements AdminAuditEventService {
     static final Set<String> ALLOWED_ACTIONS =
             Set.of(
                     // RESET_PASSWORD 已迁移到真端点 POST /api/admin/users/{id}/reset-password
-                    // （018 AC-6a，@OperationLog 落审计），从演示白名单移除，防同动作双入口。
+                    // （@OperationLog 落审计），从演示白名单移除，防同动作双入口。
                     // UsersPage：用户抽屉的演示动作（无专属端点，先留审计痕迹）
                     "EXPORT_USER_DATA",
                     // OpsPage：运维页会话吊销演示

@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * 概览统计只读查询 Dao（MyBatis 实现，AGENTS §3.1「MyBatis 负责复杂查询/统计」）。
+ * 概览统计只读查询 Dao（MyBatis 实现，负责复杂查询/统计）。
  *
  * <p>跨 users/attempts 两表的计数与按日分组统计；管理模块不依赖 practice/system 的实体， 全部走本 Dao 的聚合结果。时间入参均为 UTC Instant，
  * 与库内 DATETIME(6) 的 UTC 口径一致。

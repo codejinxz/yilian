@@ -23,8 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 导入批次五端点（/api/admin/uploads，切片设计 §4.1）： preview（multipart 同步校验）→ commit（单事务入库）→ rollback（软删 +
- * tombstone）， 外加批次列表与详情分页。管理员权限由 /api/admin/** 路径矩阵保证。
+ * 导入批次五端点（/api/admin/uploads）： preview（multipart 同步校验）→ commit（单事务入库）→ rollback（软删 + tombstone），
+ * 外加批次列表与详情分页。管理员权限由 /api/admin/** 路径矩阵保证。
  */
 @RestController
 @RequestMapping("/api/admin/uploads")

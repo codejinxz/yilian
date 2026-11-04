@@ -10,8 +10,7 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.http.okhttp.SpringAiOpenAiHttpClient;
 
 /**
- * OpenAI Chat Completions 协议实现（017 引入为 SpringAiLlmClient，022 收编更名）：服务智谱/DeepSeek 等 OpenAI
- * 兼容端点（spring-ai openai 路径）。
+ * OpenAI Chat Completions 协议实现：服务智谱/DeepSeek 等 OpenAI 兼容端点（spring-ai openai 路径）。
  *
  * <p>Spring AI 2.0 的 OpenAI 模型底层是 OpenAI 官方 Java SDK（{@code com.openai:openai-java-core}）， 这里手工组装
  * {@link ClientOptions}（端点/密钥/超时/不重试）后包一层 {@link OpenAiChatModel}， 不走 starter 自动配置（application.yml
@@ -20,9 +19,9 @@ import org.springframework.ai.openai.http.okhttp.SpringAiOpenAiHttpClient;
  *
  * <p>拼接口径：{@code baseUrl} 填到 {@code /v4} 级前缀（如智谱 {@code https://open.bigmodel.cn/api/paas/v4}），
  * {@code /chat/completions} 由 SDK 拼。温度取 0.3：答疑要求克制的解释性输出，不做发散创作。输出上限 {@link
- * LlmChatClient#MAX_OUTPUT_TOKENS}（022 起三协议同源 2048）：显式封顶避免异常长回复把单次成本放大。
+ * LlmChatClient#MAX_OUTPUT_TOKENS}（三协议同源 2048）：显式封顶避免异常长回复把单次成本放大。
  *
- * <p>装配（022）：由 {@code LlmClientRegistry} 按激活 provider（或 legacy 环境变量）构造，凭证口径 = baseUrl + apiKey 双必填。
+ * <p>装配：由 {@code LlmClientRegistry} 按激活 provider（或 legacy 环境变量）构造，凭证口径 = baseUrl + apiKey 双必填。
  */
 public class OpenAiChatLlmClient implements LlmChatClient {
 

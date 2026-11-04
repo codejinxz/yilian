@@ -73,7 +73,7 @@ public class JpaAppUserDao implements AppUserDao {
 
     @Override
     public long countActiveAdminsForUpdate() {
-        // 锁定全部管理员行后按行数计数（013 AC-5）：count 聚合不可 FOR UPDATE，
+        // 锁定全部管理员行后按行数计数：count 聚合不可 FOR UPDATE，
         // 行锁把「读-判-写」串行化，并发降级不可能同时读到过期计数。
         return repository.lockActiveAdminIds(UserRole.ADMIN).size();
     }

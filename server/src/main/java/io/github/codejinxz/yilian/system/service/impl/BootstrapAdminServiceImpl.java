@@ -106,7 +106,7 @@ public class BootstrapAdminServiceImpl implements BootstrapAdminService {
             AppUser admin = existing.get();
             boolean changed = false;
             if (properties.resetPasswordOnStartup()) {
-                // 一次性开关的「用后持久化失效」（018 AC-3，review-verify-2 03#05）：标记文件记录
+                // 一次性开关的「用后持久化失效」：标记文件记录
                 // 上次生效配置口令的 BCrypt 哈希，重启时配置值未变即跳过——管理员改密后忘关开关，
                 // 也不会把口令静默重置回配置值、更不会重复吊销会话。016 的「同值幂等」只兜住
                 // 「配置值 == 当前口令」，管理员改密后（当前口令 ≠ 配置值）仍会被覆盖，这里补上。

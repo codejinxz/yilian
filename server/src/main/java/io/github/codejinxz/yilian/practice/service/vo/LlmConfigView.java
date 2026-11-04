@@ -3,10 +3,10 @@ package io.github.codejinxz.yilian.practice.service.vo;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
- * 管理端 LLM 配置视图（017 引入，022 扩展 provider 目录维度，API §8.14）。
+ * 管理端 LLM 配置视图（API §8.14）。
  *
- * <p>API Key 永不回读（AGENTS §3.4），只回 {@code hasKey} 布尔。022 起 baseUrl/model/hasKey 反映<strong>激活的
- * provider</strong>（目录模式）或 legacy 环境变量（目录为空时），见 {@code LlmClientRegistry}。
+ * <p>API Key 永不回读，只回 {@code hasKey} 布尔。baseUrl/model/hasKey 反映<strong>激活的 provider</strong>（目录模式）或
+ * legacy 环境变量（目录为空时），见 {@code LlmClientRegistry}。
  *
  * @param enabled 答疑是否开放（app_settings 键 llm.tutor）
  * @param baseUrl 生效端点（激活 provider 的 baseUrl 或 legacy YILIAN_LLM_BASE_URL）

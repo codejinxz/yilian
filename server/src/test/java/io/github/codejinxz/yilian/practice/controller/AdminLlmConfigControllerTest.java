@@ -87,7 +87,7 @@ class AdminLlmConfigControllerTest {
         verifyNoInteractions(tutorService);
     }
 
-    /** [AC-3] 非 ADMIN 登录用户：403 信封（code=40300），权限在服务端（AGENTS §3.7）。 */
+    /** [AC-3] 非 ADMIN 登录用户：403 信封（code=40300），权限在服务端。 */
     @Test
     void configEndpointsRejectNonAdminWith403_ac3() throws Exception {
         mockMvc.perform(
@@ -205,7 +205,7 @@ class AdminLlmConfigControllerTest {
                 .andExpect(jsonPath("$.message").value("API Key 只能通过环境变量 YILIAN_LLM_API_KEY 配置"));
     }
 
-    /** [AC-3] 审计口径：PUT 标 @OperationLog(LLM_CONFIG_UPDATE)，GET 不标（AGENTS §3.6）。 */
+    /** [AC-3] 审计口径：PUT 标 @OperationLog(LLM_CONFIG_UPDATE)，GET 不标。 */
     @Test
     void writeCarriesAuditAndReadDoesNot_ac3() throws Exception {
         OperationLog put =

@@ -1,6 +1,6 @@
 /**
  * 管理端九页签共用的演示常量：难度目录、考点目录与动作码中文名。
- * 难度/考点目录目前没有服务端配置端点，属于前端演示态；服务端切片落地后迁到系统配置。
+ * 难度/考点目录目前没有服务端配置端点，属于前端演示态；服务端配置端点就绪后迁到系统配置。
  */
 
 /**
@@ -88,7 +88,7 @@ export const MOCK_GEN_MODEL_LABEL = "DeepSeek · deepseek-chat";
 /**
  * 操作日志的动作码中文名。
  *
- * <p>全集对齐服务端 admin_audit_log 的两个写入源（015 修复轮核对）：
+ * <p>全集对齐服务端 admin_audit_log 的两个写入源：
  * OperationLog 注解各 action（account: LOGIN/LOGOUT/PASSWORD_CHANGE/SETTINGS_UPDATE，
  * admin: BANK 系、SENTENCE 系、USER 系、INVITE_CREATE、GENERATION_IMPORT，
  * content: IMPORT_PREVIEW/IMPORT_COMMIT/IMPORT_ROLLBACK）与

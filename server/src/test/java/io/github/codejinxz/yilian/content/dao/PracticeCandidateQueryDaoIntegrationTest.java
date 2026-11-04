@@ -80,7 +80,7 @@ class PracticeCandidateQueryDaoIntegrationTest {
                         + " SET MESSAGE_TEXT = 'sentence_versions is immutable'");
     }
 
-    /** [AC-2] 题库可见性下推（016 P0-1a）：匿名只看公开库，私有库仅本人可见；软删/草稿题库与快照缺失行丢弃。 */
+    /** [AC-2] 题库可见性下推：匿名只看公开库，私有库仅本人可见；软删/草稿题库与快照缺失行丢弃。 */
     @Test
     @DisplayName("[AC-2] 题库可见性下推：匿名/非本人/本人三态")
     void ac2_bankVisibilityPushdown() {
@@ -127,7 +127,7 @@ class PracticeCandidateQueryDaoIntegrationTest {
         assertThat(first.level()).isEqualTo("TEM8");
     }
 
-    /** [AC-3] 未入队下推（016 P1）：非 NEW 卡（LEARNING/MASTERED）不占召回窗口，NEW/无卡照常返回。 */
+    /** [AC-3] 未入队下推：非 NEW 卡（LEARNING/MASTERED）不占召回窗口，NEW/无卡照常返回。 */
     @Test
     @DisplayName("[AC-3] 未入队下推：非 NEW 卡被排除")
     void ac2_enqueuedExclusionPushdown() {

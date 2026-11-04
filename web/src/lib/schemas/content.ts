@@ -62,7 +62,7 @@ export const versionedSentencesSchema = z.object({
 });
 
 /**
- * 练习选题句列表行（API §5.3.1，020 AC-1）：展示与跳转的最小字段，
+ * 练习选题句列表行（API §5.3.1）：展示与跳转的最小字段，
  * 完整内容由点选后的 next?sentenceId= 返回；reviewState/reviewDueAt 为 null 表示未学（匿名恒为未学）。
  */
 export const pickerSentenceSchema = z.object({

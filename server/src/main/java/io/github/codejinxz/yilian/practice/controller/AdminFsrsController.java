@@ -76,7 +76,7 @@ public class AdminFsrsController {
             module = "practice",
             action = "FSRS_OPTIMIZE",
             targetType = "fsrs_parameter_version")
-    // SGD 训练是重计算入口：按管理员账号限 5 次/分钟，防误触连点与脚本滥用（015 缺陷 #10）。
+    // SGD 训练是重计算入口：按管理员账号限 5 次/分钟，防误触连点与脚本滥用。
     @RateLimit(
             scene = "fsrs-optimize",
             dimensions = RateLimitDimension.ACCOUNT,

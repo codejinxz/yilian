@@ -28,7 +28,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * keyword LIKE 通配符转义的语义集成测试 [AC-5]（015 修复轮 minor #5，真实 MySQL yilian_test）：
+ * keyword LIKE 通配符转义的语义集成测试 [AC-5]（真实 MySQL yilian_test）：
  *
  * <p>服务层 {@code StringUtils.escapeLike} + SQL 侧 {@code ESCAPE '\\'} 组合后，用户输入的 {@code %}/{@code _}
  * 必须是**字面量**而不是通配符——keyword={@code 0%_折} 只命中名字里真的含 「0%_折」的行，不得退化为前缀/任意匹配。覆盖三处 keyword

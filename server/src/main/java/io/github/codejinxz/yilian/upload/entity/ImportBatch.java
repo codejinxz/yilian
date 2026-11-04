@@ -281,7 +281,7 @@ public class ImportBatch {
 
     /**
      * 清扫超期未提交的批次（DATA-MODEL §5.6：超过 24 小时未提交即 EXPIRED）； PREVIEWING 与 PREVIEWED
-     * 都属于未提交，本期只登记状态，清扫任务后置（切片设计 §4.7）。
+     * 都属于未提交，当前只登记状态，清扫任务尚未实现。
      *
      * @param now 清扫时间
      * @throws IllegalStateException 批次已进入提交事务或终态时抛出

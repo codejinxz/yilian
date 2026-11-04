@@ -17,12 +17,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * OpenAI Responses 协议实现（022 新增）：服务 OpenAI Responses API 兼容端点。
+ * OpenAI Responses 协议实现：服务 OpenAI Responses API 兼容端点。
  *
- * <p><strong>为什么手写 {@code java.net.http}</strong>：侦察结论——spring-ai 2.0.0 的 openai 模块只提供 Chat
- * Completions 路径（无 Responses API 支持），官方 openai-java SDK 亦不在 classpath 专职此事；Responses 形状简单
- * （单请求单响应），手写 JDK 客户端不引入任何新依赖（AGENTS §3.3）。超时 15s、SDK 无重试、429/5xx 不做应用层 退避（openai
- * 两轨无网关冷却特性），失败统一上抛交 {@code TutorServiceImpl} 降级。
+ * <p><strong>为什么手写 {@code java.net.http}</strong>：spring-ai 2.0.0 的 openai 模块只提供 Chat Completions
+ * 路径（无 Responses API 支持），官方 openai-java SDK 亦不在 classpath 专职此事；Responses 形状简单 （单请求单响应），手写 JDK
+ * 客户端不引入任何新依赖。超时 15s、SDK 无重试、429/5xx 不做应用层 退避（openai 两轨无网关冷却特性），失败统一上抛交 {@code TutorServiceImpl}
+ * 降级。
  *
  * <p>协议形状（OpenAI Responses API）：{@code POST {base}/v1/responses}，请求 {@code {model,
  * max_output_tokens, temperature, input:[{role, content}]}}（系统提示以 {@code role=system} 输入项置于首位）， 响应

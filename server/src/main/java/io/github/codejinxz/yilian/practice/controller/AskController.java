@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 题目答疑接口（017，API §6.12）：只做参数校验、调用 {@link TutorService} 并组装 {@link ApiResponse}。
+ * 题目答疑接口（API §6.12）：只做参数校验、调用 {@link TutorService} 并组装 {@link ApiResponse}。
  *
  * <p>答疑按账号限流 5 次/分钟（成本护栏）；回答带固定免责标注，不参与判分与学习闭环。
  */

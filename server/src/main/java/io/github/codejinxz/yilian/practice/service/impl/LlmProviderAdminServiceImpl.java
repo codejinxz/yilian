@@ -17,9 +17,9 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * {@link LlmProviderAdminService} 实现（022）：目录读写经 {@link LlmProviderCatalog}（app_settings 单键，末写胜出），
- * hasKey 经 env 索引。并发写目录是低频管理操作，读-改-写不加速锁（冲突窗口极小且最坏只是丢一次元数据修改， 无数据完整性风险）；激活切换 /
- * 删除保护等服务端规则全部在本层强制（前端隐藏不算权限，AGENTS §3.7）。
+ * {@link LlmProviderAdminService} 实现：目录读写经 {@link LlmProviderCatalog}（app_settings 单键，末写胜出）， hasKey
+ * 经 env 索引。并发写目录是低频管理操作，读-改-写不加速锁（冲突窗口极小且最坏只是丢一次元数据修改， 无数据完整性风险）；激活切换 /
+ * 删除保护等服务端规则全部在本层强制（前端隐藏不算权限）。
  */
 @Service
 public class LlmProviderAdminServiceImpl implements LlmProviderAdminService {
@@ -100,7 +100,7 @@ public class LlmProviderAdminServiceImpl implements LlmProviderAdminService {
             throw new BusinessException(ApiCode.NOT_FOUND, "provider 不存在：" + id);
         }
         if (id.equals(snapshot.activeId())) {
-            // 激活中的条目是答疑等 AI 功能的当前数据源：先切再删，避免答疑瞬间失去数据源（017 三态降级兜底
+            // 激活中的条目是答疑等 AI 功能的当前数据源：先切再删，避免答疑瞬间失去数据源（三态降级兜底
             // 之外，管理端操作应显式无歧义）。
             throw new BusinessException(
                     ApiCode.VALIDATION_FAILED, "激活中的 provider 不能删除，请先激活其他 provider");

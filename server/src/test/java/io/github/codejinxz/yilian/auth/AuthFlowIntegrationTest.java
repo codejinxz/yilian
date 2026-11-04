@@ -431,7 +431,7 @@ class AuthFlowIntegrationTest {
         assertThat(loginWithNewPassword.body()).contains("\"code\":0");
     }
 
-    /** [AC-3] 管理员停用账号：refresh 会话立即吊销，旧 Cookie 刷新 40100（016 P1·03#01）。 */
+    /** [AC-3] 管理员停用账号：refresh 会话立即吊销，旧 Cookie 刷新 40100。 */
     @Test
     void ac3_adminDisableRevokesRefreshSessions() throws Exception {
         // 注册即登录：被停用用户先建立可用的 refresh 会话。

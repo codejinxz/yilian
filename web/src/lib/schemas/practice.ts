@@ -97,7 +97,7 @@ export type Review = z.infer<typeof reviewSchema>;
 
 /**
  * 提交/详情响应的内嵌复习卡（API §6.2/§6.3）：契约只有排程投影，不带 sentenceId/mode；
- * 字段按可选放行，因为本地引擎的离线响应复用完整队列卡形状（020 AC-0：此前必填导致
+ * 字段按可选放行，因为本地引擎的离线响应复用完整队列卡形状（此前必填导致
  * 服务端 200 响应 parse 失败，页面误报「提交未确认」而数据实际已入库+排程）。
  */
 export const attemptReviewSchema = reviewSchema.extend({
@@ -231,7 +231,7 @@ export const overloadViewSchema = z.object({
 
 export type OverloadView = z.infer<typeof overloadViewSchema>;
 
-/** 顺延结果（API §3.6）：服务端把推送上限之外的到期卡顺延 3 天（018 AC-6d）。 */
+/** 顺延结果（API §3.6）：服务端把推送上限之外的到期卡顺延 3 天。 */
 export const postponeViewSchema = z.object({
   postponed: z.number().int().nonnegative(),
   kept: z.number().int().nonnegative(),

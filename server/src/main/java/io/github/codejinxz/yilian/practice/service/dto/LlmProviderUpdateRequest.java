@@ -6,7 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 /**
- * 管理端更新 provider 请求体（022，API §8.15.3）：id 走路径、不可改；字段语义同 {@link LlmProviderCreateRequest}， 密钥同样不入请求体。
+ * 管理端更新 provider 请求体（API §8.15.3）：id 走路径、不可改；字段语义同 {@link LlmProviderCreateRequest}， 密钥同样不入请求体。
  *
  * @param name 展示名
  * @param protocol 对话协议 wire 值

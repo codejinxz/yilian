@@ -5,10 +5,10 @@
     <!--
       练习候选（ContentQueryServiceImpl.findPracticeCandidates）：单条 JOIN 直出——
       - 题目可见性：status=PUBLISHED 且未软删；
-      - 题库可见性（016 P0-1a，数据层为准）：status=PUBLISHED 且未软删，且为公开库或
+      - 题库可见性（数据层为准）：status=PUBLISHED 且未软删，且为公开库或
         登录用户本人的私有库（与 requireVisibleBank 同口径）；匿名（userId 为 NULL）只看公开库，
         owner_id = NULL 的比较恒不成立，无需分支；
-      - 未入队下推（016 P1）：NOT EXISTS 排除「已有非 NEW 卡」的句子——一句一卡且入队不出队，
+      - 未入队下推：NOT EXISTS 排除「已有非 NEW 卡」的句子——一句一卡且入队不出队，
         若先 LIMIT 再在 Java 跳过，前 20 句练完后召回窗口被永久占满（新题饥饿）；
         state='NEW'（未练过或重置）不算已入队，与本地引擎 selectNew 同语义；
         uk_review_card (user_id, sentence_id) 保证该子查询走唯一索引前缀；

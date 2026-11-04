@@ -23,8 +23,8 @@ import java.util.UUID;
 /**
  * 图形验证码实现：easy-captcha 渲染 + 进程内 Caffeine 存答案。
  *
- * <p>答案只存 id→文本的短命数据（5 分钟、消费即删），不落库不进日志；单实例部署 （AGENTS §3 不引入多副本）下进程内存储即一致。缓存名按约定为 {@code
- * auth:captcha} （逻辑桶名，非 Redis 键）。
+ * <p>答案只存 id→文本的短命数据（5 分钟、消费即删），不落库不进日志；单实例部署下进程内存储即一致。缓存名按约定为 {@code auth:captcha} （逻辑桶名，非 Redis
+ * 键）。
  */
 @Service
 public class CaptchaServiceImpl implements CaptchaService {

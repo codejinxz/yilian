@@ -89,7 +89,7 @@ export async function updateUserRole(
 }
 
 /**
- * 管理员重置用户密码（018 AC-6a）：服务端生成一次性临时口令，目标用户回到强制改密态并全部下线。
+ * 管理员重置用户密码：服务端生成一次性临时口令，目标用户回到强制改密态并全部下线。
  * 明文只随本响应返回一次，前端须提示管理员立即转交。
  * @param userId 用户 id
  * @param reason 审计原因
@@ -375,7 +375,7 @@ export async function getRawAttempt(attemptId: string, reason: string) {
 // ---------------------------------------------------------------------------
 // 管理端九页签（概览/用户/题目/题库/出题/模型/日志/运维）新增客户端。
 // 这些端点目前只有 mock 实现（VITE_USE_MOCK=true），schema 就近定义在客户端内，
-// 服务端切片落地后再迁去 lib/schemas，避免跨模块共享半成品契约。
+// 服务端契约稳定后再迁去 lib/schemas，避免跨模块共享半成品契约。
 // ---------------------------------------------------------------------------
 
 /** 概览页聚合数据的形状。 */
@@ -628,7 +628,7 @@ export async function updateAdminBankStatus(
 
 // ---------------------------------------------------------------------------
 // 答疑 LLM 配置（017 落地的真实端点，019 ModelsPage 状态中心接入；022 扩展
-// provider 目录维度）。凭据只走环境变量（AGENTS §3.4 密钥不入库）：GET 回
+// provider 目录维度）。凭据只走环境变量（密钥不入库）：GET 回
 // hasKey 不回读 apiKey；PUT 只受理 enabled，baseUrl/model/apiKey 三个字段不传
 // ——服务端对非空值一律 40000 拒绝（API §8.14.2）。
 // ---------------------------------------------------------------------------
@@ -639,7 +639,7 @@ export const llmProtocols = ["anthropic-messages", "openai-chat", "openai-respon
 /** 对话协议类型。 */
 export type LlmProtocol = (typeof llmProtocols)[number];
 
-/** 管理端 LLM 配置视图（API §8.14.1）：enabled 为生效开关，baseUrl/model/hasKey 反映激活 provider（022 起目录模式）或 legacy 环境变量。 */
+/** 管理端 LLM 配置视图（API §8.14.1）：enabled 为生效开关，baseUrl/model/hasKey 反映激活 provider（目录模式）或 legacy 环境变量。 */
 export const llmConfigSchema = z.object({
   enabled: z.boolean(),
   baseUrl: z.string(),

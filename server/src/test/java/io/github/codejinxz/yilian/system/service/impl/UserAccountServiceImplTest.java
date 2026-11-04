@@ -88,7 +88,7 @@ class UserAccountServiceImplTest {
         verify(appUserDao, never()).save(any());
     }
 
-    /** [AC-3] 停用账号即按用户名吊销全部 refresh 会话（016 P1·03#01：重新启用前旧 cookie 不得复活）。 */
+    /** [AC-3] 停用账号即按用户名吊销全部 refresh 会话（重新启用前旧 cookie 不得复活）。 */
     @Test
     void adminSetStatusDisableRevokesRefreshSessions_ac3() {
         AppUser target = user(2L, "learner");
@@ -116,7 +116,7 @@ class UserAccountServiceImplTest {
                 .findByPrincipalName(org.mockito.ArgumentMatchers.anyString());
     }
 
-    /** [AC-5] 用户检索 keyword 做 LIKE 转义：用户输入的 %/_ 是字面量（015 修复轮 minor #5）。 */
+    /** [AC-5] 用户检索 keyword 做 LIKE 转义：用户输入的 %/_ 是字面量。 */
     @Test
     void adminSearchEscapesLikeKeyword_ac5() {
         when(appUserDao.search(
@@ -244,7 +244,7 @@ class UserAccountServiceImplTest {
         assertThat(captor.getValue().getRole()).isEqualTo(UserRole.USER);
     }
 
-    /** [AC-3] ADMIN→USER 降级即按用户名吊销全部 refresh 会话（016 修复轮 2，与停用同款）：降级后泄露的旧 cookie 不得静默续期。 */
+    /** [AC-3] ADMIN→USER 降级即按用户名吊销全部 refresh 会话（与停用同款）：降级后泄露的旧 cookie 不得静默续期。 */
     @Test
     void adminSetRoleDemotionRevokesRefreshSessions_ac3() {
         when(appUserDao.findById(3L)).thenReturn(Optional.of(adminUser(3L, "deputy")));

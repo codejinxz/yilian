@@ -72,7 +72,7 @@ describe("AskPanel", () => {
     expect(askTutorMock).not.toHaveBeenCalled();
   });
 
-  /** [017R2 DEF-01] 40304：先在面板内展示「答疑未开放」定向文案并保留问句，约 1.5s 后才通知父级收起——不再是零提示静默消失。 */
+  /** 40304：先在面板内展示「答疑未开放」定向文案并保留问句，约 1.5s 后才通知父级收起——不再是零提示静默消失。 */
   it("showsUnavailableMessageThenCollapsesOn40304_def01", async () => {
     askTutorMock.mockRejectedValue(new ApiError(403, 40304, "答疑未开放"));
     const { onUnavailable } = renderPanel();
@@ -94,7 +94,7 @@ describe("AskPanel", () => {
     await waitFor(() => expect(onUnavailable).toHaveBeenCalledTimes(1), { timeout: 3000 });
   });
 
-  /** [017R2 DEF-01] 40400：文案指向 YILIAN_LLM_* 环境变量配置（服务端只回通用 404 文案，前端展开）。 */
+  /** 40400：文案指向 YILIAN_LLM_* 环境变量配置（服务端只回通用 404 文案，前端展开）。 */
   it("showsConfigMissingMessageOn40400_def01", async () => {
     askTutorMock.mockRejectedValue(new ApiError(404, 40400, "请求的资源不存在"));
     const { onUnavailable } = renderPanel();
@@ -107,7 +107,7 @@ describe("AskPanel", () => {
     await waitFor(() => expect(onUnavailable).toHaveBeenCalledTimes(1), { timeout: 3000 });
   });
 
-  /** [017R2 OBS-2] 等待回复时写明「最长约 30 秒」的预期，回复到位后等待提示消失。 */
+  /** 等待回复时写明「最长约 30 秒」的预期，回复到位后等待提示消失。 */
   it("showsPendingExpectationWhileWaiting_obs2", async () => {
     let resolveAsk: (reply: { answer: string; disclaimer: string }) => void = () => {};
     askTutorMock.mockImplementation(
@@ -146,7 +146,7 @@ describe("AskPanel", () => {
     expect(onUnavailable).not.toHaveBeenCalled();
   });
 
-  /** [022 AC-4] 回答走 Markdown 渲染：粗体/行内代码/列表按结构化元素呈现，问句仍是纯文本。 */
+  /** 回答走 Markdown 渲染：粗体/行内代码/列表按结构化元素呈现，问句仍是纯文本。 */
   it("rendersMarkdownAnswerWithCodeListBold_ac4", async () => {
     askTutorMock.mockResolvedValue({
       answer:
@@ -167,7 +167,7 @@ describe("AskPanel", () => {
     expect(screen.getByText("这里介词为什么用 to？")).toBeTruthy();
   });
 
-  /** [022 AC-4] GFM 表格渲染 + 原始 HTML 防线：表格结构化；script/img 一律按纯文本展示不产生元素。 */
+  /** GFM 表格渲染 + 原始 HTML 防线：表格结构化；script/img 一律按纯文本展示不产生元素。 */
   it("rendersGfmTableAndEscapesRawHtml_ac4", async () => {
     askTutorMock.mockResolvedValue({
       answer:

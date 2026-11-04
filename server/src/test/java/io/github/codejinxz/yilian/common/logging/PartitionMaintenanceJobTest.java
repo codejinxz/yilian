@@ -25,7 +25,7 @@ import java.time.Instant;
 /**
  * {@link PartitionMaintenanceJob} 的幂等清理分支单测：Mock JdbcTemplate，不启动 Spring 容器。
  *
- * <p>覆盖 013 AC-1：过期边界 SQL 语义（{@code expires_at <= ?} 含边界）、分批截断与循环收敛、 失败只记日志不上抛、以及 @Scheduled
+ * <p>覆盖：过期边界 SQL 语义（{@code expires_at <= ?} 含边界）、分批截断与循环收敛、 失败只记日志不上抛、以及 @Scheduled
  * 注册的存在性断言。分区维护主流程已有集成环境兜底，此处不重复。
  */
 class PartitionMaintenanceJobTest {

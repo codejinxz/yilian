@@ -7,7 +7,7 @@ import java.util.List;
 /**
  * FSRS 参数版本管理用例（管理端）：优化产出候选、版本列表、启用状态机。
  *
- * <p>权限在服务端由 {@code /api/admin/**} 的 ROLE_ADMIN 规则统一把关（AGENTS §3.7）； 本接口只承载业务语义。
+ * <p>权限在服务端由 {@code /api/admin/**} 的 ROLE_ADMIN 规则统一把关； 本接口只承载业务语义。
  */
 public interface FsrsAdminService {
 

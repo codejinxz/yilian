@@ -31,8 +31,8 @@ import org.springframework.web.bind.annotation.RestController;
  * 管理端题库域端点（/api/admin/banks，API §8.8）：检索分页、新建、详情、部分更新、软删与题库内题目列表。
  *
  * <p>读写全部走 content 模块 {@link ContentAdminService} 接口；admin 模块不接触 content 的 dao/entity。
- * 删除是状态流转（RECYCLED）而非物理删 （契约 §2.5 软删）；写操作 reason 经 {@link OperationLogContext} 传入审计（注解只放静态元数据），
- * 通用更新可以不带 reason（前端 {@code updateAdminBank} 不发）。
+ * 删除是状态流转（RECYCLED）而非物理删（软删）；写操作 reason 经 {@link OperationLogContext} 传入审计（注解只放静态元数据）， 通用更新可以不带
+ * reason（前端 {@code updateAdminBank} 不发）。
  */
 @RestController
 @RequestMapping("/api/admin/banks")
@@ -131,7 +131,7 @@ public class AdminBankController {
     }
 
     /**
-     * 软删题库：状态流转到 RECYCLED，不物理删除（契约 §2.5）。
+     * 软删题库：状态流转到 RECYCLED，不物理删除。
      *
      * @param bankId 题库 id
      * @param request 删除原因，必填

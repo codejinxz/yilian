@@ -366,7 +366,7 @@ class AdminFsrsControllerTest {
                 "M2 原型占位权重");
     }
 
-    /** [AC-5] optimize 限流契约（015 修复轮 minor #10）：SGD 重计算入口按管理员账号 5 次/60 秒。 */
+    /** [AC-5] optimize 限流契约：SGD 重计算入口按管理员账号 5 次/60 秒。 */
     @org.junit.jupiter.api.Test
     void optimizeHasAccountRateLimit_ac5() throws Exception {
         RateLimit rateLimit =

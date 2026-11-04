@@ -139,7 +139,7 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
     onSuccess: (auth) => {
       setAuthenticated();
       queryClient.setQueryData(queryKeys.me, auth.user);
-      // 游客本机记录迁移（切片 §5.2）：后台执行不阻塞跳转；失败保留本地数据，
+      // 游客本机记录迁移：后台执行不阻塞跳转；失败保留本地数据，
       // 由设置页的「同步本地记录到账号」入口与欠账提示兜底。
       void syncGuestAttemptsInBackground();
       void navigate({ to: "/today" });

@@ -72,7 +72,7 @@ class AdminErrorLogControllerTest {
         verifyNoInteractions(adminLogService);
     }
 
-    /** [AC-2] 非 ADMIN 登录用户：列表与详情均 403 信封，不触达 Service（015 观察项 #14 补详情端点切片）。 */
+    /** [AC-2] 非 ADMIN 登录用户：列表与详情均 403 信封，不触达 Service。 */
     @Test
     void endpointsRejectNonAdminWith403_ac2() throws Exception {
         mockMvc.perform(

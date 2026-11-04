@@ -62,9 +62,8 @@ import java.util.UUID;
  *
  * <p>事务边界：preview 的「批次 + 行」单事务落库（对象存储写入在事务窗口内但非事务资源，落库失败清孤儿文件补偿）； commit 是**一个**原子事务—— 「锁批次行 → 复检状态
  * → 内容快照/题目落库（{@code ContentImportService} 同事务加入）→ 行回写 → COMMITTED」， 任一步失败整体回滚并补记 FAILED，
- * 不再出现「题目已入库而批次停在 COMMITTING」的死锁状态（015 缺陷 #3）； rollback 同理为单事务（016 P1·05#02 补齐：锁批次行 + 锁内复检 +
- * recycle 同事务， 015 轮只改造了 commit 侧）。历史上残留的 COMMITTING 批次由 {@link #reconcileCommittingBatches()}
- * 按行数据对账收敛。
+ * 不再出现「题目已入库而批次停在 COMMITTING」的死锁状态； rollback 同理为单事务（锁批次行 + 锁内复检 + recycle 同事务）。残留的 COMMITTING 批次由
+ * {@link #reconcileCommittingBatches()} 按行数据对账收敛。
  */
 @Service
 public class ImportBatchServiceImpl implements ImportBatchService {
@@ -278,7 +277,7 @@ public class ImportBatchServiceImpl implements ImportBatchService {
             return toView(committed);
         } catch (RuntimeException exception) {
             // DB 唯一键兜底冲突（并发批次提交同指纹/同 external_key，预检已放行）不是代码缺陷，
-            // 翻译成 40904 业务语义（016 P2·05#08），不让唯一索引冲突冒成 500。
+            // 翻译成 40904 业务语义，不让唯一索引冲突冒成 500。
             RuntimeException toRethrow = exception;
             if (causedByDataIntegrityViolation(exception)) {
                 toRethrow =
@@ -366,8 +365,8 @@ public class ImportBatchServiceImpl implements ImportBatchService {
     /**
      * 收敛单个 COMMITTING 残留批次（独立事务，锁批次行后再裁决）。
      *
-     * <p>按行数据判定：行已关联题目 → 内容确已入库（旧版「importSentences 先提交、回写后置」 中断的遗产），补齐行状态并 markCommitted；行未关联题目 →
-     * 提交事务未完成、什么都没入库， 标记 FAILED（终态，管理员重新导入新批次）。
+     * <p>按行数据判定：行已关联题目 → 内容确已入库，补齐行状态并 markCommitted；行未关联题目 → 提交事务未完成、什么都没入库， 标记
+     * FAILED（终态，管理员重新导入新批次）。
      *
      * <p>与 {@link #commitAtomically} 靠批次行锁互斥：锁内重读状态，已不是 COMMITTING （并发 commit 恰好完成）则放弃收敛，避免覆盖提交结果。
      *
@@ -417,8 +416,8 @@ public class ImportBatchServiceImpl implements ImportBatchService {
     @Override
     public ImportBatchViewResponse rollback(
             String batchId, String reason, YilianUserPrincipal actor) {
-        // 与 commit 同构的单原子事务（016 P1·05#02）：此前 recycle（content 侧自带事务独立提交）
-        // 与批次状态写入是两个事务，中途失败会出现「题目已回收、批次仍 COMMITTED」的撕裂态，
+        // 与 commit 同构的单原子事务：recycle（content 侧自带事务独立提交）
+        // 若与批次状态写入拆成两个事务，中途失败会出现「题目已回收、批次仍 COMMITTED」的撕裂态，
         // 再次回滚会对同一批题二次推进银行修订号；并发双击回滚也各自 recycle 一遍。
         ImportBatch rolled =
                 transactionTemplate.execute(status -> rollbackAtomically(batchId, reason, actor));

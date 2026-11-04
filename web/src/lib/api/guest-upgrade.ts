@@ -9,7 +9,7 @@ import { jsonRequest } from "./shared";
  * 游客本机记录迁移（API §4.8）：注册/登录成功后把 IndexedDB 里的 StoredAttempt 批量
  * 提交到账号（≤100 条/批，clientCreatedAt 升序，RETRY 的原始提交先于改错入库）。
  *
- * 失败语义（切片 §5.2）：任何失败都保留本地数据（IndexedDB 不清理，可导出可重试）；
+ * 失败语义：任何失败都保留本地数据（IndexedDB 不清理，可导出可重试）；
  * 40402（题目已不在题库，如定级自造句）或 40903（载荷冲突）跳过该批继续后续批，
  * 网络失败立即中止。
  *
@@ -238,7 +238,7 @@ export interface GuestUpgradeSyncedDetail {
 
 /**
  * 登录/注册成功后的自动迁移入口：fire-and-forget，不阻塞跳转；
- * 有实际迁移结果时派发 GUEST_UPGRADE_SYNCED_EVENT（冒烟发现迁移成功无任何反馈），
+ * 有实际迁移结果时派发 GUEST_UPGRADE_SYNCED_EVENT（曾出现迁移成功无任何反馈的问题），
  * 失败欠账由设置页的提示与手动重试入口兜底。
  * @returns 迁移完成的 Promise（调用方通常 void 掉）
  */

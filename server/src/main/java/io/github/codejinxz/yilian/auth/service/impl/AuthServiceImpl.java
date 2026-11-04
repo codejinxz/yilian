@@ -158,7 +158,7 @@ public class AuthServiceImpl implements AuthService {
         if (session == null) {
             throw new BusinessException(ApiCode.AUTH_REQUIRED);
         }
-        // 与吊销（登出/改密/停用）按用户串行化，锁内复检纪元（016 P2·03#08）：会话持久化在请求
+        // 与吊销（登出/改密/停用）按用户串行化，锁内复检纪元：会话持久化在请求
         // 收尾完成，无纪元时「已吊销仍轮换出新会话」的竞态窗口无法靠删除时序闭合。
         Object indexedName = session.getAttribute(AuthConstants.PRINCIPAL_NAME_ATTRIBUTE);
         if (!(indexedName instanceof String principalName)) {

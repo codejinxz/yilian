@@ -3,8 +3,8 @@
 #
 # 使用方式：
 #   1. 复制为同目录下的 application-local.yml：
-#        Copy-Item server/src/main/resources/application-local.yml.example `
-#          server/src/main/resources/application-local.yml
+#        Copy-Item server/config/application-local.yml.example `
+#          server/config/application-local.yml
 #   2. 至少把 spring.datasource.password 改成你本机 MySQL 的真实密码。
 #   3. 真实的 application-local.yml 已被 .gitignore 忽略，禁止提交，也不要复制到
 #      共享环境或 prod；prod 只从环境变量 / secret 读取密钥。
@@ -41,15 +41,20 @@ yilian:
     username: admin
     # 文档化的本地默认密码；prod 会拒绝该值。
     password: change-me-now
-  # 017 题目答疑 LLM 接入示例：取消注释并填入主人自己的 key 即可联调。
-  # base-url 指向智谱 bigmodel 的 OpenAI 兼容端点时，套餐 API 额度即被项目使用；
-  # model 缺省 glm-4.7；key 是密钥，更建议用环境变量 YILIAN_LLM_API_KEY 提供（不落盘）。
-  # 三态：base-url/api-key 任一缺失=答疑功能不存在（40400）；配置后默认关闭，
+  # 题目答疑的 LLM 接入（可选）：取消注释并填入可用凭证即可联调。
+  # 三态：凭证缺失=答疑功能不存在（40400）；配置后默认关闭，
   # 需管理员 PUT /api/admin/llm/config {"enabled":true} 开启（见 docs/API.md §8.14）。
   # llm:
+  #   # 协议族：openai（OpenAI 兼容，智谱/DeepSeek 等）或 anthropic（Anthropic Messages，本地网关）。
+  #   provider: openai
+  #   # 服务端点：openai 填到 /v4 级前缀；anthropic 填到网关前缀（/v1/messages 由客户端拼接）。
   #   base-url: https://open.bigmodel.cn/api/paas/v4
+  #   # 模型服务密钥：建议改用环境变量 YILIAN_LLM_API_KEY 提供（不落盘）；anthropic 轨网关无鉴权时可留空。
   #   api-key: ""
+  #   # 模型名，缺省 glm-4.7，可用环境变量 YILIAN_LLM_MODEL 覆盖。
   #   model: glm-4.7
+  #   # 单次调用超时，缺省 15s；超时降级为「答疑暂时不可用」，不阻塞答题主链路。
+  #   timeout: 15s
 
 springdoc:
   api-docs:

@@ -60,7 +60,7 @@ public interface AppUserJpaRepository extends JpaRepository<AppUser, Long> {
     boolean existsByEmail(String email);
 
     /**
-     * 锁定全部「启用且未删除」的管理员行（FOR UPDATE），用于「最后一个管理员」判定（013 AC-5）。
+     * 锁定全部「启用且未删除」的管理员行（FOR UPDATE），用于「最后一个管理员」判定。
      *
      * <p>count 聚合无法直接 FOR UPDATE，改为锁定行集合后在 Java 侧计数： 并发降级在锁上串行化，后到者读到提交后的最新状态。ORDER BY id 保证锁定顺序唯一，
      * 两个并发事务不会交叉加锁而死锁。

@@ -23,9 +23,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 管理端答疑 LLM 配置接口（017，API §8.14）：服务端 ADMIN 鉴权（AGENTS §3.7），写操作审计 {@code LLM_CONFIG_UPDATE}；API Key
- * 永不回读（GET 回 hasKey 布尔）。022 起 baseUrl/model/hasKey 反映激活 provider（目录管理见 {@link
- * AdminLlmProviderController}），目录为空时回退 legacy 环境变量。
+ * 管理端答疑 LLM 配置接口（API §8.14）：服务端 ADMIN 鉴权，写操作审计 {@code LLM_CONFIG_UPDATE}；API Key 永不回读（GET 回 hasKey
+ * 布尔）。baseUrl/model/hasKey 反映激活 provider（目录管理见 {@link AdminLlmProviderController}），目录为空时回退 legacy
+ * 环境变量。
  */
 @Tag(name = "管理", description = "用户、题库、日志、出题与答疑 LLM 配置的管理端接口。")
 @SecurityRequirement(name = "bearerAuth")

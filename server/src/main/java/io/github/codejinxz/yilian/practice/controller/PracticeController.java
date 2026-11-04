@@ -135,7 +135,7 @@ public class PracticeController {
     }
 
     /**
-     * 提交批注申诉（「我觉得也对」）；M2 记录 PENDING，M3 接 LLM 裁决。
+     * 提交批注申诉（「我觉得也对」）；只记录 PENDING，LLM 裁决为后续增强。
      *
      * @param attemptId 提交 id
      * @param annotationKey 批注键（slot:N / free:0）
@@ -147,7 +147,7 @@ public class PracticeController {
             summary = "提交批注申诉",
             description =
                     "key 必须存在于该提交最新判分的批注列表（否则 40000）；同一 (attempt, key, kind)"
-                            + " 只能提交一次（40900）；M2 只记录 PENDING，不改判分与题目。")
+                            + " 只能提交一次（40900）；只记录 PENDING，不改判分与题目。")
     @ApiResponses({
         @io.swagger.v3.oas.annotations.responses.ApiResponse(
                 responseCode = "200",
@@ -356,7 +356,7 @@ public class PracticeController {
     }
 
     /**
-     * 顺延：把推送上限之外的到期卡整体顺延 3 天（018 AC-6d 对齐原型）；用户动作，不写 review_logs。
+     * 顺延：把推送上限之外的到期卡整体顺延 3 天（对齐原型口径）；用户动作，不写 review_logs。
      *
      * @param request 顺延理由，可空
      * @param principal 当前用户

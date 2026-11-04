@@ -1,6 +1,7 @@
 # 生产环境：所有密钥都必须来自环境变量；占位符缺失或仍使用本地默认密码时，启动即失败。
 spring:
   datasource:
+    # 三个连接项都必须由环境变量提供，缺省即启动失败，不设任何兜底值。
     url: ${YILIAN_DB_URL}
     username: ${YILIAN_DB_USERNAME}
     password: ${YILIAN_DB_PASSWORD}
@@ -8,7 +9,7 @@ spring:
 server:
   # native = Tomcat RemoteIpValve；只有 internal-proxies 中的代理才能改写客户端 IP。
   # 反向代理必须用 $remote_addr 覆盖 X-Forwarded-For，不能追加客户端自带值。
-  # 默认仅信任本机回环（016 P2·04#01）：反代与网关同机部署时零配置即安全；跨机部署必须把
+  # 默认仅信任本机回环：反代与网关同机部署时零配置即安全；跨机部署必须把
   # YILIAN_TRUSTED_PROXY_REGEX 显式配成反代的精确 IP（如 10\.0\.0\.5），绝不要配整段内网网段——
   # 内网主机也能伪造 X-Forwarded-For，白名单过宽会让按 IP 限流与审计日志被冒充。
   forward-headers-strategy: native
@@ -28,8 +29,10 @@ yilian:
     invite-required: ${YILIAN_REGISTRATION_INVITE_REQUIRED:true}
   security:
     jwt:
+      # 签名密钥只从环境变量注入；缺失或仍为 local 开发值时启动失败。
       secret: ${YILIAN_JWT_SECRET}
   bootstrap-admin:
+    # 初始管理员凭据只从环境变量注入；默认密码 change-me-now 会被拒绝。
     enabled: ${YILIAN_BOOTSTRAP_ADMIN_ENABLED:true}
     username: ${YILIAN_BOOTSTRAP_ADMIN_USERNAME}
     password: ${YILIAN_BOOTSTRAP_ADMIN_PASSWORD}

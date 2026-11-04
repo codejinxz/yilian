@@ -14,7 +14,7 @@ import java.time.Instant;
 /**
  * 申诉/不认同记录（appeals 表）；同一 (attempt, annotation_key, kind) 唯一。
  *
- * <p>DISPUTE 立即生效（status=ACCEPTED），错题与统计按 overlay 排除；APPEAL 留 PENDING 待 M3 裁决。
+ * <p>DISPUTE 立即生效（status=ACCEPTED），错题与统计按 overlay 排除；APPEAL 留 PENDING 待裁决。
  */
 @Entity
 @Table(name = "appeals")
@@ -22,7 +22,7 @@ public class Appeal {
 
     /** 记录类型。 */
     public enum AppealKind {
-        /** 申诉（M3 裁决）。 */
+        /** 申诉（待裁决）。 */
         APPEAL,
         /** 不认同（立即排除）。 */
         DISPUTE

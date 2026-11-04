@@ -26,10 +26,9 @@ import java.util.Map;
  * <p>两张表按 {@code created_at} 月分区；应用层不做行级 DELETE。任务可重入：分区已存在时跳过，
  * 单表失败只记日志，不阻塞调度。保留期按“整月粒度”执行：只有分区上界早于截止日才删除。
  *
- * <p>过期幂等占位记录的清理也并入本类（013 AC-1）：{@code idempotency_record} 未分区， 只能行级 DELETE；复用同一调度入口避免另起炉灶。
+ * <p>过期幂等占位记录的清理也并入本类：{@code idempotency_record} 未分区， 只能行级 DELETE；复用同一调度入口避免另起炉灶。
  *
- * <p>分片上传会话的过期回收同样并入（018 AC-5，review-verify-2 04#02）： 本地存储的会话映射在内存、分片在临时目录，废弃后无人回收会持续泄漏；
- * 云实现的默认方法是无操作，由其生命周期规则管理。
+ * <p>分片上传会话的过期回收同样并入： 本地存储的会话映射在内存、分片在临时目录，废弃后无人回收会持续泄漏； 云实现的默认方法是无操作，由其生命周期规则管理。
  */
 @Component
 public class PartitionMaintenanceJob {
@@ -52,7 +51,7 @@ public class PartitionMaintenanceJob {
             "DELETE FROM idempotency_record WHERE expires_at <= ? LIMIT "
                     + IDEMPOTENCY_PURGE_BATCH_SIZE;
 
-    /** 分片会话保鲜期：超过 24 小时未完成的会话视为废弃（018 AC-5 口径）。 */
+    /** 分片会话保鲜期：超过 24 小时未完成的会话视为废弃。 */
     static final Duration MULTIPART_SESSION_TTL = Duration.ofHours(24);
 
     private final JdbcTemplate jdbcTemplate;
@@ -95,7 +94,7 @@ public class PartitionMaintenanceJob {
     }
 
     /**
-     * 每半小时清理一次过期幂等占位记录（013 AC-1）。
+     * 每半小时清理一次过期幂等占位记录。
      *
      * <p>可重入性三重保证：{@code fixedDelay} 串行调度不与自身重叠；DELETE 本身幂等， 即便被并发触发
      * （如未来多入口调用）也只是多删一次空集，不会报错；分批循环以「批不满」收敛， 单轮有最大批数兜底。 失败只记日志，下个周期重试。
@@ -122,7 +121,7 @@ public class PartitionMaintenanceJob {
     }
 
     /**
-     * 每小时回收一次超过 24h 的分片上传会话（018 AC-5）：内存映射与磁盘临时分片一并清理。
+     * 每小时回收一次超过 24h 的分片上传会话：内存映射与磁盘临时分片一并清理。
      *
      * <p>可重入：清理本身幂等（移除映射/删目录对已消失资源是空操作）；fixedDelay 串行调度不自我叠加； 失败只记日志，下个周期重试。
      */

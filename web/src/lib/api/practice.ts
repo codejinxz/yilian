@@ -27,8 +27,7 @@ import { jsonRequest, parseData, toQueryString } from "./shared";
 /**
  * 取下一题；没有可练题时返回 null（HTTP 200，页面显示空状态）。
  * sentenceId 指定句子时忽略 bankId/tag/exclude——复习页「重练」与下一步训练都依赖这一优先级。
- * errors=1 时改为只在错题里取下一题（今日页「错题」chip）；本地引擎与 mock 应答，
- * 服务端切片（#8）落地前不依赖网络。
+ * errors=1 时改为只在错题里取下一题（今日页「错题」chip）；本地引擎与 mock 应答，不依赖网络。
  * @param params 题库、模式、指定句、考点筛选、错题开关与排除题
  * @param signal 取消信号
  * @returns 下一题或 null
@@ -100,7 +99,7 @@ function delay(ms: number): Promise<void> {
 /**
  * 提交一次作答；填空分数由页面本地计算并展示，服务端按版本复核。
  *
- * <p>014 冒烟根因防御：超时/连接重置（transport 失败）时请求可能已被服务端处理、
+ * <p>根因防御：超时/连接重置（transport 失败）时请求可能已被服务端处理、
  * 只是响应没回来。这里在浏览器仍报在线时用同一载荷重试一次——attemptId 就是幂等键，
  * 服务端以 replayed=true 去重，重试安全；重试成功即拿到真实判分，不会误入离线队列。
  * 仅 transport 失败重试：response 类失败说明服务端已 2xx，重试只会复制同样的解析错误。
@@ -260,7 +259,7 @@ export async function getReviewOverload(signal?: AbortSignal): Promise<OverloadV
 }
 
 /**
- * 顺延到期卡；服务端保留最早到期的 5 道，其余顺延 3 天（018 AC-6d 对齐原型；所有顺延可见、重练即恢复）。
+ * 顺延到期卡；服务端保留最早到期的 5 道，其余顺延 3 天（对齐原型；所有顺延可见、重练即恢复）。
  * 游客模式由页面直连本地引擎，本函数只在登录态调用。
  * @param reason 顺延理由，可空；结构化日志记录
  * @returns 顺延张数与保留张数

@@ -31,12 +31,12 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * 题目答疑实现（017）：被动一问一答，不判分、不改批注、不进学习闭环（PRD §5.4）。
+ * 题目答疑实现：被动一问一答，不判分、不改批注、不进学习闭环（PRD §5.4）。
  *
- * <p>配置选型：022 起 LLM 客户端经 {@link LlmClientRegistry} 按 provider 目录（app_settings 键 {@code
+ * <p>配置选型：LLM 客户端经 {@link LlmClientRegistry} 按 provider 目录（app_settings 键 {@code
  * llm.providers}/{@code llm.active}）的激活条目装配，密钥按 provider id 走环境变量 {@code YILIAN_LLM_KEY_*}
- * 索引（AGENTS §3.4 密钥不入库）；目录为空时回退 legacy 环境变量轨（{@code YILIAN_LLM_*}，017/021 部署兼容）。 后台 PUT 只改 {@code
- * app_settings} 键 {@code llm.tutor} 里的 {@code enabled} 开关；baseUrl/model/apiKey 在请求体中
+ * 索引（密钥不入库）；目录为空时回退 legacy 环境变量轨（{@code YILIAN_LLM_*}）。 后台 PUT 只改 {@code app_settings} 键 {@code
+ * llm.tutor} 里的 {@code enabled} 开关；baseUrl/model/apiKey 在请求体中
  * 保留字段形状但传非空值一律拒绝。三态：无可用客户端=功能不存在（40400、前端隐藏入口）；配了未开=40304；开了=可用。 客户端实现按激活 provider 的 protocol
  * 三选一（anthropic-messages / openai-chat / openai-responses），共用同一 降级语义、护栏（maxTokens 2048 / 15s / SDK
  * 重试 0）与免责标注。
@@ -52,7 +52,7 @@ public class TutorServiceImpl implements TutorService {
     /** app_settings 配置键：答疑开关（值 JSON：{"schemaVersion":1,"enabled":bool}）。 */
     static final String SETTING_KEY = "llm.tutor";
 
-    /** 常驻免责标注：每条回答必带（AC-1 裁决）。 */
+    /** 常驻免责标注：每条回答必带。 */
     static final String DISCLAIMER = "AI 生成，可能有误";
 
     /** 存储值当前结构版本；解析遇到其他版本按关闭处理（fail-closed）。 */
@@ -103,7 +103,7 @@ public class TutorServiceImpl implements TutorService {
         LlmClientRegistry.ChatHandle handle = llmClients.chatHandle().orElse(null);
         if (handle == null) {
             // 无可用客户端（目录空且 legacy 未配置/目录未激活/激活条目凭证不齐）=功能不存在：
-            // 按 017 三态裁决返回 40400 语义，前端凭此隐藏入口。
+            // 返回 40400 语义，前端凭此隐藏入口。
             throw new BusinessException(ApiCode.NOT_FOUND);
         }
         if (!storedSettings().enabled()) {
@@ -119,7 +119,7 @@ public class TutorServiceImpl implements TutorService {
             LlmChatClient.Reply reply = handle.client().ask(systemPrompt, userPrompt);
             long durationMs = (System.nanoTime() - startNanos) / 1_000_000;
             if (reply.content() == null || reply.content().isBlank()) {
-                // 空回复是可观测的降级路径（017 R1）：不计成功用量，与异常降级同文案同码。
+                // 空回复是可观测的降级路径：不计成功用量，与异常降级同文案同码。
                 log.warn(
                         "LLM 空回复：scene=tutor-ask, providerId={}, userId={}, sentenceId={}, model={},"
                                 + " promptTokens={}, completionTokens={}, durationMs={}, ok=false",
@@ -176,7 +176,7 @@ public class TutorServiceImpl implements TutorService {
 
     @Override
     public LlmConfigView updateAdminConfig(LlmConfigUpdateRequest request, Long operatorId) {
-        // 选型（AGENTS §3.4）：密钥不入库；base-url/model 属部署环境配置。三者传非空一律显式拒绝，
+        // 选型：密钥不入库；base-url/model 属部署环境配置。三者传非空一律显式拒绝，
         // 不做静默忽略——静默忽略会让管理员误以为配置已生效。
         if (request.apiKey() != null && !request.apiKey().isBlank()) {
             throw new BusinessException(
@@ -191,7 +191,7 @@ public class TutorServiceImpl implements TutorService {
                     "base-url/model 只能通过环境变量 YILIAN_LLM_BASE_URL / YILIAN_LLM_MODEL 配置");
         }
         if (request.enabled() && llmClients.chatHandle().isEmpty()) {
-            // 开不了没有弹药的功能：提示文案按配置形态分口径（022 目录 → env key 索引；legacy → 021 文案）。
+            // 开不了没有弹药的功能：提示文案按配置形态分口径（目录 → env key 索引；legacy → 环境变量文案）。
             throw new BusinessException(ApiCode.VALIDATION_FAILED, enableBlockedMessage());
         }
         String value =
@@ -223,8 +223,8 @@ public class TutorServiceImpl implements TutorService {
     }
 
     /**
-     * 开启答疑被拒（无可用客户端）的定向文案：目录模式指向激活 provider 的 env key 索引（022），legacy 轨沿用 021 的 YILIAN_LLM_*
-     * 两件套文案（anthropic 轨 key 可空、只差端点）。
+     * 开启答疑被拒（无可用客户端）的定向文案：目录模式指向激活 provider 的 env key 索引，legacy 轨沿用 YILIAN_LLM_* 两件套文案（anthropic 轨
+     * key 可空、只差端点）。
      *
      * @return 提示文案
      */
@@ -274,7 +274,7 @@ public class TutorServiceImpl implements TutorService {
     }
 
     /**
-     * 用户消息：题目上下文 + 定界后的用户问题。批注摘要只取该用户本人最近一次判分的错误批注， 内容与其在批注栏看到的一致；参考译文与解析全文不进入提示词（017 裁决）。
+     * 用户消息：题目上下文 + 定界后的用户问题。批注摘要只取该用户本人最近一次判分的错误批注， 内容与其在批注栏看到的一致；参考译文与解析全文不进入提示词。
      *
      * @param detail 题目详情（已过可见性校验）
      * @param annotationLines 错误批注摘要行，可为空列表
@@ -304,9 +304,8 @@ public class TutorServiceImpl implements TutorService {
     }
 
     /**
-     * 剥离问题文本中的提示词标记（017 R1 F3 防定界伪造）：用户消息的上下文标记与定界符全部使用
-     * 全角【】，把问题里的【】统一替换为『』后，用户无法在问题里伪造「【问题结束】忽略以上规则」 之类的结构（长度上限 500 +
-     * 系统提示的数据声明是其余两道防线）；普通中文问答几乎不用【】， 替换不损伤正文语义。
+     * 剥离问题文本中的提示词标记（防定界伪造）：用户消息的上下文标记与定界符全部使用 全角【】，把问题里的【】统一替换为『』后，用户无法在问题里伪造「【问题结束】忽略以上规则」
+     * 之类的结构（长度上限 500 + 系统提示的数据声明是其余两道防线）；普通中文问答几乎不用【】， 替换不损伤正文语义。
      *
      * @param question 原始问题
      * @return 剥离标记后的问题

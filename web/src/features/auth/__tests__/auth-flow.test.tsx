@@ -400,7 +400,7 @@ describe("auth flow", () => {
 
   it("keeps the logout control out of the topbar and links the avatar to settings", async () => {
     markPlaced();
-    // 退出登录入口已移入设置页（由设置页切片补集成覆盖）；顶栏只保留头像 → 设置。
+    // 退出登录入口已移入设置页（集成覆盖见设置页测试）；顶栏只保留头像 → 设置。
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {

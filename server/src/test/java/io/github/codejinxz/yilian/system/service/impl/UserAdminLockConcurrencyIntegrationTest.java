@@ -30,7 +30,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 「最后一个管理员」行锁的并发回归测试（013 AC-5）：真实 MySQL + 真实事务。
+ * 「最后一个管理员」行锁的并发回归测试：真实 MySQL + 真实事务。
  *
  * <p>复刻真实竞态：两个管理员并发互降（A 降 B、B 降 A）。没有行锁时两个事务都读到 旧计数 2、都放行，出现 0 管理员状态；行锁实现下必然一先一后——后到者在 FOR UPDATE 上
  * 等待先者提交，读到最新计数 1 而被拒绝。测试库为 yilian_test（前置条件与其他集成测试一致： YILIAN_TEST_DB_* 环境变量，见 docs/BOOTSTRAP.md

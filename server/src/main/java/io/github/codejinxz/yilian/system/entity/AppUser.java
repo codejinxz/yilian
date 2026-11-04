@@ -201,7 +201,7 @@ public class AppUser {
     }
 
     /**
-     * 管理员重置（018 AC-6a）：覆盖哈希并回到「首次登录需改密」—— {@code password_changed=false} 使下一个 access token 携带
+     * 管理员重置：覆盖哈希并回到「首次登录需改密」—— {@code password_changed=false} 使下一个 access token 携带
      * pwdChanged=false，业务接口被 40303 拦截， 复用 bootstrap 管理员的强制改密机制，不新增状态位。
      *
      * @param passwordHash 临时口令的 BCrypt 哈希

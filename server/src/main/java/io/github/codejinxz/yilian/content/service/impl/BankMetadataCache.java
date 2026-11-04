@@ -21,7 +21,7 @@ import java.util.Locale;
 import java.util.Optional;
 
 /**
- * 题库元数据的 L1 Caffeine 缓存装配（013 AC-2 / AC-3）。
+ * 题库元数据的 L1 Caffeine 缓存装配。
  *
  * <p>只缓存「匿名公开读」这一条高频且结果与调用者无关的路径：登录用户的结果集含其私有题库 （键需带 userId，命中率趋零），管理端（{@code
  * adminListBanks}/{@code adminGetBank}）低频且 要求实时——两者都不走缓存，维持直查库。写路径（题库 CRUD/状态/删除、句子导入与增删改） 一律经

@@ -78,7 +78,7 @@ public interface AppUserDao {
     boolean existsByEmail(String email);
 
     /**
-     * 锁定并统计未删除的启用管理员数量（SELECT ... FOR UPDATE 语义，013 AC-5）。
+     * 锁定并统计未删除的启用管理员数量（SELECT ... FOR UPDATE 语义）。
      *
      * <p>给「最后一个管理员」判定用：锁定现存管理员行，把并发降级/停用的「读-判-写」 串行化，杜绝两个事务同时读到旧计数导致 0 管理员状态。
      *

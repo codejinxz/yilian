@@ -1,9 +1,9 @@
 package io.github.codejinxz.yilian.practice.llm;
 
 /**
- * provider 目录条目（022）：CC Switch 式多 provider 的元数据（name/protocol/baseURL/model），<strong>不含
- * apiKey</strong>——密钥按 id 走环境变量 {@code YILIAN_LLM_KEY_<大写ID>} 索引（AGENTS §3.4 密钥不入库），一次配置 （env 配一轮）+
- * UI 随时切换（激活）。
+ * provider 目录条目：CC Switch 式多 provider 的元数据（name/protocol/baseURL/model），<strong>不含
+ * apiKey</strong>——密钥按 id 走环境变量 {@code YILIAN_LLM_KEY_<大写ID>} 索引（密钥不入库），一次配置 （env 配一轮）+ UI
+ * 随时切换（激活）。
  *
  * @param id 目录内唯一标识；{@value #ID_PATTERN}（小写字母/数字/连字符），env 变量名按连字符→下划线大写映射
  * @param name 展示名（管理端列表卡）
@@ -29,7 +29,7 @@ public record LlmProviderDescriptor(
     }
 
     /**
-     * id 是否合法（022 目录写入与读取侧共用的唯一口径）。
+     * id 是否合法（目录写入与读取侧共用的唯一口径）。
      *
      * @return 合法返回 true
      */

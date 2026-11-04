@@ -44,7 +44,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * 题库元数据缓存的接线测试（013 AC-2 / AC-3）：真实 Spring 缓存代理 + Mock Dao。
+ * 题库元数据缓存的接线测试：真实 Spring 缓存代理 + Mock Dao。
  *
  * <p>用最小上下文（{@link CacheConfig} + 被测 Bean）证明缓存注解真的生效：命中不查库、
  * 写后失效、参数指纹归一、负缓存（防穿透）。纯单测直调实现类不经过代理，无法覆盖这些行为， 故本类是 {@code ContentQueryServiceImplTest} 的必要补充。
