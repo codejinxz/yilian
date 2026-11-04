@@ -38,8 +38,8 @@ import java.util.stream.Collectors;
  * docs/BOOTSTRAP.md §5）。不满足时本类会显式失败，而不是像 Testcontainers 那样跳过。
  *
  * <p>每个用例开始前清理 {@code spring_session}、{@code spring_session_attributes} 以及除 bootstrap 管理员 {@code
- * admin} 之外的应用账号，并把 {@code admin} 的密码重置为测试值、 角色修正为 {@code ADMIN}，保证重复运行幂等；{@code admin} 由应用启动时的
- * bootstrap 流程创建，测试不会删除它。
+ * admin} 之外的应用账号，并把 {@code admin} 的密码重置为测试值、首登改密标记 置为已改密、角色修正为 {@code
+ * ADMIN}，保证重复运行与全新库（CI）幂等；{@code admin} 由应用启动时的 bootstrap 流程创建，测试不会删除它。
  */
 @ActiveProfiles("test")
 @SpringBootTest(
@@ -74,8 +74,9 @@ class AuthFlowIntegrationTest {
     /**
      * 记录随机端口并清理上一个用例留下的会话、临时账号与管理员凭据，保证测试可重复执行。
      *
-     * <p>{@code yilian_test} 会跨次运行保留数据；若只保留 admin 不修复其密码，上一次运行 遗留的哈希会让登录用例失败。因此这里把 admin
-     * 的密码重置为测试值，并确保其启用且为 管理员角色，但不删除该账号（bootstrap 负责创建它）。
+     * <p>{@code yilian_test} 会跨次运行保留数据；若只保留 admin 不修复其凭据，上一次运行 遗留的哈希会让登录用例失败，遗留的「首登未改密」标记则会让业务接口被
+     * 40303 拦下（CI 全新库首次暴露，cifix-20261104）。因此这里把 admin 的密码重置为测试值、
+     * 改密标记置为已改密，并确保其启用且为管理员角色，但不删除该账号（bootstrap 负责创建它）。
      */
     @BeforeEach
     void setUp() {
@@ -91,10 +92,15 @@ class AuthFlowIntegrationTest {
         // V5 已把 V1 的 app_user 改名为 users，清理与补数都必须走新表名。
         jdbcTemplate.update("DELETE FROM users WHERE username <> ?", ADMIN_USERNAME);
 
+        // password_changed 一并置位（cifix-20261104）：CI 每次都是全新库，bootstrap admin
+        // 停留在「首登未改密」态，业务接口会被 PasswordChangeRequiredInterceptor 以 40303
+        // 拦下（ac3 停用吊销用例首次暴露）；本机持久测试库被历史运行置位后掩盖了该差异。
+        // 40303 拦截语义由 MeControllerTest#putSettingsRequiresPasswordChangeWith40303
+        // 单独覆盖，这里统一收敛为「健康管理员」夹具。
         int adminUpdated =
                 jdbcTemplate.update(
-                        "UPDATE users SET password_hash = ?, role = 'ADMIN', enabled = b'1'"
-                                + " WHERE username = ?",
+                        "UPDATE users SET password_hash = ?, password_changed = b'1',"
+                                + " role = 'ADMIN', enabled = b'1' WHERE username = ?",
                         passwordEncoder.encode(TEST_ADMIN_PASSWORD),
                         ADMIN_USERNAME);
         assertThat(adminUpdated).as("bootstrap 管理员 %s 不存在，无法运行认证集成测试", ADMIN_USERNAME).isEqualTo(1);
