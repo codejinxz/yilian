@@ -19,11 +19,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
+    # 测试库口令按次生成（016 待批项，cifix-20261104 落地）：run_id + run_attempt 每次
+    # 运行唯一。service 容器先于任何 step 启动，无法引用 step 产物，这是唯一可让
+    # service 与测试拿到同一口令的「每运行随机」注入点；口令只存活在本次 runner 的
+    # 临时容器里，任务结束即销毁，不进仓库、不进缓存。
     env:
       YILIAN_TEST_DB_HOST: 127.0.0.1
       YILIAN_TEST_DB_PORT: "3306"
       YILIAN_TEST_DB_USERNAME: root
-      YILIAN_TEST_DB_PASSWORD: "123456"
+      YILIAN_TEST_DB_PASSWORD: yilian-ci-${{ github.run_id }}-${{ github.run_attempt }}
       YILIAN_TEST_DB_NAME: yilian_test
 
     # CI 使用专用测试 MySQL；测试通过 YILIAN_TEST_DB_* 覆盖连接，不依赖开发机配置。
@@ -32,12 +36,12 @@ jobs:
       mysql:
         image: mysql:8.4
         env:
-          MYSQL_ROOT_PASSWORD: "123456"
+          MYSQL_ROOT_PASSWORD: yilian-ci-${{ github.run_id }}-${{ github.run_attempt }}
           MYSQL_ROOT_HOST: "%"
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -p123456"
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pyilian-ci-${{ github.run_id }}-${{ github.run_attempt }}"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=12
@@ -75,13 +79,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      # v6 / v5：Node 24 运行时（Node 20 已于 2026-09 从 runner 移除，v4 会告警）。
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 12.15.0
 
       - name: Set up Node 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "24"
           cache: pnpm
