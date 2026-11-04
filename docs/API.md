@@ -1020,6 +1020,8 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 | `nextAction.*` | 派生 | `score<100 && kind=FIRST` |
 | `replayed` | 派生 | 幂等命中 |
 
+内嵌 `review` 是**排程投影**：只含上表 `id/state/fsrsState/dueAt/stability/difficulty/reps/lapses/scheduledDays/rating`，**不含** `sentenceId`/`mode`（题目归属由响应顶层 `sentenceId`/`mode` 携带）；复习队列卡的 `sentenceId`/`mode` 字段属于 §6.7 的 `ReviewView`，两者不同形（2026-11-05 020 AC-0 补记：此前前端 schema 误按队列卡形状校验提交响应，导致 200 已入库被误报「提交未确认」）。
+
 ### 6.3 `GET /api/practice/attempts/{attemptId}`（implemented）
 
 用途：批改结果详情/刷新恢复；只能看自己的。

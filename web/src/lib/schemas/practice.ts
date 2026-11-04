@@ -68,12 +68,11 @@ export const gradingResultSchema = z.object({
 
 export type GradingResult = z.infer<typeof gradingResultSchema>;
 
-export const reviewSchema = z.object({
+/**
+ * 复习卡排程投影：提交响应内嵌卡（API §6.2/§6.3）与复习队列卡（API §6.7）的共有字段。
+ */
+const reviewCardBaseSchema = z.object({
   id: idSchema,
-  sentenceId: z.string().min(1),
-  // TODO(mock): 演示数据，真实接口落地后删除——mock 复习卡 join 句子补中文，避免复习行显示裸 ID。
-  zh: z.string().nullable().optional(),
-  mode: practiceModeSchema,
   state: reviewStateSchema,
   fsrsState: fsrsStateSchema,
   dueAt: isoDateTimeSchema,
@@ -82,12 +81,31 @@ export const reviewSchema = z.object({
   reps: z.number().int().nonnegative(),
   lapses: z.number().int().nonnegative(),
   scheduledDays: z.number().int().nonnegative(),
+});
+
+export const reviewSchema = reviewCardBaseSchema.extend({
+  sentenceId: z.string().min(1),
+  // TODO(mock): 演示数据，真实接口落地后删除——mock 复习卡 join 句子补中文，避免复习行显示裸 ID。
+  zh: z.string().nullable().optional(),
+  mode: practiceModeSchema,
   rating: z.number().int().min(1).max(4).nullable().optional(),
   lastRating: z.number().int().min(1).max(4).nullable().optional(),
   lastReviewedAt: isoDateTimeSchema.nullable().optional(),
 });
 
 export type Review = z.infer<typeof reviewSchema>;
+
+/**
+ * 提交/详情响应的内嵌复习卡（API §6.2/§6.3）：契约只有排程投影，不带 sentenceId/mode；
+ * 字段按可选放行，因为本地引擎的离线响应复用完整队列卡形状（020 AC-0：此前必填导致
+ * 服务端 200 响应 parse 失败，页面误报「提交未确认」而数据实际已入库+排程）。
+ */
+export const attemptReviewSchema = reviewSchema.extend({
+  sentenceId: z.string().min(1).optional(),
+  mode: practiceModeSchema.optional(),
+});
+
+export type AttemptReview = z.infer<typeof attemptReviewSchema>;
 
 export const attemptResponseSchema = z.object({
   attemptId: z.string().uuid(),
@@ -106,7 +124,7 @@ export const attemptResponseSchema = z.object({
     rubricVersion: z.string(),
     createdAt: isoDateTimeSchema,
   }),
-  review: reviewSchema.nullable(),
+  review: attemptReviewSchema.nullable(),
   reference: z.object({
     ref: z.string(),
     note: z.string().nullable(),

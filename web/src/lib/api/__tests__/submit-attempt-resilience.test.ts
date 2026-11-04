@@ -54,11 +54,46 @@ function attemptResponse(attemptId: string, replayed = false) {
       rubricVersion: "rubric-1",
       createdAt: "2026-11-03T00:00:00.000Z",
     },
-    review: null,
+    review: reviewCard(replayed),
     reference: { ref: "It is becoming more and more popular.", note: null },
     nextAction: { retryRequired: true, canReveal: true },
     replayed,
   };
+}
+
+/**
+ * 服务端排程后的内嵌复习卡：严格按 API §6.2 的字段集——只有排程投影，
+ * 不带 sentenceId/mode（020 AC-0 根因：前端曾要求必填导致 200 响应误判失败）。
+ */
+function serverReviewCard(): Record<string, unknown> {
+  return {
+    id: "10",
+    state: "LEARNING",
+    fsrsState: "LEARNING",
+    dueAt: "2026-11-04T00:00:00Z",
+    stability: 2.4,
+    difficulty: 5.3,
+    reps: 1,
+    lapses: 1,
+    scheduledDays: 1,
+    rating: 2,
+  };
+}
+
+/** 本地引擎的离线复习卡：在服务端字段之上补 sentenceId/mode（完整队列卡形状）。 */
+function localReviewCard(): Record<string, unknown> {
+  return {
+    ...serverReviewCard(),
+    sentenceId: "sentence-1",
+    mode: "CLOZE",
+    lastRating: 2,
+    lastReviewedAt: "2026-11-03T00:00:00Z",
+  };
+}
+
+function reviewCard(replayed: boolean): Record<string, unknown> | null {
+  // 幂等重放用例不带卡（review=null），其余用例给服务端形状的卡。
+  return replayed ? null : serverReviewCard();
 }
 
 /** 统一响应信封。 */
@@ -168,6 +203,54 @@ describe("submitAttempt 的传输失败防御（014 冒烟离线误判根因）"
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(isTransportError(failure)).toBe(true);
+  });
+});
+
+describe("提交响应内嵌复习卡的形状兼容（020 AC-0 提交假失败根因）", () => {
+  beforeEach(() => {
+    resetApiState();
+    setAccessToken("access-token");
+    seedCsrfCookie();
+    localStorage.removeItem(STORAGE_KEY);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("[AC-0] 服务端 review 无 sentenceId/mode（API §6.2 排程投影）时提交照常成功", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/api/practice/attempts")) {
+        return successEnvelope(attemptResponse(attemptRequest().attemptId));
+      }
+      throw new Error(`unexpected request: ${String(input)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await submitAttempt(attemptRequest());
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(response.review?.state).toBe("LEARNING");
+    expect("sentenceId" in (response.review ?? {})).toBe(false);
+  });
+
+  it("[AC-0] 本地引擎 review 补 sentenceId/mode（完整队列卡）时同样可解析", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/api/practice/attempts")) {
+        return successEnvelope({
+          ...attemptResponse(attemptRequest().attemptId),
+          review: localReviewCard(),
+        });
+      }
+      throw new Error(`unexpected request: ${String(input)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await submitAttempt(attemptRequest());
+
+    expect(response.review?.sentenceId).toBe("sentence-1");
+    expect(response.review?.mode).toBe("CLOZE");
+    expect(response.review?.lastReviewedAt).toBe("2026-11-03T00:00:00Z");
   });
 });
 
