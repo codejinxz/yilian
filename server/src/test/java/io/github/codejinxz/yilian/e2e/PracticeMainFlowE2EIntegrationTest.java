@@ -91,8 +91,8 @@ class PracticeMainFlowE2EIntegrationTest {
         jdbcTemplate.update("DELETE FROM users WHERE username <> ?", ADMIN_USERNAME);
         int adminUpdated =
                 jdbcTemplate.update(
-                        "UPDATE users SET password_hash = ?, role = 'ADMIN', enabled = b'1'"
-                                + " WHERE username = ?",
+                        "UPDATE users SET password_hash = ?, password_changed = b'1',"
+                                + " role = 'ADMIN', enabled = b'1' WHERE username = ?",
                         passwordEncoder.encode(TEST_ADMIN_PASSWORD),
                         ADMIN_USERNAME);
         assertThat(adminUpdated).as("bootstrap 管理员不存在，无法运行端到端测试").isEqualTo(1);
