@@ -100,6 +100,20 @@
       <artifactId>spring-ai-starter-model-openai</artifactId>
     </dependency>
 
+    <!--
+      LLM 接入（021）：Anthropic Messages 协议客户端，服务 ZCode 本地网关（主人的 GLM 套餐额度，
+      POST {base}/v1/messages）。白名单依据（AGENTS §3.3）：「Spring AI（模型接入）」本就在列，
+      spring-ai-anthropic 与 openai 同族、版本同由 spring-ai-bom 管理；其底层官方 SDK
+      com.anthropic:anthropic-java-core 只依赖 okhttp + micrometer（两者已在 classpath），
+      无 reactor/webflux 传递面。starter 的 Anthropic 自动配置在 application.yml 显式关闭
+      （spring.ai.model.chat=none 对两 provider 一并生效），仍由 TutorLlmConfiguration 按
+      YILIAN_LLM_PROVIDER 惰性装配（021）。
+    -->
+    <dependency>
+      <groupId>org.springframework.ai</groupId>
+      <artifactId>spring-ai-starter-model-anthropic</artifactId>
+    </dependency>
+
     <!-- 安全 / 服务端会话 -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

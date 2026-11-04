@@ -15,7 +15,8 @@ class SpringAiLlmClientTest {
     @Test
     void buildsClientOfflineWithDummyCredentials_r1() {
         LlmProperties properties =
-                new LlmProperties("https://open.bigmodel.cn/api/paas/v4", "dummy-key", null, null);
+                new LlmProperties(
+                        "https://open.bigmodel.cn/api/paas/v4", "dummy-key", null, null, null);
 
         assertThatCode(() -> new SpringAiLlmClient(properties)).doesNotThrowAnyException();
     }

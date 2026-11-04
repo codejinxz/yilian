@@ -32,9 +32,12 @@ import java.util.Optional;
 /**
  * 题目答疑实现（017）：被动一问一答，不判分、不改批注、不进学习闭环（PRD §5.4）。
  *
- * <p>配置选型：base-url/api-key/model/timeout 全部来自 {@code YILIAN_LLM_*} 环境变量（密钥不入库， AGENTS §3.4），后台 PUT
- * 只改 {@code app_settings} 键 {@code llm.tutor} 里的 {@code enabled} 开关； baseUrl/model/apiKey
- * 在请求体中保留字段形状但传非空值一律拒绝。三态：未配凭证=功能不存在（40400、 前端隐藏入口）；配了未开=40304；开了=可用。
+ * <p>配置选型：provider/base-url/api-key/model/timeout 全部来自 {@code YILIAN_LLM_*} 环境变量（密钥不入库， AGENTS
+ * §3.4），后台 PUT 只改 {@code app_settings} 键 {@code llm.tutor} 里的 {@code enabled} 开关；
+ * baseUrl/model/apiKey 在请求体中保留字段形状但传非空值一律拒绝。三态：未配凭证=功能不存在（40400、 前端隐藏入口）；配了未开=40304；开了=可用。
+ * 客户端实现（021）：openai 轨 {@link SpringAiLlmClient}，anthropic 轨 {@link
+ * AnthropicMessagesLlmClient}（ZCode 本地网关）， 由 {@code TutorLlmConfiguration} 按 {@code
+ * YILIAN_LLM_PROVIDER} 装配，两轨共用同一降级语义与免责标注。
  *
  * <p>安全边界：提示词只包含题目中文、考点标签与该用户本人最近一次批注（与其在页面上看到的一致）， 不喂参考译文与解析全文；用户问题用显式定界符包裹并限制 500
  * 字符，系统提示声明定界区内是数据不是 指令——LLM 无工具、无判分权限，注入的最坏后果只是得到一条带免责标注的低质量回答。
@@ -178,9 +181,12 @@ public class TutorServiceImpl implements TutorService {
                     "base-url/model 只能通过环境变量 YILIAN_LLM_BASE_URL / YILIAN_LLM_MODEL 配置");
         }
         if (request.enabled() && !llmProperties.hasCredentials()) {
+            // 提示文案按 provider 分口径（021）：anthropic 轨服务无鉴权的本地网关，key 本就可空。
             throw new BusinessException(
                     ApiCode.VALIDATION_FAILED,
-                    "尚未配置 YILIAN_LLM_BASE_URL / YILIAN_LLM_API_KEY，无法开启答疑");
+                    llmProperties.provider() == LlmProperties.LlmProvider.ANTHROPIC
+                            ? "尚未配置 YILIAN_LLM_BASE_URL，无法开启答疑（anthropic 轨无需 API Key）"
+                            : "尚未配置 YILIAN_LLM_BASE_URL / YILIAN_LLM_API_KEY，无法开启答疑");
         }
         String value =
                 objectMapper.writeValueAsString(

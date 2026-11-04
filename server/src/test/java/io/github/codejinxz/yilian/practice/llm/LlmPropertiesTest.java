@@ -1,6 +1,7 @@
 package io.github.codejinxz.yilian.practice.llm;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Bindable;
@@ -70,6 +71,43 @@ class LlmPropertiesTest {
                 .isEqualTo(LlmProperties.DEFAULT_TIMEOUT);
     }
 
+    /** [AC-1] provider 缺省 openai：021 之前的部署（只有 base-url/api-key）语义完全不变。 */
+    @Test
+    void providerDefaultsToOpenai_ac1() {
+        assertThat(
+                        bind(Map.of("yilian.llm.base-url", "https://x", "yilian.llm.api-key", "k"))
+                                .provider())
+                .isEqualTo(LlmProperties.LlmProvider.OPENAI);
+        assertThat(bind(Map.of()).provider()).isEqualTo(LlmProperties.LlmProvider.OPENAI);
+    }
+
+    /** [AC-1] provider=anthropic 显式绑定；凭证口径变为仅 baseUrl 必填（ZCode 网关本机无鉴权）。 */
+    @Test
+    void anthropicProviderRequiresOnlyBaseUrl_ac1() {
+        LlmProperties properties =
+                bind(
+                        Map.of(
+                                "yilian.llm.provider",
+                                "anthropic",
+                                "yilian.llm.base-url",
+                                " http://127.0.0.1:47860/gateway/zcode "));
+
+        assertThat(properties.provider()).isEqualTo(LlmProperties.LlmProvider.ANTHROPIC);
+        assertThat(properties.baseUrl()).isEqualTo("http://127.0.0.1:47860/gateway/zcode");
+        assertThat(properties.apiKey()).isEmpty();
+        assertThat(properties.hasCredentials()).isTrue();
+
+        // anthropic 轨缺 baseUrl 仍视为功能不存在。
+        assertThat(bind(Map.of("yilian.llm.provider", "anthropic")).hasCredentials()).isFalse();
+    }
+
+    /** [AC-1] provider 非 openai|anthropic 的脏值：绑定失败即启动失败（fail-fast），不静默回落。 */
+    @Test
+    void rejectsUnknownProvider_ac1() {
+        assertThatThrownBy(() -> bind(Map.of("yilian.llm.provider", "gemini")))
+                .isInstanceOf(Exception.class);
+    }
+
     /**
      * 以 Spring Binder 模拟环境变量绑定（与 @ConfigurationProperties 同一机制）。
      *
@@ -81,6 +119,6 @@ class LlmPropertiesTest {
         environment.getPropertySources().addFirst(new MapPropertySource("test", source));
         return Binder.get(environment)
                 .bind("yilian.llm", Bindable.of(LlmProperties.class))
-                .orElse(new LlmProperties(null, null, null, null));
+                .orElse(new LlmProperties(null, null, null, null, null));
     }
 }

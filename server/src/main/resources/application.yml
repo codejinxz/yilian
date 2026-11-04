@@ -113,12 +113,18 @@ info:
 
 yilian:
   llm:
-    # 017 题目答疑：OpenAI 兼容端点接入。三态——三者中 base-url/api-key 未配置=功能不存在；
-    # 已配置但后台未开启=40304；开启=可用。base-url 指向智谱 bigmodel 时主人的套餐额度即被项目使用。
-    # 详见 PRD §5.4 与 docs/API.md §6.12/§8.11。
+    # 017 题目答疑：LLM 接入。三态——凭证口径未齐=功能不存在；已配置但后台未开启=40304；开启=可用。
+    # 详见 PRD §5.4 与 docs/API.md §6.12/§8.14。
+    # 021 provider 双轨：openai（缺省，OpenAI 兼容协议，智谱/DeepSeek 等）| anthropic（Anthropic Messages
+    # 协议，服务主人的 ZCode 本地网关，GLM 套餐额度）。两轨共用同一三态门禁、降级语义与免责标注。
+    provider: ${YILIAN_LLM_PROVIDER:openai}
+    # 端点按 provider 分拼接口径（021）：openai 填到 /v4 级前缀（如智谱 https://open.bigmodel.cn/api/paas/v4）；
+    # anthropic 填到网关前缀（如 http://127.0.0.1:47860/gateway/zcode），/v1/messages 由客户端拼接。
     base-url: ${YILIAN_LLM_BASE_URL:}
     # 密钥只进环境变量（AGENTS §3.4），不落库、不进配置文件；后台接口只回 hasKey 布尔。
+    # openai 轨必填；anthropic 轨可空（ZCode 网关本机无鉴权，非空时以 x-api-key 头携带）。
     api-key: ${YILIAN_LLM_API_KEY:}
+    # openai 轨缺省 glm-4.7；ZCode 网关用 YILIAN_LLM_MODEL=glm-5.3 覆盖。
     model: ${YILIAN_LLM_MODEL:glm-4.7}
     # 单次调用超时：超时/异常统一降级为「答疑暂时不可用」，不阻塞答题主链路。
     timeout: ${YILIAN_LLM_TIMEOUT:15s}

@@ -88,7 +88,7 @@ class TutorServiceImplTest {
         tutorService =
                 new TutorServiceImpl(
                         new LlmProperties(
-                                "https://open.bigmodel.cn/api/paas/v4", "key", null, null),
+                                "https://open.bigmodel.cn/api/paas/v4", "key", null, null, null),
                         llmClientProvider,
                         appSettingService,
                         practiceService,
@@ -102,7 +102,7 @@ class TutorServiceImplTest {
     void askWithoutCredentialsReturns40400_ac4() {
         TutorServiceImpl unconfigured =
                 new TutorServiceImpl(
-                        new LlmProperties("", "key", null, null),
+                        new LlmProperties("", "key", null, null, null),
                         llmClientProvider,
                         appSettingService,
                         practiceService,
@@ -301,7 +301,7 @@ class TutorServiceImplTest {
     void updateRejectsEnableWithoutCredentials_ac3() {
         TutorServiceImpl unconfigured =
                 new TutorServiceImpl(
-                        new LlmProperties("", "", null, null),
+                        new LlmProperties("", "", null, null, null),
                         llmClientProvider,
                         appSettingService,
                         practiceService,
@@ -318,6 +318,42 @@ class TutorServiceImplTest {
                         exception ->
                                 assertThat(exception.apiCode())
                                         .isEqualTo(ApiCode.VALIDATION_FAILED));
+    }
+
+    /** [AC-1] anthropic 轨（ZCode 网关）凭证口径：仅 base-url、无 key 也可开启答疑；hasKey 如实回 false。 */
+    @Test
+    void anthropicTrackEnablesWithoutApiKey_ac1() {
+        when(appSettingService.upsert(
+                        eq(TutorServiceImpl.SETTING_KEY),
+                        eq("{\"schemaVersion\":1,\"enabled\":true}"),
+                        anyString(),
+                        eq(1L)))
+                .thenReturn("{\"schemaVersion\":1,\"enabled\":true}");
+        when(appSettingService.findValue(TutorServiceImpl.SETTING_KEY))
+                .thenReturn(Optional.of("{\"schemaVersion\":1,\"enabled\":true}"));
+        TutorServiceImpl gatewayBacked =
+                new TutorServiceImpl(
+                        new LlmProperties(
+                                "http://127.0.0.1:47860/gateway/zcode",
+                                "",
+                                "glm-5.3",
+                                null,
+                                LlmProperties.LlmProvider.ANTHROPIC),
+                        llmClientProvider,
+                        appSettingService,
+                        practiceService,
+                        attemptDao,
+                        gradingDao,
+                        objectMapper);
+
+        LlmConfigView view =
+                gatewayBacked.updateAdminConfig(
+                        new LlmConfigUpdateRequest(true, null, null, null), 1L);
+
+        assertThat(view.enabled()).isTrue();
+        assertThat(view.hasKey()).isFalse();
+        assertThat(view.baseUrl()).isEqualTo("http://127.0.0.1:47860/gateway/zcode");
+        assertThat(view.model()).isEqualTo("glm-5.3");
     }
 
     /** [AC-3] PUT 合法开关：写 app_settings 键 llm.tutor（schemaVersion=1），返回更新后视图。 */
