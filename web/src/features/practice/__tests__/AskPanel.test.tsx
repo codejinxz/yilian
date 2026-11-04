@@ -72,17 +72,62 @@ describe("AskPanel", () => {
     expect(askTutorMock).not.toHaveBeenCalled();
   });
 
-  /** [AC-5] 40304/40400：调用 onUnavailable 通知父级隐藏入口，不展示普通错误文案。 */
-  it("hidesEntryViaOnUnavailableWhenForbidden_ac5", async () => {
+  /** [017R2 DEF-01] 40304：先在面板内展示「答疑未开放」定向文案并保留问句，约 1.5s 后才通知父级收起——不再是零提示静默消失。 */
+  it("showsUnavailableMessageThenCollapsesOn40304_def01", async () => {
     askTutorMock.mockRejectedValue(new ApiError(403, 40304, "答疑未开放"));
+    const { onUnavailable } = renderPanel();
+
+    await ask("这里介词为什么用 to？");
+
+    // 先讲清原因：定向文案可见（对齐 API §6.12 三态语义），且不是普通错误文案。
+    expect(await screen.findByRole("alert")).toHaveTextContent("答疑未开放");
+    expect(screen.getByRole("alert").textContent).toContain("请先在管理端启用模型");
+    // 输入不丢：textarea 与已上屏的问句气泡都还在（受控 textarea 的值也是文本节点，
+    // 两个匹配 = 气泡 + 输入框）。
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(
+      "这里介词为什么用 to？",
+    );
+    expect(screen.getAllByText("这里介词为什么用 to？").length).toBeGreaterThanOrEqual(2);
+    // 收起被推迟：错误文案展示期间不立即触发 onUnavailable。
+    expect(onUnavailable).not.toHaveBeenCalled();
+    // 停留约 1.5s 后再收起（父级隐藏入口），用户看得到提示而不是面板凭空消失。
+    await waitFor(() => expect(onUnavailable).toHaveBeenCalledTimes(1), { timeout: 3000 });
+  });
+
+  /** [017R2 DEF-01] 40400：文案指向 YILIAN_LLM_* 环境变量配置（服务端只回通用 404 文案，前端展开）。 */
+  it("showsConfigMissingMessageOn40400_def01", async () => {
+    askTutorMock.mockRejectedValue(new ApiError(404, 40400, "请求的资源不存在"));
     const { onUnavailable } = renderPanel();
 
     await ask("问");
 
+    expect(await screen.findByRole("alert")).toHaveTextContent("答疑功能未配置");
+    expect(screen.getByRole("alert").textContent).toContain("YILIAN_LLM_*");
+    expect(onUnavailable).not.toHaveBeenCalled();
+    await waitFor(() => expect(onUnavailable).toHaveBeenCalledTimes(1), { timeout: 3000 });
+  });
+
+  /** [017R2 OBS-2] 等待回复时写明「最长约 30 秒」的预期，回复到位后等待提示消失。 */
+  it("showsPendingExpectationWhileWaiting_obs2", async () => {
+    let resolveAsk: (reply: { answer: string; disclaimer: string }) => void = () => {};
+    askTutorMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveAsk = resolve;
+        }),
+    );
+    renderPanel();
+
+    await ask("问");
+
+    const pending = await screen.findByRole("status");
+    expect(pending.textContent).toContain("最长约 30 秒");
+
+    resolveAsk({ answer: "先看搭配。", disclaimer: "AI 生成，可能有误" });
     await waitFor(() => {
-      expect(onUnavailable).toHaveBeenCalledTimes(1);
+      expect(screen.getByText("先看搭配。")).toBeTruthy();
     });
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   /** [AC-5] 其他失败（如降级 50000）：保留问句、展示可重试的错误文案，不隐藏入口。 */

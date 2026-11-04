@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { askTutor } from "@/lib/api/practice";
@@ -8,6 +8,22 @@ import { cn } from "@/lib/utils";
 
 /** 与服务端一致的输入上限（API §6.12：question 1-500 字符）。 */
 const QUESTION_MAX = 500;
+
+/**
+ * 三态门禁「不可用」两态的定向文案（017R2 DEF-01）。服务端对这两态只回短文案
+ * （40304=「答疑未开放」、40400=通用「请求的资源不存在」），用户无从下手；前端按
+ * API §6.12 的三态语义展开为可执行的提示，措辞对齐 API.md §8.14 的变量名与管理端入口。
+ */
+const UNAVAILABLE_MESSAGES: Record<number, string> = {
+  40304: "答疑未开放：请先在管理端启用模型",
+  40400: "答疑功能未配置：需先设置 YILIAN_LLM_* 环境变量",
+};
+
+/**
+ * 收起前的停留时长（017R2 DEF-01）：让用户来得及读到原因、看到自己的问题还在，
+ * 再触发 {@link AskPanelProps.onUnavailable} 收起；约 1.5s 够扫一眼又不至于像卡死。
+ */
+const UNAVAILABLE_DELAY_MS = 1500;
 
 /** 会话内的一条消息；历史只存组件 state，不持久化、不落库（017 裁决）。 */
 interface AskMessage {
@@ -22,9 +38,11 @@ interface AskMessage {
 /**
  * 题目答疑面板（017，PRD §5.4）：被动一问一答，非 AI 外教。
  *
- * <p>三态显示策略：入口默认可见（乐观渲染），收到 40304「答疑未开放」或 40400「功能未配置」时经
- * {@link AskPanelProps.onUnavailable} 通知父级整体隐藏——不加探针端点，代价是未开放实例上首次
- * 提问才会收起入口（已与计划确认）。会话历史保留在组件 state（换句/离开即清空），免责行常驻。
+ * <p>三态显示策略：入口默认可见（乐观渲染），收到 40304「答疑未开放」或 40400「功能未配置」时
+ * 先在面板内展示定向文案、问句与输入原样保留（017R2 DEF-01：此前直接收起，零提示且问题丢失），
+ * 停留约 {@link UNAVAILABLE_DELAY_MS} 后再经 {@link AskPanelProps.onUnavailable} 通知父级整体
+ * 隐藏——不加探针端点，代价是未开放实例上首次提问才会收起入口（已与计划确认）。
+ * 会话历史保留在组件 state（换句/离开即清空），免责行常驻。
  *
  * @param props.sentenceId 当前句 id
  * @param props.onClose 收起面板
@@ -44,6 +62,16 @@ export function AskPanel({
   const [errorText, setErrorText] = useState<string | null>(null);
   /** 消息 id 计数器（会话内自增）。 */
   const nextIdRef = useRef(1);
+  /** 「不可用」收起计时器；卸载时清掉，避免面板消失后还触发 onUnavailable。 */
+  const unavailableTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (unavailableTimerRef.current !== null) {
+        window.clearTimeout(unavailableTimerRef.current);
+      }
+    };
+  }, []);
 
   const askMutation = useMutation({
     mutationFn: (question: string) => askTutor(sentenceId, question),
@@ -62,8 +90,17 @@ export function AskPanel({
     },
     onError: (error: unknown) => {
       if (error instanceof ApiError && (error.code === 40304 || error.code === 40400)) {
-        // 未开放/未配置：收起面板并让父级隐藏入口（下次不再出现）。
-        onUnavailable();
+        // 未开放/未配置（017R2 DEF-01）：先讲清原因、问句与输入原样保留（submit 失败不清
+        // input，问句气泡已在 messages 里），停留约 1.5s 再通知父级收起——此前直接
+        // onUnavailable() 静默卸载，用户问题跟着消失、重进页面再问再消失，循环困惑。
+        setErrorText(UNAVAILABLE_MESSAGES[error.code] ?? "答疑暂不可用");
+        if (unavailableTimerRef.current !== null) {
+          window.clearTimeout(unavailableTimerRef.current);
+        }
+        unavailableTimerRef.current = window.setTimeout(() => {
+          unavailableTimerRef.current = null;
+          onUnavailable();
+        }, UNAVAILABLE_DELAY_MS);
         return;
       }
       setErrorText(error instanceof Error ? error.message : "答疑暂时不可用，请稍后再试");
@@ -125,8 +162,10 @@ export function AskPanel({
       )}
 
       {askMutation.isPending ? (
+        // 017R2 OBS-2：写明最长等待预期——网关 5xx 有 30s 退避重试，超出本地判分的即时反馈
+        // 节奏，不设预期会被误判为卡死而反复提交（5/min 限流后反而 42900）。
         <p role="status" className="mb-2 text-xs text-ink-faint">
-          正在思考…
+          正在思考…（最长约 30 秒）
         </p>
       ) : null}
       {errorText ? (

@@ -141,6 +141,21 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     expect(screen.getByRole("button", { name: "启用答疑" })).toBeEnabled();
   });
 
+  it("017R2 OBS-1: hasKey=false 但开关已开时，答疑关联显示「未生效（缺凭证）」而非笼统的未开放，并附下一步说明", async () => {
+    // 021 冒烟遗留的真实组合：enabled=true + 无凭证，管理员视角「开关是开的、功能却不存在」。
+    stubLlmConfigFetch({ ...CONFIGURED_ON, hasKey: false, baseUrl: "" });
+
+    renderModelsPage();
+
+    // 答疑关联与 AI 功能清单两处联动位都归一为「未生效（缺凭证）」。
+    expect(await screen.findAllByText("未生效（缺凭证）")).toHaveLength(2);
+    // 展示层归一不影响指引：缺什么（环境变量两件套）与下一步（重启生效）同时可见。
+    expect(screen.getByText(/YILIAN_LLM_API_KEY/)).toBeInTheDocument();
+    expect(screen.getByText(/开关已开启但未生效/)).toBeInTheDocument();
+    // 运行态卡仍如实显示未开放（不谎称运行中）。
+    expect(screen.getByText("未配置")).toBeInTheDocument();
+  });
+
   it("019 AC-1: 点击启用提交 PUT {enabled:true}，成功后失效缓存重新拉取并提示", async () => {
     const observed = stubLlmConfigFetch({ ...CONFIGURED_ON, enabled: false });
 

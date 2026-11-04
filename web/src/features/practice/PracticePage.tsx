@@ -92,6 +92,40 @@ const LEVEL_LABELS: Record<string, string> = {
 
 const SENTENCE_SNAPSHOT_PREFIX = "yilian.practice.sentence.";
 
+/** 答疑入口「本会话不可用」记忆键（017R2 DEF-01）；与会话快照共用前缀风格。 */
+const ASK_UNAVAILABLE_KEY = "yilian.practice.askUnavailable";
+
+/**
+ * 读取答疑入口的会话级隐藏记忆。
+ * @returns 本会话内是否已确认答疑不可用（40304/40400）
+ */
+function isAskUnavailableMarked(): boolean {
+  try {
+    return sessionStorage.getItem(ASK_UNAVAILABLE_KEY) === "1";
+  } catch {
+    // 隐私模式下 sessionStorage 可能失败；按未标记处理，只回到旧行为（入口重现）不崩溃。
+    return false;
+  }
+}
+
+/**
+ * 写入答疑入口的会话级隐藏记忆。
+ *
+ * <p>裁决（017R2 DEF-01）：未开放（40304）与未配置（40400）是服务端稳定状态，会话内重试
+ * 没有意义——首次命中后记住，重进练习页不再重现入口，切断「问→面板消失→重进→再问→
+ * 再消失」的循环困惑（test-engineer 017 实测复现两次）。记忆范围取 sessionStorage（标签页
+ * 会话）而非模块级标志：模块级在 SPA 内等效但刷新即失；取 localStorage 又过重——新开标签
+ * 或次日应重新给一次暴露机会，管理员可能中途在管理端开启答疑，会话级是「不循环困惑」与
+ * 「不过度隐藏」的折中。
+ */
+function markAskUnavailable(): void {
+  try {
+    sessionStorage.setItem(ASK_UNAVAILABLE_KEY, "1");
+  } catch {
+    // 写入失败只失去记忆能力，主流程不受影响。
+  }
+}
+
 /**
  * 缓存提交时的题干，刷新结果页时仍能显示中文原句与语块。
  * @param sentence 题目
@@ -374,9 +408,11 @@ export function PracticePage() {
   const [askOpen, setAskOpen] = useState(false);
   /**
    * 答疑入口可见性（017 三态）：乐观可见；AskPanel 收到 40304（答疑未开放）或 40400（功能未配置）
-   * 后置 false 整体隐藏。不加探针端点——代价是未开放实例上首次提问才收起入口，已与计划确认。
+   * 后整体隐藏。017R2：隐藏状态经 sessionStorage 在本会话内记忆（见 markAskUnavailable 的裁决
+   * 注释），重进练习页不再重现入口。不加探针端点——代价是未开放实例上首次提问才收起入口，
+   * 已与计划确认。
    */
-  const [askAvailable, setAskAvailable] = useState(true);
+  const [askAvailable, setAskAvailable] = useState(() => !isAskUnavailableMarked());
   const startedAtRef = useRef(Date.now());
   const toastTimerRef = useRef<number | null>(null);
   const skeletonRef = useRef<HTMLParagraphElement | null>(null);
@@ -1936,7 +1972,8 @@ export function PracticePage() {
           </ol>
 
           {/* 017 题目答疑：批注栏「问一问」入口；面板按句 key 重挂载，历史随换句清空。
-              未开放（40304）/未配置（40400）时经 onUnavailable 整体隐藏入口。 */}
+              未开放（40304）/未配置（40400）时经 onUnavailable 整体隐藏入口，并写入会话级
+              记忆（017R2），重进页面不再重现。 */}
           {displaySentence && askAvailable ? (
             <div className="mt-5 border-t border-rule pt-4">
               {askOpen ? (
@@ -1945,6 +1982,7 @@ export function PracticePage() {
                   sentenceId={displaySentence.id}
                   onClose={() => setAskOpen(false)}
                   onUnavailable={() => {
+                    markAskUnavailable();
                     setAskAvailable(false);
                     setAskOpen(false);
                   }}

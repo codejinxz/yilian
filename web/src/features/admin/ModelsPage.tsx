@@ -88,6 +88,22 @@ function configCellLabelClassName(): string {
 }
 
 /**
+ * 答疑关联态的展示文案（017R2 OBS-1 展示归一，test-engineer 017 实测观察）：
+ * enabled 只是开关（app_settings）、hasKey 只是凭证（YILIAN_LLM_* 环境变量），缺一功能都不可用。
+ * 开关开着但缺凭证时显示「未生效（缺凭证）」而非笼统的「未开放」，消除管理员视角
+ * 「开关是开的、功能却不存在」的矛盾——服务端不回展示态（展示层最小改动），由前端归一。
+ * @param enabled 管理端开关
+ * @param hasKey 服务端凭证是否已配置
+ * @returns 展示文案
+ */
+function askLinkageLabel(enabled: boolean, hasKey: boolean): string {
+  if (enabled && hasKey) {
+    return "启用中";
+  }
+  return enabled ? "未生效（缺凭证）" : "未开放";
+}
+
+/**
  * 模型页签：上半区「统一模型配置」状态卡与「AI 功能清单」（真实态，019），
  * 下半区任务路由/Prompt 模板/本月用量/预算为 M3 占位（原型参照，只读）。
  * @returns 页签内容
@@ -170,7 +186,9 @@ export function ModelsPage() {
           </div>
           <div>
             <p className={configCellLabelClassName()}>答疑关联</p>
-            <StatePill tone={askOpen ? "ok" : "muted"}>{askOpen ? "启用中" : "未开放"}</StatePill>
+            <StatePill tone={askOpen ? "ok" : "muted"}>
+              {askLinkageLabel(config.enabled, config.hasKey)}
+            </StatePill>
           </div>
         </div>
 
@@ -209,6 +227,14 @@ export function ModelsPage() {
             答疑未开放：练习页不出现「问一问」入口；开启后即时生效。
           </p>
         ) : null}
+        {config.enabled && !config.hasKey ? (
+          // 017R2 OBS-1 的对称说明：与上方「配了凭证没开」的提示互补，讲清这一组合
+          // （开关已开、缺凭证）差什么、下一步做什么。
+          <p className="mt-3 font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
+            开关已开启但未生效（缺凭证）：设置 YILIAN_LLM_* 环境变量并重启服务端后自动可用；
+            练习页暂不出现「问一问」入口。
+          </p>
+        ) : null}
       </div>
 
       <AdminSection title="AI 功能清单">
@@ -218,7 +244,9 @@ export function ModelsPage() {
               main="题目答疑"
               meta="练习页批注栏「问一问」；未开放时入口自动隐藏（40304/40400）"
             />
-            <StatePill tone={askOpen ? "ok" : "muted"}>{askOpen ? "启用中" : "未开放"}</StatePill>
+            <StatePill tone={askOpen ? "ok" : "muted"}>
+              {askLinkageLabel(config.enabled, config.hasKey)}
+            </StatePill>
           </Row>
           {M3_FEATURES.map((feature) => (
             <Row key={feature.id}>
