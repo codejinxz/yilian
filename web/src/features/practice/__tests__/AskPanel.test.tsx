@@ -145,4 +145,48 @@ describe("AskPanel", () => {
     expect(screen.getAllByText("问").length).toBeGreaterThanOrEqual(1);
     expect(onUnavailable).not.toHaveBeenCalled();
   });
+
+  /** [022 AC-4] 回答走 Markdown 渲染：粗体/行内代码/列表按结构化元素呈现，问句仍是纯文本。 */
+  it("rendersMarkdownAnswerWithCodeListBold_ac4", async () => {
+    askTutorMock.mockResolvedValue({
+      answer:
+        "重点看**时态搭配**，固定搭配用 `attach importance to`：\n\n- 先找名词短语\n- 再选介词",
+      disclaimer: "AI 生成，可能有误",
+    });
+    renderPanel();
+
+    await ask("这里介词为什么用 to？");
+
+    // 粗体落 <strong>；行内代码落 <code>；列表落 ul>li 结构（会话气泡本身也是 li，
+    // 因此按 Markdown 列表容器数 li，不按全屏 role 查询）。
+    expect(await screen.findByText("时态搭配").then((el) => el.tagName)).toBe("STRONG");
+    expect(screen.getByText("attach importance to").closest("code")).not.toBeNull();
+    const markdownList = screen.getByText("先找名词短语").closest("ul");
+    expect(markdownList?.querySelectorAll(":scope > li")).toHaveLength(2);
+    // 问句不走 Markdown：原样以纯文本出现在问句气泡（不被特殊符号吞掉）。
+    expect(screen.getByText("这里介词为什么用 to？")).toBeTruthy();
+  });
+
+  /** [022 AC-4] GFM 表格渲染 + 原始 HTML 防线：表格结构化；script/img 一律按纯文本展示不产生元素。 */
+  it("rendersGfmTableAndEscapesRawHtml_ac4", async () => {
+    askTutorMock.mockResolvedValue({
+      answer:
+        "| 语块 | 搭配 |\n| --- | --- |\n| attach | to |\n\n内联试试 <script>alert(1)</script> 与 <img src=x onerror=alert(1)>",
+      disclaimer: "AI 生成，可能有误",
+    });
+    renderPanel();
+
+    await ask("问");
+
+    // GFM 表格：表头两列、行单元格齐全。
+    expect(await screen.findByRole("table")).toBeTruthy();
+    expect(screen.getAllByRole("columnheader")).toHaveLength(2);
+    expect(screen.getAllByRole("cell")).toHaveLength(2);
+    // 默认不渲染原始 HTML：回答气泡内不出现 script/img 元素，标记按纯文本可见。
+    const answerBubble = screen.getByText(/<script>alert\(1\)<\/script>/).closest("li");
+    expect(answerBubble).not.toBeNull();
+    expect(answerBubble?.querySelector("script")).toBeNull();
+    expect(answerBubble?.querySelector("img")).toBeNull();
+    expect(screen.getByText(/<img src=x onerror/)).toBeTruthy();
+  });
 });

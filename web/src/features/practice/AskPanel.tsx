@@ -1,5 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { askTutor } from "@/lib/api/practice";
@@ -24,6 +26,23 @@ const UNAVAILABLE_MESSAGES: Record<number, string> = {
  * 再触发 {@link AskPanelProps.onUnavailable} 收起；约 1.5s 够扫一眼又不至于像卡死。
  */
 const UNAVAILABLE_DELAY_MS = 1500;
+
+/**
+ * 答疑回答的 Markdown 容器样式（022 AC-4）：react-markdown + remark-gfm 渲染代码块/列表/
+ * 粗体/表格，不传 rehype-raw——原始 HTML 一律按纯文本展示（默认安全面，无 XSS 注入口）。
+ * 用子元素变体逐类给样式（稿纸语言：无圆角阶差、1px rule、等宽小字号代码），不引
+ * @tailwindcss/typography 依赖。用户问句不走 Markdown（仍纯文本），避免问句里的
+ * 特殊符号被吞。
+ */
+const MARKDOWN_BODY_CLASS = cn(
+  "font-serif text-[13px] [&_a]:text-vermilion [&_a]:underline",
+  "[&_blockquote]:border-l-2 [&_blockquote]:border-rule [&_blockquote]:pl-2.5 [&_blockquote]:text-ink-muted",
+  "[&_code]:rounded-[2px] [&_code]:border [&_code]:border-rule [&_code]:bg-ink/5 [&_code]:px-1 [&_code]:py-px [&_code]:font-mono [&_code]:text-[11.5px]",
+  "[&_h1]:mb-1 [&_h1]:mt-2 [&_h1]:font-serif [&_h1]:text-[14px] [&_h2]:mb-1 [&_h2]:mt-2 [&_h2]:font-serif [&_h2]:text-[13.5px] [&_h3]:mb-1 [&_h3]:mt-1.5 [&_h3]:text-[13px]",
+  "[&_li]:my-0.5 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_p]:first:mt-0 [&_p]:last:mb-0",
+  "[&_pre]:my-1.5 [&_pre]:overflow-x-auto [&_pre]:p-2 [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0",
+  "[&_strong]:font-semibold [&_table]:my-1.5 [&_table]:border-collapse [&_td]:border [&_td]:border-rule [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-rule [&_th]:px-2 [&_th]:py-1 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5",
+);
 
 /** 会话内的一条消息；历史只存组件 state，不持久化、不落库（017 裁决）。 */
 interface AskMessage {
@@ -147,7 +166,10 @@ export function AskPanel({
                 <b className="mr-1.5 font-mono text-[9px] font-medium uppercase tracking-[0.08em] text-vermilion">
                   答
                 </b>
-                <span className="font-serif text-[13px]">{message.text}</span>
+                {/* 回答走 Markdown 渲染（022 AC-4）：默认不渲染原始 HTML；问句保持纯文本。 */}
+                <div className={MARKDOWN_BODY_CLASS}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
+                </div>
                 <em className="mt-0.5 block text-[10px] not-italic text-ink-faint">
                   {message.disclaimer}
                 </em>
