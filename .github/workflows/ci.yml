@@ -70,6 +70,33 @@ jobs:
       - name: google-java-format check
         run: mvn -B fmt:check
 
+      # 测试失败诊断：无论成败收集 surefire 报告与 Jacoco 产物。本地 mvn test 全绿而
+      # CI Server job 挂时，无日志无法定因（MySQL 8.4 容器 vs 本机 8.0 / 资源时序），
+      # 先留证据再下结论。artifact 名带 run_id，7 天自动过期，不留长期痕迹。
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-diagnostics-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            server/target/surefire-reports/
+            server/target/jacoco.exec
+            server/target/site/jacoco/
+
+      # 失败时把 surefire 摘要写进 step summary：公开仓库匿名可读，无需 token 下载
+      # artifact 也能快速定位到失败用例；输出截断防止巨量堆栈刷屏。
+      - name: Print test summary
+        if: failure()
+        run: |
+          {
+            echo "## Server 测试摘要（Tests run / FAIL 行）"
+            echo '```'
+            grep -E "Tests run|FAIL" target/surefire-reports/*.txt 2>/dev/null | head -100 || echo "（无 surefire 报告，测试可能未产出）"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   web:
     name: Web (Node 24 / pnpm 12)
     runs-on: ubuntu-latest
