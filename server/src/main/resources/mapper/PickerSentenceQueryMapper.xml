@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="io.github.codejinxz.yilian.content.dao.mybatis.PickerSentenceQueryMapper">
+
+    <!--
+      练习选题句列表（ContentQueryServiceImpl.listPickerSentences，API §5.3.1）：
+      - 题库可见性（016 口径，与 requireVisibleBank 同规则在服务层先校验，SQL 再下推一道防线）：
+        status=PUBLISHED 且未软删，公开库或登录用户本人的私有库；匿名（userId 为 NULL）只看公开库；
+      - 题库内按页浏览而非版本游标：与 §5.3 增量同步不同形，选题面板不需要 tombstone；
+      - s.deleted_at IS NULL 恒排除：已软删行不进选题列表（回收站语义由 status=RECYCLED 承担）；
+      - 练过态：LEFT JOIN 当前用户复习卡（uk_review_card (user_id, sentence_id) 保证单行），
+        匿名或未练过两列为 NULL——「游客=未学」由 JOIN 条件天然实现，无 Java 分支；
+      - INNER JOIN 当前快照：快照缺失（current_version_id 为 NULL 或指向缺失行）的行天然丢弃，
+        选题面板只渲染能完整练习的句子；
+      - 动态条件：keyword/level/status 任一可空；hideRecycled 缺省隐藏回收站（与管理端跨库列表同契约）；
+      - 排序 created_at ASC, id ASC：题库录入序，与增量同步端点一致，练习时由浅入深。
+    -->
+    <sql id="pickerSentenceFilter">
+        AND b.status = 'PUBLISHED'
+        AND b.deleted_at IS NULL
+        AND (b.visibility = 'PUBLIC'
+             OR (#{userId,jdbcType=BIGINT} IS NOT NULL
+                 AND b.owner_id = #{userId,jdbcType=BIGINT}))
+        AND s.deleted_at IS NULL
+        <if test="keyword != null and keyword != ''">
+            <!-- keyword 由服务层 escapeLike 转义（%、_、\ 前置 \），这里显式声明 ESCAPE 使检索语义=纯 contains -->
+            AND (v.zh LIKE CONCAT('%', #{keyword}, '%') ESCAPE '\\'
+                 OR v.ref LIKE CONCAT('%', #{keyword}, '%') ESCAPE '\\')
+        </if>
+        <if test="level != null and level != ''">
+            AND v.level = #{level}
+        </if>
+        <if test="status != null and status != ''">
+            AND s.status = #{status}
+        </if>
+        <if test="hideRecycled">
+            AND s.status != 'RECYCLED'
+        </if>
+    </sql>
+
+    <select id="search" resultType="io.github.codejinxz.yilian.content.dao.PickerSentenceRow">
+        SELECT s.id        AS sentence_id,
+               v.zh        AS zh,
+               v.level     AS level,
+               s.status    AS status,
+               r.state     AS review_state,
+               r.due_at    AS review_due_at
+        FROM sentences s
+        JOIN sentence_banks b ON b.id = s.bank_id
+        JOIN sentence_versions v ON v.id = s.current_version_id
+        LEFT JOIN reviews r ON r.sentence_id = s.id
+            AND r.user_id = #{userId,jdbcType=BIGINT}
+        WHERE s.bank_id = #{bankId}
+        <include refid="pickerSentenceFilter"/>
+        ORDER BY s.created_at ASC, s.id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*)
+        FROM sentences s
+        JOIN sentence_banks b ON b.id = s.bank_id
+        JOIN sentence_versions v ON v.id = s.current_version_id
+        WHERE s.bank_id = #{bankId}
+        <include refid="pickerSentenceFilter"/>
+    </select>
+</mapper>

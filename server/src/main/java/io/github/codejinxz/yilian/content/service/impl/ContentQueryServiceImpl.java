@@ -6,6 +6,8 @@ import io.github.codejinxz.yilian.common.api.PageResponse;
 import io.github.codejinxz.yilian.common.config.CacheConfig;
 import io.github.codejinxz.yilian.common.util.StringUtils;
 import io.github.codejinxz.yilian.content.dao.BankDao;
+import io.github.codejinxz.yilian.content.dao.PickerSentenceQueryDao;
+import io.github.codejinxz.yilian.content.dao.PickerSentenceRow;
 import io.github.codejinxz.yilian.content.dao.PracticeCandidateQueryDao;
 import io.github.codejinxz.yilian.content.dao.PracticeCandidateRow;
 import io.github.codejinxz.yilian.content.dao.SentenceDao;
@@ -16,6 +18,7 @@ import io.github.codejinxz.yilian.content.entity.SentenceBank;
 import io.github.codejinxz.yilian.content.entity.SentenceVersion;
 import io.github.codejinxz.yilian.content.service.ContentQueryService;
 import io.github.codejinxz.yilian.content.service.vo.BankView;
+import io.github.codejinxz.yilian.content.service.vo.PickerSentenceView;
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
 import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 import io.github.codejinxz.yilian.content.service.vo.SentencePage;
@@ -47,6 +50,9 @@ public class ContentQueryServiceImpl implements ContentQueryService {
     /** 单页题库/题目条数上限；与管理端分页口径一致，防止一次拉取拖垮内存。 */
     private static final int MAX_PAGE_SIZE = 100;
 
+    /** 页码上限；与 019 管理端口径一致（MAX_PAGE=10_000），防止深页码 offset 溢出。 */
+    private static final int MAX_PAGE = 10_000;
+
     /** 增量拉取单页条数上限，对应 API §1.6 的 limit 1–200。 */
     private static final int MAX_LIMIT = 200;
 
@@ -56,16 +62,19 @@ public class ContentQueryServiceImpl implements ContentQueryService {
 
     private final PracticeCandidateQueryDao practiceCandidateQueryDao;
 
+    private final PickerSentenceQueryDao pickerSentenceQueryDao;
+
     private final BankMetadataCache bankMetadataCache;
 
     private final ObjectMapper objectMapper;
 
     /**
-     * 注入题库与题目 Dao、练习候选查询 Dao、题库元数据缓存装配，以及解析快照 JSON 列的映射器。
+     * 注入题库与题目 Dao、练习候选/选题句列表查询 Dao、题库元数据缓存装配，以及解析快照 JSON 列的映射器。
      *
      * @param bankDao 题库 Dao
      * @param sentenceDao 题目与快照 Dao
      * @param practiceCandidateQueryDao 练习候选 JOIN 查询 Dao（MyBatis 实现）
+     * @param pickerSentenceQueryDao 选题句列表 JOIN 查询 Dao（MyBatis 实现，020 AC-1）
      * @param bankMetadataCache 题库元数据缓存（匿名公开读）
      * @param objectMapper Spring Boot 提供的 Jackson 3 映射器
      */
@@ -73,11 +82,13 @@ public class ContentQueryServiceImpl implements ContentQueryService {
             BankDao bankDao,
             SentenceDao sentenceDao,
             PracticeCandidateQueryDao practiceCandidateQueryDao,
+            PickerSentenceQueryDao pickerSentenceQueryDao,
             BankMetadataCache bankMetadataCache,
             ObjectMapper objectMapper) {
         this.bankDao = bankDao;
         this.sentenceDao = sentenceDao;
         this.practiceCandidateQueryDao = practiceCandidateQueryDao;
+        this.pickerSentenceQueryDao = pickerSentenceQueryDao;
         this.bankMetadataCache = bankMetadataCache;
         this.objectMapper = objectMapper;
     }
@@ -230,6 +241,74 @@ public class ContentQueryServiceImpl implements ContentQueryService {
     }
 
     /**
+     * 练习选题句列表（API §5.3.1，020 AC-1）。
+     *
+     * <p>可见性复用 {@link #requireVisibleBank(long, Long, boolean, boolean)}（匿名私有回 40100、 非所有者回
+     * 40300、不存在/未发布/已软删回 40401）；练过态在 SQL 内 LEFT JOIN 当前用户复习卡取得， 匿名与未练过行两列为
+     * null（前端展示「未学」）。结果带逐行用户态与筛选指纹，组合爆炸，不做缓存—— 单页 ≤100 行、只读查询，直查库代价可控（016 的可见性布尔判定同样直查库）。
+     *
+     * @param bankId 题库 id
+     * @param userId 当前用户 id，可为 null
+     * @param keyword 关键字
+     * @param level 难度精确过滤
+     * @param status 状态精确过滤，null 缺省隐藏回收站
+     * @param page 页码
+     * @param size 每页大小
+     * @return 分页选题句
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<PickerSentenceView> listPickerSentences(
+            long bankId,
+            Long userId,
+            String keyword,
+            String level,
+            ContentStatus status,
+            int page,
+            int size) {
+        requireValidPage(page, size);
+        requireVisibleBank(bankId, userId, false, true);
+        // keyword 走 LIKE 转义（StringUtils.escapeLike）：用户输入的 %/_ 是字面量，
+        // 检索语义=纯 contains（与管理端列表同口径，015 缺陷 #5）。
+        String normalizedKeyword = StringUtils.escapeLike(keyword);
+        String normalizedLevel = level == null || level.isBlank() ? null : level.trim();
+        // 缺省隐藏回收站（与管理端跨题库列表同契约）；显式传 status（含 RECYCLED）时按精确状态过滤。
+        boolean hideRecycled = status == null;
+        String statusRaw = status == null ? null : status.name();
+        List<PickerSentenceRow> rows =
+                pickerSentenceQueryDao.search(
+                        bankId,
+                        userId,
+                        normalizedKeyword,
+                        normalizedLevel,
+                        statusRaw,
+                        hideRecycled,
+                        (page - 1) * size,
+                        size);
+        long total =
+                pickerSentenceQueryDao.count(
+                        bankId,
+                        userId,
+                        normalizedKeyword,
+                        normalizedLevel,
+                        statusRaw,
+                        hideRecycled);
+        List<PickerSentenceView> items =
+                rows.stream()
+                        .map(
+                                row ->
+                                        new PickerSentenceView(
+                                                row.sentenceId(),
+                                                row.zh(),
+                                                row.level(),
+                                                row.status(),
+                                                row.reviewState(),
+                                                row.reviewDueAt()))
+                        .toList();
+        return PageResponse.of(items, page, size, total);
+    }
+
+    /**
      * 按 id 批量取题目详情。
      *
      * <p>保持入参顺序；不存在的 id 直接跳过。题目量与答题记录同量级，逐条查询即可， 暂不为一次性读取引入批量 Dao。
@@ -303,11 +382,14 @@ public class ContentQueryServiceImpl implements ContentQueryService {
     /**
      * 校验分页参数，越界统一抛 40004。
      *
-     * @param page 页码，从 1 开始
+     * <p>页码带上限（与 019 管理端口径一致 MAX_PAGE=10_000）：深页码的 {@code (page-1)*size} 会把 客户端输入错误放大成 500，负数页码本就被
+     * {@code page < 1} 拒绝。
+     *
+     * @param page 页码，从 1 开始，≤10_000
      * @param size 每页大小，1–100
      */
     private static void requireValidPage(int page, int size) {
-        if (page < 1 || size < 1 || size > MAX_PAGE_SIZE) {
+        if (page < 1 || page > MAX_PAGE || size < 1 || size > MAX_PAGE_SIZE) {
             throw new BusinessException(ApiCode.INVALID_PAGINATION);
         }
     }

@@ -15,6 +15,7 @@ import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.api.PageResponse;
 import io.github.codejinxz.yilian.common.config.CacheConfig;
 import io.github.codejinxz.yilian.content.dao.BankDao;
+import io.github.codejinxz.yilian.content.dao.PickerSentenceQueryDao;
 import io.github.codejinxz.yilian.content.dao.PracticeCandidateQueryDao;
 import io.github.codejinxz.yilian.content.dao.PracticeCandidateRow;
 import io.github.codejinxz.yilian.content.dao.SentenceDao;
@@ -68,6 +69,8 @@ class ContentQueryServiceImplTest {
 
     private PracticeCandidateQueryDao practiceCandidateQueryDao;
 
+    private PickerSentenceQueryDao pickerSentenceQueryDao;
+
     private ContentQueryServiceImpl service;
 
     @BeforeEach
@@ -75,6 +78,7 @@ class ContentQueryServiceImplTest {
         bankDao = mock(BankDao.class);
         sentenceDao = mock(SentenceDao.class);
         practiceCandidateQueryDao = mock(PracticeCandidateQueryDao.class);
+        pickerSentenceQueryDao = mock(PickerSentenceQueryDao.class);
         // 缓存装配用真实 CacheManager；单测直调实现类不经过代理，@Cacheable 不生效，
         // 行为与直查库一致（匿名详情经由 BankMetadataCache 的加载逻辑）。
         BankMetadataCache bankMetadataCache =
@@ -84,6 +88,7 @@ class ContentQueryServiceImplTest {
                         bankDao,
                         sentenceDao,
                         practiceCandidateQueryDao,
+                        pickerSentenceQueryDao,
                         bankMetadataCache,
                         new ObjectMapper());
     }

@@ -28,6 +28,7 @@ import io.github.codejinxz.yilian.content.entity.BankVisibility;
 import io.github.codejinxz.yilian.content.entity.ContentStatus;
 import io.github.codejinxz.yilian.content.service.ContentQueryService;
 import io.github.codejinxz.yilian.content.service.vo.BankView;
+import io.github.codejinxz.yilian.content.service.vo.PickerSentenceView;
 import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
 import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 import io.github.codejinxz.yilian.content.service.vo.SentencePage;
@@ -41,6 +42,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -273,7 +275,130 @@ class BankControllerTest {
                 "TEM8");
     }
 
-    /** [AC-5] 限流契约（015 修复轮 minor #12）：三个匿名可读 GET 都挂 IP 维度 120 次/60 秒，防滥用入口裸奔。 */
+    // ---------- [AC-1] 练习选题句列表（020，API §5.3.1）可见性矩阵 ----------
+
+    /** [AC-1] 匿名取公开库选题句：200 分页信封，练过态两列为 null（「游客=未学」）。 */
+    @Test
+    void pickerListAnonymousPublicBankReturnsPage() throws Exception {
+        when(contentQueryService.listPickerSentences(
+                        eq(1L), isNull(), isNull(), isNull(), isNull(), eq(1), eq(20)))
+                .thenReturn(
+                        PageResponse.of(
+                                List.of(
+                                        new PickerSentenceView(
+                                                "01JPICKER00000000000000000A",
+                                                "他越来越重视这件事。",
+                                                "TEM8",
+                                                "PUBLISHED",
+                                                null,
+                                                null),
+                                        new PickerSentenceView(
+                                                "01JPICKER00000000000000000B",
+                                                "会议按计划举行。",
+                                                null,
+                                                "DISABLED",
+                                                null,
+                                                null)),
+                                1,
+                                20,
+                                2));
+
+        mockMvc.perform(get("/api/banks/{bankId}/sentences/list", 1))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ApiCode.SUCCESS.code()))
+                .andExpect(jsonPath("$.data.items[0].id").value("01JPICKER00000000000000000A"))
+                .andExpect(jsonPath("$.data.items[0].zh").value("他越来越重视这件事。"))
+                .andExpect(jsonPath("$.data.items[0].level").value("TEM8"))
+                .andExpect(jsonPath("$.data.items[0].status").value("PUBLISHED"))
+                .andExpect(jsonPath("$.data.items[0].reviewState").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].reviewDueAt").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[1].status").value("DISABLED"))
+                .andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.total").value(2));
+
+        verify(contentQueryService)
+                .listPickerSentences(eq(1L), isNull(), isNull(), isNull(), isNull(), eq(1), eq(20));
+    }
+
+    /** [AC-1] 登录本人私有库：200，练过态带卡状态与到期时间；status 筛选参数透传。 */
+    @Test
+    void pickerListLoggedInOwnerPrivateBankReturnsPracticeState() throws Exception {
+        when(contentQueryService.listPickerSentences(
+                        eq(99L),
+                        eq(7L),
+                        isNull(),
+                        isNull(),
+                        eq(ContentStatus.PUBLISHED),
+                        eq(1),
+                        eq(20)))
+                .thenReturn(
+                        PageResponse.of(
+                                List.of(
+                                        new PickerSentenceView(
+                                                "01JPICKER00000000000000000A",
+                                                "他越来越重视这件事。",
+                                                "TEM8",
+                                                "PUBLISHED",
+                                                "LEARNING",
+                                                Instant.parse("2026-11-06T00:00:00Z"))),
+                                1,
+                                20,
+                                1));
+
+        mockMvc.perform(
+                        get("/api/banks/{bankId}/sentences/list", 99)
+                                .queryParam("status", "PUBLISHED")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].reviewState").value("LEARNING"))
+                .andExpect(jsonPath("$.data.items[0].reviewDueAt").value("2026-11-06T00:00:00Z"));
+    }
+
+    /** [AC-1] 匿名访问私有库按现有增量端点语义回 40100（提示登录后可能可见）。 */
+    @Test
+    void pickerListAnonymousPrivateBankIs40100() throws Exception {
+        when(contentQueryService.listPickerSentences(
+                        eq(99L), isNull(), isNull(), isNull(), isNull(), eq(1), eq(20)))
+                .thenThrow(new BusinessException(ApiCode.AUTH_REQUIRED));
+
+        mockMvc.perform(get("/api/banks/{bankId}/sentences/list", 99))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(ApiCode.AUTH_REQUIRED.code()));
+    }
+
+    /** [AC-1] 登录访问他人私有库回 40300，不回显句子内容（原文默认不可见红线）。 */
+    @Test
+    void pickerListOtherUsersPrivateBankIs40300() throws Exception {
+        when(contentQueryService.listPickerSentences(
+                        eq(99L), eq(7L), isNull(), isNull(), isNull(), eq(1), eq(20)))
+                .thenThrow(new BusinessException(ApiCode.ACCESS_DENIED));
+
+        mockMvc.perform(
+                        get("/api/banks/{bankId}/sentences/list", 99)
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(ApiCode.ACCESS_DENIED.code()));
+    }
+
+    /** [AC-1] 分页越界回 40004 信封（与 019 MAX_PAGE 口径一致的 Service 校验）。 */
+    @Test
+    void pickerListInvalidPaginationIs400() throws Exception {
+        when(contentQueryService.listPickerSentences(
+                        eq(1L), isNull(), isNull(), isNull(), isNull(), eq(1), eq(1000)))
+                .thenThrow(new BusinessException(ApiCode.INVALID_PAGINATION));
+
+        mockMvc.perform(get("/api/banks/{bankId}/sentences/list", 1).queryParam("size", "1000"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ApiCode.INVALID_PAGINATION.code()));
+    }
+
+    /** [AC-5] 限流契约（015 修复轮 minor #12）：匿名可读 GET 都挂 IP 维度 120 次/60 秒，防滥用入口裸奔；020 选题句列表同规则。 */
     @org.junit.jupiter.api.Test
     void readOnlyEndpointsHaveIpRateLimit_ac5() throws Exception {
         Class<?>[][] signatures = {
@@ -286,9 +411,18 @@ class BankControllerTest {
                 YilianUserPrincipal.class
             },
             {long.class, YilianUserPrincipal.class},
-            {long.class, long.class, int.class, YilianUserPrincipal.class}
+            {long.class, long.class, int.class, YilianUserPrincipal.class},
+            {
+                long.class,
+                int.class,
+                int.class,
+                String.class,
+                String.class,
+                ContentStatus.class,
+                YilianUserPrincipal.class
+            }
         };
-        String[] methods = {"listBanks", "getBank", "listSentences"};
+        String[] methods = {"listBanks", "getBank", "listSentences", "listPickerSentences"};
         for (int i = 0; i < methods.length; i++) {
             RateLimit rateLimit =
                     BankController.class

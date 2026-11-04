@@ -9,6 +9,7 @@ import io.github.codejinxz.yilian.content.entity.BankVisibility;
 import io.github.codejinxz.yilian.content.entity.ContentStatus;
 import io.github.codejinxz.yilian.content.service.ContentQueryService;
 import io.github.codejinxz.yilian.content.service.vo.BankView;
+import io.github.codejinxz.yilian.content.service.vo.PickerSentenceView;
 import io.github.codejinxz.yilian.content.service.vo.SentencePage;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -21,11 +22,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 题库只读接口（PUBLIC_OR_USER），对应 API §5.1–§5.3。
+ * 题库只读接口（PUBLIC_OR_USER），对应 API §5.1–§5.3 与 §5.3.1。
  *
  * <p>GET {@code /api/banks**} 由安全配置对匿名放行；「匿名只看公开、登录附私有」由 Service 依据 当前用户判定，Controller
  * 不做权限判断，只透传登录身份。 匿名时 {@code @AuthenticationPrincipal} 解析为 null（匿名 Authentication 的 principal 是字符串，
- * 与 {@link YilianUserPrincipal} 类型不匹配按 null 处理）。三个接口均为读操作，不标 {@code @OperationLog}。
+ * 与 {@link YilianUserPrincipal} 类型不匹配按 null 处理）。四个接口均为读操作，不标 {@code @OperationLog}。
  *
  * <p>匿名可读的入口需要 IP 维度限流（015 缺陷 #12）：120 次/分钟是正常刷题客户端碰不到的量级。 限流切面在 Service 的 {@code @Cacheable}
  * 之前执行——被限流的请求不会消耗缓存与数据库；放行的请求继续走既有缓存分层。
@@ -122,6 +123,43 @@ public class BankController {
         return ApiResponse.success(
                 contentQueryService.listSentences(
                         bankId, sinceVersion, limit, currentUserId(principal), false));
+    }
+
+    /**
+     * 练习选题句列表（020 AC-1，API §5.3.1）。
+     *
+     * <p>与 {@link #listSentences} 的增量同步端点刻意不同形：本端点服务练习页选题面板—— 页码分页 + keyword/level/status 筛选 +
+     * 逐行练过态（当前用户卡投影；匿名恒为「未学」）。 匿名仅公开库（私有库回 40100 提示登录），登录后本人私有库可见，非所有者 40300。
+     *
+     * @param bankId 题库 id
+     * @param page 页码，从 1 开始
+     * @param size 每页大小，默认 20，1–100
+     * @param keyword 名称关键字（匹配中文/参考译文），可空
+     * @param level 难度精确过滤，可空
+     * @param status 状态精确过滤，可空；缺省隐藏回收站（RECYCLED）
+     * @param principal 当前用户；匿名时为 null
+     * @return 分页选题句
+     */
+    @Operation(
+            summary = "练习选题句列表",
+            description = "题库内按页浏览：匿名仅公开库且练过态恒为未学；登录后可见本人私有库，逐行携带复习卡状态与到期时间。缺省隐藏回收站。")
+    @RateLimit(
+            scene = "banks-read",
+            dimensions = RateLimitDimension.IP,
+            limit = 120,
+            windowSeconds = 60)
+    @GetMapping("/{bankId}/sentences/list")
+    public ApiResponse<PageResponse<PickerSentenceView>> listPickerSentences(
+            @PathVariable long bankId,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String level,
+            @RequestParam(required = false) ContentStatus status,
+            @AuthenticationPrincipal YilianUserPrincipal principal) {
+        return ApiResponse.success(
+                contentQueryService.listPickerSentences(
+                        bankId, currentUserId(principal), keyword, level, status, page, size));
     }
 
     /**

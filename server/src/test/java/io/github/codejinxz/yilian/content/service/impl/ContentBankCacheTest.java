@@ -13,6 +13,7 @@ import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.config.CacheConfig;
 import io.github.codejinxz.yilian.content.dao.BankDao;
+import io.github.codejinxz.yilian.content.dao.PickerSentenceQueryDao;
 import io.github.codejinxz.yilian.content.dao.PracticeCandidateQueryDao;
 import io.github.codejinxz.yilian.content.dao.SentenceDao;
 import io.github.codejinxz.yilian.content.entity.BankVisibility;
@@ -85,6 +86,11 @@ class ContentBankCacheTest {
         }
 
         @Bean
+        PickerSentenceQueryDao pickerSentenceQueryDao() {
+            return mock(PickerSentenceQueryDao.class);
+        }
+
+        @Bean
         BankMetadataCache bankMetadataCache(BankDao bankDao, CacheManager cacheManager) {
             return new BankMetadataCache(bankDao, cacheManager);
         }
@@ -94,11 +100,13 @@ class ContentBankCacheTest {
                 BankDao bankDao,
                 SentenceDao sentenceDao,
                 PracticeCandidateQueryDao practiceCandidateQueryDao,
+                PickerSentenceQueryDao pickerSentenceQueryDao,
                 BankMetadataCache bankMetadataCache) {
             return new ContentQueryServiceImpl(
                     bankDao,
                     sentenceDao,
                     practiceCandidateQueryDao,
+                    pickerSentenceQueryDao,
                     bankMetadataCache,
                     new ObjectMapper());
         }

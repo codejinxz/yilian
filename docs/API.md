@@ -242,6 +242,7 @@
 | `/api/banks` | GET | `PUBLIC_OR_USER` | 公开题库 + 自己的私有题库 |
 | `/api/banks/{bankId}` | GET | `PUBLIC_OR_USER` | 题库详情 |
 | `/api/banks/{bankId}/sentences` | GET | `PUBLIC_OR_USER` | 增量拉句 |
+| `/api/banks/{bankId}/sentences/list` | GET | `PUBLIC_OR_USER` | 练习选题句列表（020） |
 | `/api/practice/next` | GET | `USER` | 取下一题 |
 | `/api/practice/attempts` | POST | `USER` | 提交 attempt |
 | `/api/practice/attempts/{attemptId}` | GET | `USER` | 结果详情 |
@@ -671,6 +672,54 @@
 | `deleted` | `sentences.deleted_at` | 派生 |
 | `zh/ref/note/chunks/blank/tags/level` | `sentence_versions.*` | 当前快照 |
 | `hasMore/nextSinceVersion` | 派生 | 分页游标 |
+
+### 5.3.1 `GET /api/banks/{bankId}/sentences/list`（implemented，020）
+
+用途：练习选题句列表（020 AC-1）——练习页选题面板在题库内按页浏览并逐行携带当前用户的练过态。
+
+与 §5.3 刻意不同形（登记差异）：§5.3 服务 PWA 离线缓存，版本游标 + tombstone；本端点服务选题面板，页码分页 + 动态筛选 + 练过态，已软删行恒不出现（无 tombstone）。
+
+请求：`page`（默认 1，1–10_000）、`size`（默认 20，1–100，与 019 管理端分页口径一致）、`keyword`（可选，LIKE 纯 contains 匹配中文/参考译文）、`level`（可选，精确匹配）、`status`（可选；缺省隐藏 RECYCLED，显式传值时按精确状态过滤）。
+
+响应 `PageResponse<PickerSentenceView>`：
+
+```json
+{
+  "items": [
+    {
+      "id": "01J...",
+      "zh": "他越来越重视这件事。",
+      "level": "TEM8",
+      "status": "PUBLISHED",
+      "reviewState": "LEARNING",
+      "reviewDueAt": "2026-11-06T00:00:00Z"
+    }
+  ],
+  "page": 1,
+  "size": 20,
+  "total": 48,
+  "totalPages": 3,
+  "hasNext": true
+}
+```
+
+规则：
+
+- 可见性与 §5.2/§5.3 同口径：不存在/未发布/已软删题库 `40401`；匿名访问私有库 `40100`（提示登录后可能可见）；登录后非所有者 `40300`。
+- 练过态按当前用户 LEFT JOIN 复习卡投影：`reviewState/reviewDueAt` 为 null 表示未练过（匿名恒为 null，即「游客=未学」）。
+- 排序 `created_at` 升序、`id` 升序（题库录入序，与 §5.3 增量流一致）；`reviewState` 是 FSRS 三档投影（DATA-MODEL §8.4）。
+- 只返回展示与跳转的最小字段；点选后由 §6.1 `next?sentenceId=` 取全量内容（MANUAL 语义）。
+
+错误：`40004`、`40100`、`40300`、`40401`、`50000`。
+
+字段回溯：
+
+| API 字段 | 来源 | 说明 |
+|---|---|---|
+| `id` | `sentences.id` | ULID |
+| `zh/level` | `sentence_versions.*` | 当前快照 |
+| `status` | `sentences.status` | 缺省视图不含 RECYCLED |
+| `reviewState/reviewDueAt` | `reviews.state/due_at`（按当前用户） | 未练过/匿名时为 null |
 
 ### 5.4 `POST /api/admin/uploads/preview`（planned，M1）
 

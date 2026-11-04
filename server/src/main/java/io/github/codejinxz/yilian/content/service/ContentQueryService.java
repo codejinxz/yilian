@@ -4,6 +4,7 @@ import io.github.codejinxz.yilian.common.api.PageResponse;
 import io.github.codejinxz.yilian.content.entity.BankVisibility;
 import io.github.codejinxz.yilian.content.entity.ContentStatus;
 import io.github.codejinxz.yilian.content.service.vo.BankView;
+import io.github.codejinxz.yilian.content.service.vo.PickerSentenceView;
 import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 import io.github.codejinxz.yilian.content.service.vo.SentencePage;
 
@@ -57,6 +58,31 @@ public interface ContentQueryService {
      */
     SentencePage listSentences(
             long bankId, long sinceVersion, int limit, Long userId, boolean admin);
+
+    /**
+     * 练习选题句列表（API §5.3.1，020 AC-1）：题库内按页浏览 + 当前用户练过态。
+     *
+     * <p>与 {@link #listSentences(long, long, int, Long, boolean)} 刻意不同形：增量端点服务 PWA 离线缓存（版本游标 +
+     * tombstone）， 本端点服务练习页选题面板（页码分页 + keyword/level/status 筛选 + 逐行练过态）。可见性与题库详情同口径： 不存在/未发布/已软删回
+     * 40401，匿名访问私有库回 40100，登录后非所有者回 40300。
+     *
+     * @param bankId 题库 id
+     * @param userId 当前用户 id，可为 null（匿名，练过态恒为「未学」）
+     * @param keyword 关键字，匹配中文/参考译文，可空
+     * @param level 难度精确过滤，可空
+     * @param status 状态精确过滤，可空；缺省隐藏回收站（RECYCLED），显式传值时按精确状态过滤
+     * @param page 页码，从 1 开始
+     * @param size 每页大小，1–100
+     * @return 分页选题句
+     */
+    PageResponse<PickerSentenceView> listPickerSentences(
+            long bankId,
+            Long userId,
+            String keyword,
+            String level,
+            ContentStatus status,
+            int page,
+            int size);
 
     /**
      * 按 id 取题目详情（可能为 tombstone）。
