@@ -25,9 +25,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * {@link AnthropicMessagesLlmClient} 桩服务单测 [AC-2]：用 JDK 内置 HttpServer 模拟 Anthropic Messages 端点 （含
+ * {@link AnthropicMessagesLlmClient} 桩服务单测 [AC-1]：用 JDK 内置 HttpServer 模拟 Anthropic Messages 端点 （含
  * ZCode 网关的非标准 429 错误体），离线验证请求形状（/v1/messages、model/max_tokens/system/messages、 anthropic-version
- * 头）、响应映射（content[].text 与 usage.input_tokens/output_tokens）与 429/5xx 退避重试一次的节奏 （退避注入 0ms，不真睡 30s）。
+ * 头）、响应映射（content[].text 与 usage.input_tokens/output_tokens）、<strong>思考模型 content 块提取（022： thinking
+ * 块不进正文、只拼 text 块）</strong>与 429/5xx 退避重试一次的节奏 （退避注入 0ms，不真睡 30s）。
  */
 class AnthropicMessagesLlmClientTest {
 
@@ -40,6 +41,25 @@ class AnthropicMessagesLlmClientTest {
             "{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"glm-5.3\","
                     + "\"content\":[{\"type\":\"text\",\"text\":\"先看句子的主干，注意时态搭配。\"}],"
                     + "\"stop_reason\":\"end_turn\",\"usage\":{\"input_tokens\":12,\"output_tokens\":7}}";
+
+    /**
+     * 思考模型响应形状（022 主人 curl 实测）：content 首块为 thinking（内部推理），正文在其后的 text 块；usage 含
+     * cache_read_input_tokens。max_tokens 过小时（如 32）只有 thinking 块、stop_reason=max_tokens。
+     */
+    private static final String THINKING_THEN_TEXT_BODY =
+            "{\"id\":\"msg_t\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"glm-5.3-flash\","
+                    + "\"content\":[{\"type\":\"thinking\",\"thinking\":\"用户问的是介词搭配，先看名词短语。\","
+                    + "\"signature\":\"sig-abc\"},"
+                    + "{\"type\":\"text\",\"text\":\"先比较两个介词的搭配对象。\"}],"
+                    + "\"stop_reason\":\"end_turn\","
+                    + "\"usage\":{\"input_tokens\":20,\"output_tokens\":15,\"cache_read_input_tokens\":3}}";
+
+    /** max_tokens 被 thinking 吃尽的响应形状（022 实测）：只有 thinking 块、无 text 块，stop_reason=max_tokens。 */
+    private static final String THINKING_ONLY_BODY =
+            "{\"id\":\"msg_o\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"glm-5.3-flash\","
+                    + "\"content\":[{\"type\":\"thinking\",\"thinking\":\"推理未完成……\",\"signature\":\"sig-x\"}],"
+                    + "\"stop_reason\":\"max_tokens\","
+                    + "\"usage\":{\"input_tokens\":20,\"output_tokens\":32}}";
 
     private HttpServer server;
     private final AtomicInteger requestCount = new AtomicInteger();
@@ -94,15 +114,13 @@ class AnthropicMessagesLlmClientTest {
     }
 
     /**
-     * [AC-2] 成功映射：POST {base}/v1/messages，请求体含 model/max_tokens/system/messages，回复与 usage 双 token
-     * 正确落位。
+     * [AC-1] 成功映射：POST {base}/v1/messages，请求体含 model/max_tokens/system/messages，回复与 usage 双 token
+     * 正确落位；max_tokens 为 022 三协议同源的 2048（思考模型 thinking 计入 max_tokens，768 档不够）。
      */
     @Test
-    void mapsRequestAndResponseShape_ac2() {
-        LlmProperties properties =
-                new LlmProperties(
-                        baseUrl(), "", "glm-5.3", null, LlmProperties.LlmProvider.ANTHROPIC);
-        AnthropicMessagesLlmClient client = new AnthropicMessagesLlmClient(properties, () -> 0L);
+    void mapsRequestAndResponseShape_ac1() {
+        LlmEndpoint endpoint = endpoint("");
+        AnthropicMessagesLlmClient client = new AnthropicMessagesLlmClient(endpoint, () -> 0L);
 
         LlmChatClient.Reply reply = client.ask("你是答疑助手", "这道题为什么错？");
 
@@ -113,7 +131,7 @@ class AnthropicMessagesLlmClientTest {
         assertThat(requestCount.get()).isEqualTo(1);
         Map<String, Object> request = captured.get(0);
         assertThat(request.get("method")).isEqualTo("POST");
-        // 拼接口径：YILIAN_LLM_BASE_URL 只填网关前缀，/v1/messages 由客户端（SDK）拼。
+        // 拼接口径：baseUrl 只填网关前缀，/v1/messages 由客户端（SDK）拼。
         assertThat(request.get("path")).isEqualTo("/v1/messages");
         @SuppressWarnings("unchecked")
         Map<String, List<String>> headers = (Map<String, List<String>>) request.get("headers");
@@ -124,7 +142,8 @@ class AnthropicMessagesLlmClientTest {
 
         Map<String, Object> body = parseBody((String) request.get("body"));
         assertThat(body.get("model")).isEqualTo("glm-5.3");
-        assertThat(body.get("max_tokens")).isEqualTo(768);
+        assertThat(body.get("max_tokens")).isEqualTo(LlmChatClient.MAX_OUTPUT_TOKENS);
+        assertThat((int) body.get("max_tokens")).isGreaterThanOrEqualTo(2048);
         assertThat(body.get("system")).isEqualTo("你是答疑助手");
         assertThat((List<?>) body.get("messages"))
                 .singleElement()
@@ -136,18 +155,46 @@ class AnthropicMessagesLlmClientTest {
                         });
     }
 
-    /** [AC-2] 429 退避重试：第一次 429（网关非标准错误体）→ 退避（0ms 注入）→ 第二次成功，恰好两次请求。 */
+    /**
+     * [AC-1] 思考模型 content 提取（022 桩锁死）：content=[thinking, text] 时只拼 text 块——thinking 内部推理不得
+     * 混进答疑正文；usage 双 token 照常映射（cache_read 等额外字段不破坏解析）。若 Spring AI 变更丢掉 text 块，
+     * 本用例即红，届时在客户端手写提取兜底（见实现类注释）。
+     */
     @Test
-    void retries429OnceThenSucceeds_ac2() {
+    void extractsOnlyTextBlocksFromThinkingModelResponse_ac1() {
+        bodyQueue.add(THINKING_THEN_TEXT_BODY);
+        AnthropicMessagesLlmClient client = new AnthropicMessagesLlmClient(endpoint(""), () -> 0L);
+
+        LlmChatClient.Reply reply = client.ask("s", "u");
+
+        assertThat(reply.content()).isEqualTo("先比较两个介词的搭配对象。");
+        assertThat(reply.content()).doesNotContain("介词搭配，先看名词短语");
+        assertThat(reply.promptTokens()).isEqualTo(20);
+        assertThat(reply.completionTokens()).isEqualTo(15);
+    }
+
+    /** [AC-1] max_tokens 被 thinking 吃尽（022 实测形状）：无 text 块 → 正文为空（上层按「空回复降级」统一处理）， 客户端本身不抛错、不重试。 */
+    @Test
+    void returnsBlankContentWhenThinkingExhaustsTokens_ac1() {
+        bodyQueue.add(THINKING_ONLY_BODY);
+        AnthropicMessagesLlmClient client = new AnthropicMessagesLlmClient(endpoint(""), () -> 0L);
+
+        LlmChatClient.Reply reply = client.ask("s", "u");
+
+        assertThat(reply.content() == null || reply.content().isBlank()).isTrue();
+        assertThat(requestCount.get()).isEqualTo(1);
+        assertThat(reply.completionTokens()).isEqualTo(32);
+    }
+
+    /** [AC-1] 429 退避重试：第一次 429（网关非标准错误体）→ 退避（0ms 注入）→ 第二次成功，恰好两次请求。 */
+    @Test
+    void retries429OnceThenSucceeds_ac1() {
         statusQueue.add(429);
         bodyQueue.add(GATEWAY_429_BODY);
-        LlmProperties properties =
-                new LlmProperties(
-                        baseUrl(), "", "glm-5.3", null, LlmProperties.LlmProvider.ANTHROPIC);
         List<Long> backoffs = new ArrayList<>();
         AnthropicMessagesLlmClient client =
                 new AnthropicMessagesLlmClient(
-                        properties,
+                        endpoint(""),
                         () -> {
                             backoffs.add(1L);
                             return 0L;
@@ -160,18 +207,15 @@ class AnthropicMessagesLlmClientTest {
         assertThat(backoffs).hasSize(1);
     }
 
-    /** [AC-2] 连续 429：只重试一次，第二次仍 429 则向上抛（TutorServiceImpl 统一降级），不出现第三次请求。 */
+    /** [AC-1] 连续 429：只重试一次，第二次仍 429 则向上抛（TutorServiceImpl 统一降级），不出现第三次请求。 */
     @Test
-    void givesUpAfterSingleRetryOnPersistent429_ac2() {
+    void givesUpAfterSingleRetryOnPersistent429_ac1() {
         // 两轮失败脚本：重试后的第二次调用仍是 429（未入队即缺省 200，须显式补第二轮）。
         for (int i = 0; i < 2; i++) {
             statusQueue.add(429);
             bodyQueue.add(GATEWAY_429_BODY);
         }
-        LlmProperties properties =
-                new LlmProperties(
-                        baseUrl(), "", "glm-5.3", null, LlmProperties.LlmProvider.ANTHROPIC);
-        AnthropicMessagesLlmClient client = new AnthropicMessagesLlmClient(properties, () -> 0L);
+        AnthropicMessagesLlmClient client = new AnthropicMessagesLlmClient(endpoint(""), () -> 0L);
 
         assertThatThrownBy(() -> client.ask("s", "u"))
                 .isInstanceOf(AnthropicServiceException.class)
@@ -182,15 +226,12 @@ class AnthropicMessagesLlmClientTest {
         assertThat(requestCount.get()).isEqualTo(2);
     }
 
-    /** [AC-2] 4xx 不重试：参数/鉴权类错误重试也不会变好，一次请求直接上抛。 */
+    /** [AC-1] 4xx 不重试：参数/鉴权类错误重试也不会变好，一次请求直接上抛。 */
     @Test
-    void doesNotRetry4xx_ac2() {
+    void doesNotRetry4xx_ac1() {
         statusQueue.add(400);
         bodyQueue.add("{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\"}}");
-        LlmProperties properties =
-                new LlmProperties(
-                        baseUrl(), "", "glm-5.3", null, LlmProperties.LlmProvider.ANTHROPIC);
-        AnthropicMessagesLlmClient client = new AnthropicMessagesLlmClient(properties, () -> 0L);
+        AnthropicMessagesLlmClient client = new AnthropicMessagesLlmClient(endpoint(""), () -> 0L);
 
         assertThatThrownBy(() -> client.ask("s", "u"))
                 .isInstanceOf(AnthropicServiceException.class)
@@ -201,17 +242,14 @@ class AnthropicMessagesLlmClientTest {
         assertThat(requestCount.get()).isEqualTo(1);
     }
 
-    /** [AC-2] 5xx 退避重试一次：第一次 500 → 重试仍 500 → 上抛，恰好两次请求。 */
+    /** [AC-1] 5xx 退避重试一次：第一次 500 → 重试仍 500 → 上抛，恰好两次请求。 */
     @Test
-    void retries5xxOnceThenPropagates_ac2() {
+    void retries5xxOnceThenPropagates_ac1() {
         for (int i = 0; i < 2; i++) {
             statusQueue.add(500);
             bodyQueue.add("{\"type\":\"error\",\"error\":{\"type\":\"api_error\"}}");
         }
-        LlmProperties properties =
-                new LlmProperties(
-                        baseUrl(), "", "glm-5.3", null, LlmProperties.LlmProvider.ANTHROPIC);
-        AnthropicMessagesLlmClient client = new AnthropicMessagesLlmClient(properties, () -> 0L);
+        AnthropicMessagesLlmClient client = new AnthropicMessagesLlmClient(endpoint(""), () -> 0L);
 
         assertThatThrownBy(() -> client.ask("s", "u"))
                 .isInstanceOf(AnthropicServiceException.class)
@@ -222,25 +260,11 @@ class AnthropicMessagesLlmClientTest {
         assertThat(requestCount.get()).isEqualTo(2);
     }
 
-    /** [AC-1] 成本护栏对齐：两 provider 的输出上限同源（768，512–1024 约定区间）。 */
-    @Test
-    void maxTokensGuardrailAlignsWithOpenaiTrack_ac1() {
-        assertThat(AnthropicMessagesLlmClient.MAX_OUTPUT_TOKENS)
-                .isEqualTo(SpringAiLlmClient.MAX_OUTPUT_TOKENS)
-                .isBetween(512, 1024);
-    }
-
     /** [AC-1] 非空 key：以 x-api-key 头携带（兼容需要鉴权的 Anthropic 兼容网关）。 */
     @Test
     void sendsApiKeyAsXApiKeyHeaderWhenPresent_ac1() {
-        LlmProperties properties =
-                new LlmProperties(
-                        baseUrl(),
-                        "sk-owner",
-                        "glm-5.3",
-                        null,
-                        LlmProperties.LlmProvider.ANTHROPIC);
-        AnthropicMessagesLlmClient client = new AnthropicMessagesLlmClient(properties, () -> 0L);
+        AnthropicMessagesLlmClient client =
+                new AnthropicMessagesLlmClient(endpoint("sk-owner"), () -> 0L);
 
         client.ask("s", "u");
 
@@ -248,6 +272,16 @@ class AnthropicMessagesLlmClientTest {
         Map<String, List<String>> headers =
                 (Map<String, List<String>>) captured.get(0).get("headers");
         assertThat(headers.get("x-api-key")).containsExactly("sk-owner");
+    }
+
+    /**
+     * 构造指向桩服务的端点参数。
+     *
+     * @param apiKey 密钥（可空串）
+     * @return 端点参数
+     */
+    private LlmEndpoint endpoint(String apiKey) {
+        return new LlmEndpoint(baseUrl(), apiKey, "glm-5.3", null);
     }
 
     private String baseUrl() {

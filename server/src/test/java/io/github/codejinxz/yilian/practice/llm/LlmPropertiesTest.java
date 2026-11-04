@@ -108,6 +108,32 @@ class LlmPropertiesTest {
                 .isInstanceOf(Exception.class);
     }
 
+    /** [AC-2] legacy 轨映射（022）：asEndpoint 形状转换与 legacyProtocol 双轨→三协议映射。 */
+    @Test
+    void mapsLegacyTrackToEndpointAndProtocol_ac2() {
+        LlmProperties openai =
+                bind(
+                        Map.of(
+                                "yilian.llm.base-url", "https://open.bigmodel.cn/api/paas/v4",
+                                "yilian.llm.api-key", "k"));
+        assertThat(openai.legacyProtocol()).isEqualTo(LlmProtocol.OPENAI_CHAT);
+        LlmEndpoint openaiEndpoint = openai.asEndpoint();
+        assertThat(openaiEndpoint.baseUrl()).isEqualTo("https://open.bigmodel.cn/api/paas/v4");
+        assertThat(openaiEndpoint.apiKey()).isEqualTo("k");
+        assertThat(openaiEndpoint.model()).isEqualTo(LlmProperties.DEFAULT_MODEL);
+        assertThat(openaiEndpoint.timeout()).isEqualTo(LlmProperties.DEFAULT_TIMEOUT);
+
+        LlmProperties anthropic =
+                bind(
+                        Map.of(
+                                "yilian.llm.provider",
+                                "anthropic",
+                                "yilian.llm.base-url",
+                                " http://x "));
+        assertThat(anthropic.legacyProtocol()).isEqualTo(LlmProtocol.ANTHROPIC_MESSAGES);
+        assertThat(anthropic.asEndpoint().baseUrl()).isEqualTo("http://x");
+    }
+
     /**
      * 以 Spring Binder 模拟环境变量绑定（与 @ConfigurationProperties 同一机制）。
      *

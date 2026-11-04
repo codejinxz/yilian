@@ -1,30 +1,34 @@
 package io.github.codejinxz.yilian.practice.llm;
 
 import com.anthropic.client.AnthropicClient;
-import com.anthropic.client.AnthropicClientAsync;
 import com.anthropic.errors.AnthropicServiceException;
-import com.anthropic.models.messages.Model;
+import com.anthropic.models.messages.ContentBlock;
+import com.anthropic.models.messages.Message;
+import com.anthropic.models.messages.MessageCreateParams;
 
-import org.springframework.ai.anthropic.AnthropicChatModel;
-import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.anthropic.AnthropicSetup;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatResponse;
 
 import java.util.function.LongSupplier;
 
 /**
- * Anthropic Messages 协议实现（021）：服务主人的 ZCode 本地网关（GLM 套餐额度，多账号轮询）。
+ * Anthropic Messages 协议实现（021 引入，022 起接入 provider 目录并手写 content 提取）：服务主人的 ZCode 本地网关 （GLM
+ * 套餐额度，多账号轮询）等 Anthropic 兼容端点。
  *
  * <p>协议形状（主人 2026-11-05 实测）：{@code POST {base}/v1/messages}，请求 {@code {model,max_tokens,messages}}
  * + {@code anthropic-version: 2023-06-01} 头（SDK 自动补），响应 {@code
  * {content:[{type:"text",text}],usage:{input_tokens, output_tokens}}}。<strong>拼接口径</strong>：{@code
- * YILIAN_LLM_BASE_URL} 填到网关前缀（如 {@code http://127.0.0.1:47860/gateway/zcode}），{@code /v1/messages}
- * 由 SDK 拼（与 openai 轨「填到 /v4 级前缀」同风格）。
+ * baseUrl} 填到网关前缀（如 {@code http://127.0.0.1:47860/gateway/zcode}），{@code /v1/messages} 由 SDK 拼（与
+ * openai 轨 「填到 /v4 级前缀」同风格）。客户端底座沿用 Spring AI 的 {@link AnthropicSetup}（okhttp 传输 + 超时 + 重试 0），
+ * 但<strong>不再经 Spring AI 的 ChatClient 提取正文</strong>。
  *
- * <p>装配镜像 {@link SpringAiLlmClient}：不走 starter 自动配置（application.yml 已把 {@code spring.ai.model.*}
- * 全部置 none），按 {@code YILIAN_LLM_PROVIDER=anthropic} 由 {@link TutorLlmConfiguration} 惰性装配。重试显式置
- * 0：SDK 层自动重试 会把最坏等待翻倍，退避节奏由本类统一掌控。apiKey 可空（网关本机无鉴权；非空时 SDK 以 {@code x-api-key} 头携带，兼容两种网关）。
+ * <p><strong>思考模型适配（022，手写提取兜底）</strong>：网关侧思考型模型（glm-5.3-flash 等）默认输出 {@code thinking} 块且 thinking
+ * 计入 max_tokens（实测 max_tokens=32 时全被 thinking 吃掉、stop_reason=max_tokens），输出 上限用 {@link
+ * LlmChatClient#MAX_OUTPUT_TOKENS}（2048）。content 提取只拼 {@code type=text} 块、跳过 thinking 块： 桩实测 Spring
+ * AI 2.0 的 {@code getText()} 会把 thinking 块内容当正文返回（text 块被丢），因此直接走官方 SDK 的 {@code Message.content()}
+ * 按块类型过滤——该行为由 {@code AnthropicMessagesLlmClientTest} 的桩响应用例锁死。
+ *
+ * <p>装配（022）：不再走容器条件 bean，由 {@code LlmClientRegistry} 按激活 provider（或 legacy 环境变量）构造。 SDK 层自动重试显式置
+ * 0：把最坏等待翻倍的自动重试交给本类统一掌控。apiKey 可空（网关本机无鉴权；非空时 SDK 以 {@code x-api-key} 头携带，兼容两种网关）。
  *
  * <p><strong>限流退避</strong>：网关 429 代表所有账号进入冷却（30s–1min，主人实测），且错误体是非标准形状 （{@code {"error":"ZCode
  * 网关:...","attempts":[...]}}）——因此识别只按 HTTP 状态码（SDK 按状态码抛 {@link AnthropicServiceException}
@@ -33,25 +37,26 @@ import java.util.function.LongSupplier;
  */
 public class AnthropicMessagesLlmClient implements LlmChatClient {
 
-    /** 单次回复输出 token 上限：与 OpenAI 轨同口径（017 R1 成本护栏），单一事实来源在 {@link SpringAiLlmClient}。 */
-    static final int MAX_OUTPUT_TOKENS = SpringAiLlmClient.MAX_OUTPUT_TOKENS;
-
     /** 限流退避时长 30s：ZCode 网关冷却档位（主人实测 30s–1min）的较短一档——退避过短则第二次调用大概率仍 429， 过长则最坏请求等待超出可接受范围。 */
     static final long RATE_LIMIT_BACKOFF_MS = 30_000L;
 
-    private final ChatClient chatClient;
+    /** 答疑温度：与 openai 两轨同口径，克制的解释性输出，不做发散创作。 */
+    private static final double TEMPERATURE = 0.3;
+
+    private final LlmEndpoint endpoint;
+    private final AnthropicClient client;
 
     /** 退避等待函数；测试注入 0ms 替身，避免单测真睡 30s。 */
     private final LongSupplier backoffSleep;
 
     /**
-     * 按配置组装模型客户端；只做本地对象构造，不发任何网络请求。
+     * 按端点参数组装 SDK 客户端；只做本地对象构造，不发任何网络请求。
      *
-     * @param properties 已过 {@code hasCredentials()} 口径校验的 LLM 配置（anthropic 轨 apiKey 可空）
+     * @param endpoint 已过齐备性校验的端点参数（anthropic-messages 轨 apiKey 可空）
      */
-    public AnthropicMessagesLlmClient(LlmProperties properties) {
+    public AnthropicMessagesLlmClient(LlmEndpoint endpoint) {
         this(
-                properties,
+                endpoint,
                 () -> {
                     sleepBackoff();
                     return 0L;
@@ -61,40 +66,14 @@ public class AnthropicMessagesLlmClient implements LlmChatClient {
     /**
      * 测试可见装配：退避节奏可替换。
      *
-     * @param properties LLM 配置
+     * @param endpoint 端点参数
      * @param backoffSleep 退避等待函数（毫秒）
      */
-    AnthropicMessagesLlmClient(LlmProperties properties, LongSupplier backoffSleep) {
-        AnthropicClient sync =
+    AnthropicMessagesLlmClient(LlmEndpoint endpoint, LongSupplier backoffSleep) {
+        this.endpoint = endpoint;
+        this.client =
                 AnthropicSetup.setupSyncClient(
-                        properties.baseUrl(),
-                        properties.apiKey(),
-                        properties.timeout(),
-                        0,
-                        null,
-                        null);
-        AnthropicClientAsync async =
-                AnthropicSetup.setupAsyncClient(
-                        properties.baseUrl(),
-                        properties.apiKey(),
-                        properties.timeout(),
-                        0,
-                        null,
-                        null);
-        AnthropicChatOptions options =
-                AnthropicChatOptions.builder()
-                        .model(Model.of(properties.model()))
-                        .temperature(0.3)
-                        .maxTokens(MAX_OUTPUT_TOKENS)
-                        .maxRetries(0)
-                        .build();
-        this.chatClient =
-                ChatClient.create(
-                        AnthropicChatModel.builder()
-                                .anthropicClient(sync)
-                                .anthropicClientAsync(async)
-                                .options(options)
-                                .build());
+                        endpoint.baseUrl(), endpoint.apiKey(), endpoint.timeout(), 0, null, null);
         this.backoffSleep = backoffSleep;
     }
 
@@ -113,30 +92,33 @@ public class AnthropicMessagesLlmClient implements LlmChatClient {
     }
 
     /**
-     * 单次调用（无重试）：系统提示 + 用户消息经 ChatClient 组装，模型回复与 token 用量取自 Anthropic 响应形状。
+     * 单次调用（无重试）：官方 SDK 发 Messages 请求，content 按块类型提取——只拼 {@code type=text} 块，thinking / tool-use
+     * 等块不进正文（思考模型的内部推理不得混入答疑回答）。
      *
      * @param systemPrompt 系统提示
      * @param userPrompt 用户消息
      * @return 回复内容与用量
      */
     private Reply askOnce(String systemPrompt, String userPrompt) {
-        ChatResponse response =
-                chatClient.prompt().system(systemPrompt).user(userPrompt).call().chatResponse();
-        String content =
-                response.getResult() == null || response.getResult().getOutput() == null
-                        ? null
-                        : response.getResult().getOutput().getText();
-        Integer promptTokens = null;
-        Integer completionTokens = null;
-        if (response.getMetadata() != null && response.getMetadata().getUsage() != null) {
-            // Anthropic usage: input_tokens/output_tokens → Spring AI Usage 的 prompt/completion 口径。
-            promptTokens = response.getMetadata().getUsage().getPromptTokens();
-            completionTokens = response.getMetadata().getUsage().getCompletionTokens();
+        MessageCreateParams params =
+                MessageCreateParams.builder()
+                        .model(endpoint.model())
+                        .maxTokens(MAX_OUTPUT_TOKENS)
+                        .temperature(TEMPERATURE)
+                        .system(systemPrompt)
+                        .addUserMessage(userPrompt)
+                        .build();
+        Message message = client.messages().create(params);
+        StringBuilder content = new StringBuilder();
+        for (ContentBlock block : message.content()) {
+            if (block.isText()) {
+                content.append(block.asText().text());
+            }
         }
         return new Reply(
-                content,
-                promptTokens == null ? 0 : promptTokens,
-                completionTokens == null ? 0 : completionTokens);
+                content.isEmpty() ? null : content.toString(),
+                (int) message.usage().inputTokens(),
+                (int) message.usage().outputTokens());
     }
 
     /**

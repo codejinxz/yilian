@@ -10,7 +10,9 @@ import io.github.codejinxz.yilian.practice.entity.AttemptGrading;
 import io.github.codejinxz.yilian.practice.grading.GradingAnnotation;
 import io.github.codejinxz.yilian.practice.grading.GradingResult;
 import io.github.codejinxz.yilian.practice.llm.LlmChatClient;
+import io.github.codejinxz.yilian.practice.llm.LlmClientRegistry;
 import io.github.codejinxz.yilian.practice.llm.LlmProperties;
+import io.github.codejinxz.yilian.practice.llm.LlmProtocol;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
 import io.github.codejinxz.yilian.practice.service.TutorService;
 import io.github.codejinxz.yilian.practice.service.dto.LlmConfigUpdateRequest;
@@ -20,7 +22,6 @@ import io.github.codejinxz.yilian.system.service.AppSettingService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import tools.jackson.core.JacksonException;
@@ -32,12 +33,13 @@ import java.util.Optional;
 /**
  * 题目答疑实现（017）：被动一问一答，不判分、不改批注、不进学习闭环（PRD §5.4）。
  *
- * <p>配置选型：provider/base-url/api-key/model/timeout 全部来自 {@code YILIAN_LLM_*} 环境变量（密钥不入库， AGENTS
- * §3.4），后台 PUT 只改 {@code app_settings} 键 {@code llm.tutor} 里的 {@code enabled} 开关；
- * baseUrl/model/apiKey 在请求体中保留字段形状但传非空值一律拒绝。三态：未配凭证=功能不存在（40400、 前端隐藏入口）；配了未开=40304；开了=可用。
- * 客户端实现（021）：openai 轨 {@link SpringAiLlmClient}，anthropic 轨 {@link
- * AnthropicMessagesLlmClient}（ZCode 本地网关）， 由 {@code TutorLlmConfiguration} 按 {@code
- * YILIAN_LLM_PROVIDER} 装配，两轨共用同一降级语义与免责标注。
+ * <p>配置选型：022 起 LLM 客户端经 {@link LlmClientRegistry} 按 provider 目录（app_settings 键 {@code
+ * llm.providers}/{@code llm.active}）的激活条目装配，密钥按 provider id 走环境变量 {@code YILIAN_LLM_KEY_*}
+ * 索引（AGENTS §3.4 密钥不入库）；目录为空时回退 legacy 环境变量轨（{@code YILIAN_LLM_*}，017/021 部署兼容）。 后台 PUT 只改 {@code
+ * app_settings} 键 {@code llm.tutor} 里的 {@code enabled} 开关；baseUrl/model/apiKey 在请求体中
+ * 保留字段形状但传非空值一律拒绝。三态：无可用客户端=功能不存在（40400、前端隐藏入口）；配了未开=40304；开了=可用。 客户端实现按激活 provider 的 protocol
+ * 三选一（anthropic-messages / openai-chat / openai-responses），共用同一 降级语义、护栏（maxTokens 2048 / 15s / SDK
+ * 重试 0）与免责标注。
  *
  * <p>安全边界：提示词只包含题目中文、考点标签与该用户本人最近一次批注（与其在页面上看到的一致）， 不喂参考译文与解析全文；用户问题用显式定界符包裹并限制 500
  * 字符，系统提示声明定界区内是数据不是 指令——LLM 无工具、无判分权限，注入的最坏后果只是得到一条带免责标注的低质量回答。
@@ -56,8 +58,8 @@ public class TutorServiceImpl implements TutorService {
     /** 存储值当前结构版本；解析遇到其他版本按关闭处理（fail-closed）。 */
     static final int SCHEMA_VERSION = 1;
 
-    private final LlmProperties llmProperties;
-    private final ObjectProvider<LlmChatClient> llmClientProvider;
+    private final LlmClientRegistry llmClients;
+    private final LlmProperties legacyProperties;
     private final AppSettingService appSettingService;
     private final PracticeService practiceService;
     private final AttemptDao attemptDao;
@@ -65,10 +67,10 @@ public class TutorServiceImpl implements TutorService {
     private final ObjectMapper objectMapper;
 
     /**
-     * 注入依赖；LLM 客户端经 {@link ObjectProvider} 取用，未配置凭证时容器中不存在该 bean。
+     * 注入依赖；LLM 客户端由 {@link LlmClientRegistry} 按激活 provider 运行时解析，未配置时句柄为空。
      *
-     * @param llmProperties LLM 环境配置
-     * @param llmClientProvider LLM 客户端提供者（可能为空）
+     * @param llmClients LLM 客户端注册表（目录 + legacy 兼容轨）
+     * @param legacyProperties legacy 环境变量配置（目录为空时的兼容轨；也用于开启被拒时的 legacy 定向文案）
      * @param appSettingService 系统配置存取
      * @param practiceService 练习用例服务（复用 016 可见性口径）
      * @param attemptDao 提交 Dao（取本人最近批注）
@@ -76,15 +78,15 @@ public class TutorServiceImpl implements TutorService {
      * @param objectMapper JSON 解析（判分结果与配置值）
      */
     public TutorServiceImpl(
-            LlmProperties llmProperties,
-            ObjectProvider<LlmChatClient> llmClientProvider,
+            LlmClientRegistry llmClients,
+            LlmProperties legacyProperties,
             AppSettingService appSettingService,
             PracticeService practiceService,
             AttemptDao attemptDao,
             AttemptGradingDao gradingDao,
             ObjectMapper objectMapper) {
-        this.llmProperties = llmProperties;
-        this.llmClientProvider = llmClientProvider;
+        this.llmClients = llmClients;
+        this.legacyProperties = legacyProperties;
         this.appSettingService = appSettingService;
         this.practiceService = practiceService;
         this.attemptDao = attemptDao;
@@ -98,9 +100,10 @@ public class TutorServiceImpl implements TutorService {
     @Override
     public TutorAskView ask(Long userId, String sentenceId, String question) {
         // 刻意不加 @Transactional：15s 外呼不占数据库连接；本方法内没有跨表写。
-        LlmChatClient client = llmClientProvider.getIfAvailable();
-        if (!llmProperties.hasCredentials() || client == null) {
-            // 未配置凭证=功能不存在：按 017 三态裁决返回 40400 语义，前端凭此隐藏入口。
+        LlmClientRegistry.ChatHandle handle = llmClients.chatHandle().orElse(null);
+        if (handle == null) {
+            // 无可用客户端（目录空且 legacy 未配置/目录未激活/激活条目凭证不齐）=功能不存在：
+            // 按 017 三态裁决返回 40400 语义，前端凭此隐藏入口。
             throw new BusinessException(ApiCode.NOT_FOUND);
         }
         if (!storedSettings().enabled()) {
@@ -113,16 +116,17 @@ public class TutorServiceImpl implements TutorService {
                 userPrompt(detail, latestWrongAnnotations(userId, sentenceId), question);
         long startNanos = System.nanoTime();
         try {
-            LlmChatClient.Reply reply = client.ask(systemPrompt, userPrompt);
+            LlmChatClient.Reply reply = handle.client().ask(systemPrompt, userPrompt);
             long durationMs = (System.nanoTime() - startNanos) / 1_000_000;
             if (reply.content() == null || reply.content().isBlank()) {
                 // 空回复是可观测的降级路径（017 R1）：不计成功用量，与异常降级同文案同码。
                 log.warn(
-                        "LLM 空回复：scene=tutor-ask, userId={}, sentenceId={}, model={},"
+                        "LLM 空回复：scene=tutor-ask, providerId={}, userId={}, sentenceId={}, model={},"
                                 + " promptTokens={}, completionTokens={}, durationMs={}, ok=false",
+                        handle.providerId(),
                         userId,
                         sentenceId,
-                        llmProperties.model(),
+                        handle.model(),
                         reply.promptTokens(),
                         reply.completionTokens(),
                         durationMs);
@@ -130,11 +134,12 @@ public class TutorServiceImpl implements TutorService {
             }
             // 用量只记元数据（token/耗时/成败），不落问题与回答内容（§3.6：译文不入日志）。
             log.info(
-                    "LLM 用量：scene=tutor-ask, userId={}, sentenceId={}, model={}, promptTokens={},"
-                            + " completionTokens={}, durationMs={}, ok=true",
+                    "LLM 用量：scene=tutor-ask, providerId={}, userId={}, sentenceId={}, model={},"
+                            + " promptTokens={}, completionTokens={}, durationMs={}, ok=true",
+                    handle.providerId(),
                     userId,
                     sentenceId,
-                    llmProperties.model(),
+                    handle.model(),
                     reply.promptTokens(),
                     reply.completionTokens(),
                     durationMs);
@@ -144,11 +149,12 @@ public class TutorServiceImpl implements TutorService {
         } catch (RuntimeException exception) {
             // LLM 网络错误/超时/供应商异常统一降级：50000 + 固定友好文案，不把堆栈或供应商信息带给客户端。
             log.warn(
-                    "LLM 调用失败：scene=tutor-ask, userId={}, sentenceId={}, model={}, durationMs={},"
-                            + " error={}",
+                    "LLM 调用失败：scene=tutor-ask, providerId={}, userId={}, sentenceId={}, model={},"
+                            + " durationMs={}, error={}",
+                    handle.providerId(),
                     userId,
                     sentenceId,
-                    llmProperties.model(),
+                    handle.model(),
                     (System.nanoTime() - startNanos) / 1_000_000,
                     exception.getClass().getSimpleName());
             throw new BusinessException(ApiCode.INTERNAL_ERROR, "答疑暂时不可用，请稍后再试");
@@ -157,11 +163,15 @@ public class TutorServiceImpl implements TutorService {
 
     @Override
     public LlmConfigView getAdminConfig() {
+        LlmClientRegistry.EffectiveConfig config = llmClients.effectiveConfig().orElse(null);
         return new LlmConfigView(
                 storedSettings().enabled(),
-                llmProperties.baseUrl(),
-                llmProperties.model(),
-                !llmProperties.apiKey().isEmpty());
+                config == null ? "" : config.baseUrl(),
+                config == null ? "" : config.model(),
+                config != null && config.hasKey(),
+                config == null ? null : config.providerId(),
+                config == null ? null : config.protocol(),
+                config != null && config.credentialsComplete());
     }
 
     @Override
@@ -180,13 +190,9 @@ public class TutorServiceImpl implements TutorService {
                     ApiCode.VALIDATION_FAILED,
                     "base-url/model 只能通过环境变量 YILIAN_LLM_BASE_URL / YILIAN_LLM_MODEL 配置");
         }
-        if (request.enabled() && !llmProperties.hasCredentials()) {
-            // 提示文案按 provider 分口径（021）：anthropic 轨服务无鉴权的本地网关，key 本就可空。
-            throw new BusinessException(
-                    ApiCode.VALIDATION_FAILED,
-                    llmProperties.provider() == LlmProperties.LlmProvider.ANTHROPIC
-                            ? "尚未配置 YILIAN_LLM_BASE_URL，无法开启答疑（anthropic 轨无需 API Key）"
-                            : "尚未配置 YILIAN_LLM_BASE_URL / YILIAN_LLM_API_KEY，无法开启答疑");
+        if (request.enabled() && llmClients.chatHandle().isEmpty()) {
+            // 开不了没有弹药的功能：提示文案按配置形态分口径（022 目录 → env key 索引；legacy → 021 文案）。
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, enableBlockedMessage());
         }
         String value =
                 objectMapper.writeValueAsString(
@@ -214,6 +220,41 @@ public class TutorServiceImpl implements TutorService {
         } catch (JacksonException exception) {
             return new StoredSettings(SCHEMA_VERSION, false);
         }
+    }
+
+    /**
+     * 开启答疑被拒（无可用客户端）的定向文案：目录模式指向激活 provider 的 env key 索引（022），legacy 轨沿用 021 的 YILIAN_LLM_*
+     * 两件套文案（anthropic 轨 key 可空、只差端点）。
+     *
+     * @return 提示文案
+     */
+    private String enableBlockedMessage() {
+        if (llmClients.directoryMode()) {
+            Optional<LlmClientRegistry.EffectiveConfig> active =
+                    llmClients
+                            .effectiveConfig()
+                            .filter(
+                                    config ->
+                                            !LlmClientRegistry.LEGACY_PROVIDER_ID.equals(
+                                                    config.providerId()));
+            if (active.isEmpty()) {
+                return "目录中尚未激活 provider：请在管理端模型页选择「激活」后再开启答疑";
+            }
+            LlmClientRegistry.EffectiveConfig config = active.get();
+            if (config.protocol().equals(LlmProtocol.ANTHROPIC_MESSAGES.wire())) {
+                return "激活的 provider「"
+                        + config.providerId()
+                        + "」尚未配置端点，无法开启答疑（anthropic-messages 轨无需 API Key）";
+            }
+            return "激活的 provider「"
+                    + config.providerId()
+                    + "」缺少密钥：请设置环境变量 YILIAN_LLM_KEY_"
+                    + config.providerId().replace('-', '_').toUpperCase(java.util.Locale.ROOT)
+                    + " 并重启服务端";
+        }
+        return legacyProperties.provider() == LlmProperties.LlmProvider.ANTHROPIC
+                ? "尚未配置 YILIAN_LLM_BASE_URL，无法开启答疑（anthropic 轨无需 API Key）"
+                : "尚未配置 YILIAN_LLM_BASE_URL / YILIAN_LLM_API_KEY，无法开启答疑";
     }
 
     /**

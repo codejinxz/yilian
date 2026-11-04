@@ -113,10 +113,12 @@ info:
 
 yilian:
   llm:
-    # 017 题目答疑：LLM 接入。三态——凭证口径未齐=功能不存在；已配置但后台未开启=40304；开启=可用。
-    # 详见 PRD §5.4 与 docs/API.md §6.12/§8.14。
-    # 021 provider 双轨：openai（缺省，OpenAI 兼容协议，智谱/DeepSeek 等）| anthropic（Anthropic Messages
-    # 协议，服务主人的 ZCode 本地网关，GLM 套餐额度）。两轨共用同一三态门禁、降级语义与免责标注。
+    # 017 题目答疑：LLM 接入。三态——无可用客户端=功能不存在；已配置但后台未开启=40304；开启=可用。
+    # 详见 PRD §5.4 与 docs/API.md §6.12/§8.14/§8.15。
+    # 022 起 LLM 接入首选 provider 目录（app_settings 键 llm.providers/llm.active，管理端 /api/admin/llm/providers
+    # 管理，协议三选一 anthropic-messages|openai-chat|openai-responses）；密钥按 provider id 走
+    # YILIAN_LLM_KEY_<大写ID>（连字符→下划线，如 zcode-gateway→YILIAN_LLM_KEY_ZCODE_GATEWAY），不入库。
+    # 本节为 legacy 单 provider 兼容轨：目录为空且以下凭证齐备时按隐式 provider 生效（读路径兼容 017/021）。
     provider: ${YILIAN_LLM_PROVIDER:openai}
     # 端点按 provider 分拼接口径（021）：openai 填到 /v4 级前缀（如智谱 https://open.bigmodel.cn/api/paas/v4）；
     # anthropic 填到网关前缀（如 http://127.0.0.1:47860/gateway/zcode），/v1/messages 由客户端拼接。

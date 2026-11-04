@@ -22,6 +22,7 @@ import io.github.codejinxz.yilian.practice.entity.AttemptGrading;
 import io.github.codejinxz.yilian.practice.grading.GradingAnnotation;
 import io.github.codejinxz.yilian.practice.grading.GradingResult;
 import io.github.codejinxz.yilian.practice.llm.LlmChatClient;
+import io.github.codejinxz.yilian.practice.llm.LlmClientRegistry;
 import io.github.codejinxz.yilian.practice.llm.LlmProperties;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
 import io.github.codejinxz.yilian.practice.service.dto.LlmConfigUpdateRequest;
@@ -37,18 +38,18 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
-import org.springframework.beans.factory.ObjectProvider;
 
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * {@link TutorServiceImpl} 单测 [AC-4]/[AC-3]：三态门（未配置 40400 / 未开启 40304 / 开启可用）、 提示词上下文（题目中文 + 考点 +
- * 本人错批注，不含参考译文、问题定界）、LLM 异常降级 50000、 免责标注常驻、开关存取的密钥/端点拒收与 fail-closed 解析。LLM 用 {@link
- * LlmChatClient} mock。
+ * {@link TutorServiceImpl} 单测 [AC-4]/[AC-3]：三态门（无可用客户端 40400 / 未开启 40304 / 开启可用）、 提示词上下文（题目中文 + 考点
+ * + 本人错批注，不含参考译文、问题定界）、LLM 异常降级 50000、 免责标注常驻、开关存取的密钥/端点拒收与 fail-closed 解析。LLM 用 {@link
+ * LlmChatClient} mock，客户端可用性经 {@link LlmClientRegistry} mock 注入（022 目录形态）。
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -59,9 +60,28 @@ class TutorServiceImplTest {
     private static final String ZH = "他越来越重视这个问题。";
     private static final String REF = "He is paying more and more attention to this problem.";
 
+    /** legacy 环境变量齐备的配置（管理端视图与 legacy 开启文案口径）。 */
+    private static final LlmProperties LEGACY_PROPERTIES =
+            new LlmProperties(
+                    "https://open.bigmodel.cn/api/paas/v4",
+                    "key",
+                    null,
+                    Duration.ofSeconds(15),
+                    null);
+
+    /** 缺省生效视图：legacy 轨（目录为空），凭证齐备。 */
+    private static final LlmClientRegistry.EffectiveConfig LEGACY_EFFECTIVE =
+            new LlmClientRegistry.EffectiveConfig(
+                    LlmClientRegistry.LEGACY_PROVIDER_ID,
+                    "openai-chat",
+                    "https://open.bigmodel.cn/api/paas/v4",
+                    "glm-4.7",
+                    true,
+                    true);
+
     @Mock private LlmChatClient llmChatClient;
 
-    @Mock private ObjectProvider<LlmChatClient> llmClientProvider;
+    @Mock private LlmClientRegistry llmClients;
 
     @Mock private AppSettingService appSettingService;
 
@@ -77,8 +97,15 @@ class TutorServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        // 缺省上下文：凭证齐备（智谱端点）、答疑开启；各用例按需覆盖。
-        lenient().when(llmClientProvider.getIfAvailable()).thenReturn(llmChatClient);
+        // 缺省上下文：客户端可用（legacy 视图）、答疑开启；各用例按需覆盖。
+        lenient()
+                .when(llmClients.chatHandle())
+                .thenReturn(
+                        Optional.of(
+                                new LlmClientRegistry.ChatHandle(
+                                        llmChatClient, "legacy", "glm-4.7")));
+        lenient().when(llmClients.effectiveConfig()).thenReturn(Optional.of(LEGACY_EFFECTIVE));
+        lenient().when(llmClients.directoryMode()).thenReturn(false);
         lenient()
                 .when(appSettingService.findValue(TutorServiceImpl.SETTING_KEY))
                 .thenReturn(Optional.of("{\"schemaVersion\":1,\"enabled\":true}"));
@@ -87,9 +114,8 @@ class TutorServiceImplTest {
                 .thenReturn(detail());
         tutorService =
                 new TutorServiceImpl(
-                        new LlmProperties(
-                                "https://open.bigmodel.cn/api/paas/v4", "key", null, null, null),
-                        llmClientProvider,
+                        llmClients,
+                        LEGACY_PROPERTIES,
                         appSettingService,
                         practiceService,
                         attemptDao,
@@ -97,27 +123,19 @@ class TutorServiceImplTest {
                         objectMapper);
     }
 
-    /** [AC-4] 三态之一：未配置凭证=功能不存在（40400），不触达 LLM 与题目校验。 */
+    /** [AC-4] 三态之一：无可用客户端（目录空且 legacy 未配置等）=功能不存在（40400），不触达 LLM 与题目校验。 */
     @Test
     void askWithoutCredentialsReturns40400_ac4() {
-        TutorServiceImpl unconfigured =
-                new TutorServiceImpl(
-                        new LlmProperties("", "key", null, null, null),
-                        llmClientProvider,
-                        appSettingService,
-                        practiceService,
-                        attemptDao,
-                        gradingDao,
-                        objectMapper);
+        when(llmClients.chatHandle()).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> unconfigured.ask(USER_ID, SENTENCE_ID, "为什么？"))
+        assertThatThrownBy(() -> tutorService.ask(USER_ID, SENTENCE_ID, "为什么？"))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> assertThat(exception.apiCode()).isEqualTo(ApiCode.NOT_FOUND));
         verifyNoInteractions(llmChatClient, practiceService);
     }
 
-    /** [AC-4] 三态之二：凭证在但后台未开启=40304「答疑未开放」，不触达 LLM。 */
+    /** [AC-4] 三态之二：客户端可用但后台未开启=40304「答疑未开放」，不触达 LLM。 */
     @Test
     void askWhenDisabledReturns40304_ac4() {
         when(appSettingService.findValue(TutorServiceImpl.SETTING_KEY))
@@ -259,7 +277,7 @@ class TutorServiceImplTest {
         verifyNoInteractions(llmChatClient);
     }
 
-    /** [AC-3] GET 配置：apiKey 不回读只回 hasKey；enabled 来自存储值。 */
+    /** [AC-3] GET 配置：apiKey 不回读只回 hasKey；enabled 来自存储值；022 起带 providerId/protocol/凭证齐备性。 */
     @Test
     void getAdminConfigReturnsHasKeyInsteadOfKey_ac3() {
         LlmConfigView view = tutorService.getAdminConfig();
@@ -268,6 +286,24 @@ class TutorServiceImplTest {
         assertThat(view.baseUrl()).isEqualTo("https://open.bigmodel.cn/api/paas/v4");
         assertThat(view.model()).isEqualTo("glm-4.7");
         assertThat(view.hasKey()).isTrue();
+        assertThat(view.providerId()).isEqualTo(LlmClientRegistry.LEGACY_PROVIDER_ID);
+        assertThat(view.protocol()).isEqualTo("openai-chat");
+        assertThat(view.credentialsComplete()).isTrue();
+    }
+
+    /** [AC-3] GET 配置：目录未激活/未配置（视图缺位）→ 元数据空串、providerId/protocol 为 null，不谎报。 */
+    @Test
+    void getAdminConfigReturnsEmptyViewWhenNothingUsable_ac3() {
+        when(llmClients.effectiveConfig()).thenReturn(Optional.empty());
+
+        LlmConfigView view = tutorService.getAdminConfig();
+
+        assertThat(view.baseUrl()).isEmpty();
+        assertThat(view.model()).isEmpty();
+        assertThat(view.hasKey()).isFalse();
+        assertThat(view.providerId()).isNull();
+        assertThat(view.protocol()).isNull();
+        assertThat(view.credentialsComplete()).isFalse();
     }
 
     /** [AC-3] PUT 拒收 apiKey/baseUrl/model（40000，密钥不入库），不动存储。 */
@@ -296,22 +332,15 @@ class TutorServiceImplTest {
         verify(appSettingService, never()).upsert(anyString(), anyString(), anyString(), eq(1L));
     }
 
-    /** [AC-3] PUT enabled=true 且凭证未配置：40000 拒绝（开不了没有弹药的功能）。 */
+    /** [AC-3] PUT enabled=true 且无可用客户端：40000 拒绝（开不了没有弹药的功能）。 */
     @Test
     void updateRejectsEnableWithoutCredentials_ac3() {
-        TutorServiceImpl unconfigured =
-                new TutorServiceImpl(
-                        new LlmProperties("", "", null, null, null),
-                        llmClientProvider,
-                        appSettingService,
-                        practiceService,
-                        attemptDao,
-                        gradingDao,
-                        objectMapper);
+        when(llmClients.chatHandle()).thenReturn(Optional.empty());
+        when(llmClients.directoryMode()).thenReturn(false);
 
         assertThatThrownBy(
                         () ->
-                                unconfigured.updateAdminConfig(
+                                tutorService.updateAdminConfig(
                                         new LlmConfigUpdateRequest(true, null, null, null), 1L))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
@@ -320,26 +349,64 @@ class TutorServiceImplTest {
                                         .isEqualTo(ApiCode.VALIDATION_FAILED));
     }
 
-    /** [AC-1] anthropic 轨（ZCode 网关）凭证口径：仅 base-url、无 key 也可开启答疑；hasKey 如实回 false。 */
+    /** [AC-3] PUT enabled=true 被拒的定向文案：目录模式缺 env key → 指向 YILIAN_LLM_KEY_&lt;大写ID&gt;（连字符→下划线）。 */
+    @Test
+    void updateEnableBlockedMessagePointsToEnvKeyInDirectoryMode_ac3() {
+        when(llmClients.chatHandle()).thenReturn(Optional.empty());
+        when(llmClients.directoryMode()).thenReturn(true);
+        when(llmClients.effectiveConfig())
+                .thenReturn(
+                        Optional.of(
+                                new LlmClientRegistry.EffectiveConfig(
+                                        "deep-seek",
+                                        "openai-chat",
+                                        "https://api.deepseek.com",
+                                        "deepseek-chat",
+                                        false,
+                                        false)));
+
+        assertThatThrownBy(
+                        () ->
+                                tutorService.updateAdminConfig(
+                                        new LlmConfigUpdateRequest(true, null, null, null), 1L))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.getMessage())
+                                        .contains("YILIAN_LLM_KEY_DEEP_SEEK")
+                                        .contains("deep-seek"));
+    }
+
+    /** [AC-1] legacy 轨（ZCode 网关）凭证口径：仅 base-url、无 key 也可开启答疑；hasKey 如实回 false。 */
     @Test
     void anthropicTrackEnablesWithoutApiKey_ac1() {
+        LlmProperties anthropicLegacy =
+                new LlmProperties(
+                        "http://127.0.0.1:47860/gateway/zcode",
+                        "",
+                        "glm-5.3",
+                        null,
+                        LlmProperties.LlmProvider.ANTHROPIC);
+        when(llmClients.effectiveConfig())
+                .thenReturn(
+                        Optional.of(
+                                new LlmClientRegistry.EffectiveConfig(
+                                        LlmClientRegistry.LEGACY_PROVIDER_ID,
+                                        "anthropic-messages",
+                                        "http://127.0.0.1:47860/gateway/zcode",
+                                        "glm-5.3",
+                                        false,
+                                        true)));
         when(appSettingService.upsert(
                         eq(TutorServiceImpl.SETTING_KEY),
                         eq("{\"schemaVersion\":1,\"enabled\":true}"),
                         anyString(),
                         eq(1L)))
                 .thenReturn("{\"schemaVersion\":1,\"enabled\":true}");
-        when(appSettingService.findValue(TutorServiceImpl.SETTING_KEY))
-                .thenReturn(Optional.of("{\"schemaVersion\":1,\"enabled\":true}"));
         TutorServiceImpl gatewayBacked =
                 new TutorServiceImpl(
-                        new LlmProperties(
-                                "http://127.0.0.1:47860/gateway/zcode",
-                                "",
-                                "glm-5.3",
-                                null,
-                                LlmProperties.LlmProvider.ANTHROPIC),
-                        llmClientProvider,
+                        llmClients,
+                        anthropicLegacy,
                         appSettingService,
                         practiceService,
                         attemptDao,
@@ -354,6 +421,7 @@ class TutorServiceImplTest {
         assertThat(view.hasKey()).isFalse();
         assertThat(view.baseUrl()).isEqualTo("http://127.0.0.1:47860/gateway/zcode");
         assertThat(view.model()).isEqualTo("glm-5.3");
+        assertThat(view.credentialsComplete()).isTrue();
     }
 
     /** [AC-3] PUT 合法开关：写 app_settings 键 llm.tutor（schemaVersion=1），返回更新后视图。 */

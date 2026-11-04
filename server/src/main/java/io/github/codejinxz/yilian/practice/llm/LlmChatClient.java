@@ -1,12 +1,20 @@
 package io.github.codejinxz.yilian.practice.llm;
 
 /**
- * LLM 对话客户端接缝（017）：隔离 Spring AI 的具体类型，业务层只依赖本接口，便于测试替身与后续换供应商。
+ * LLM 对话客户端接缝（017 引入，022 起为三协议统一接口）：隔离具体协议实现（Anthropic Messages / OpenAI Chat Completions / OpenAI
+ * Responses），业务层只依赖本接口，便于测试替身与按 provider 目录切换供应商。
  *
- * <p>实现类仅在 {@code YILIAN_LLM_*} 凭证齐备时装配（见 {@link TutorLlmConfiguration}）；未配置时容器里没有
- * bean，答疑走「功能不存在」分支，与「配了但管理员未开启（40304）」区分。
+ * <p>实现类不再经容器条件装配（022 前为 {@code TutorLlmConfiguration} 条件 bean），改由 {@code LlmClientRegistry} 按激活
+ * provider 的 protocol 在运行时装配并缓存；目录为空且 legacy 环境变量齐备时回退 legacy 单 provider（读路径兼容）。
  */
 public interface LlmChatClient {
+
+    /**
+     * 单次回复输出 token 上限（022 起三协议同源）：思考模型的 thinking 计入 max_tokens（主人 2026-11-05 实测， max_tokens=32
+     * 时输出全被 thinking 吃掉、stop_reason=max_tokens），768 档会被思考型模型挤占殆尽，提到 2048 保证 thinking 之后仍有正文余量；约
+     * 1000+ 汉字，仍覆盖答疑 300 字上限（PRD §5.4）的成本护栏。
+     */
+    int MAX_OUTPUT_TOKENS = 2048;
 
     /**
      * 发起一次同步对话补全。
@@ -21,7 +29,7 @@ public interface LlmChatClient {
     /**
      * 一次调用的结果与用量。
      *
-     * @param content 模型回复文本
+     * @param content 模型回复文本（思考模型的 thinking 块不拼入；供应商返回空正文时为 null/空白，调用方按降级处理）
      * @param promptTokens 输入 token 数（供应商缺失时为 0）
      * @param completionTokens 输出 token 数（供应商缺失时为 0）
      */

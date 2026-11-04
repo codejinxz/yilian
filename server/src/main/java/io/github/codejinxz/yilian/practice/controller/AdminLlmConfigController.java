@@ -23,8 +23,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 管理端答疑 LLM 配置接口（017，API §8.11）：服务端 ADMIN 鉴权（AGENTS §3.7），写操作审计 {@code LLM_CONFIG_UPDATE}；API Key
- * 永不回读（GET 回 hasKey 布尔）。
+ * 管理端答疑 LLM 配置接口（017，API §8.14）：服务端 ADMIN 鉴权（AGENTS §3.7），写操作审计 {@code LLM_CONFIG_UPDATE}；API Key
+ * 永不回读（GET 回 hasKey 布尔）。022 起 baseUrl/model/hasKey 反映激活 provider（目录管理见 {@link
+ * AdminLlmProviderController}），目录为空时回退 legacy 环境变量。
  */
 @Tag(name = "管理", description = "用户、题库、日志、出题与答疑 LLM 配置的管理端接口。")
 @SecurityRequirement(name = "bearerAuth")
@@ -81,8 +82,9 @@ public class AdminLlmConfigController {
     @Operation(
             summary = "更新答疑 LLM 配置",
             description =
-                    "只受理 enabled；base-url/model/apiKey 只能经 YILIAN_LLM_* 环境变量配置，"
-                            + "传非空值返回 40000。enabled=true 且环境变量未配置完整时 40000 拒绝。")
+                    "只受理 enabled；base-url/model/apiKey 不可在线修改（目录模式经 provider 目录与 "
+                            + "YILIAN_LLM_KEY_<大写ID> 配置，legacy 经 YILIAN_LLM_* 环境变量），"
+                            + "传非空值返回 40000。enabled=true 且无可用客户端（凭证不齐/未激活）时 40000 拒绝。")
     @ApiResponses({
         @io.swagger.v3.oas.annotations.responses.ApiResponse(
                 responseCode = "200",

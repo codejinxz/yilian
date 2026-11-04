@@ -118,7 +118,13 @@ class AdminLlmConfigControllerTest {
         when(tutorService.getAdminConfig())
                 .thenReturn(
                         new LlmConfigView(
-                                true, "https://open.bigmodel.cn/api/paas/v4", "glm-4.7", true));
+                                true,
+                                "https://open.bigmodel.cn/api/paas/v4",
+                                "glm-4.7",
+                                true,
+                                "legacy",
+                                "openai-chat",
+                                true));
 
         mockMvc.perform(
                         get("/api/admin/llm/config")
@@ -141,7 +147,13 @@ class AdminLlmConfigControllerTest {
         when(tutorService.updateAdminConfig(new LlmConfigUpdateRequest(true, null, null, null), 1L))
                 .thenReturn(
                         new LlmConfigView(
-                                true, "https://open.bigmodel.cn/api/paas/v4", "glm-4.7", true));
+                                true,
+                                "https://open.bigmodel.cn/api/paas/v4",
+                                "glm-4.7",
+                                true,
+                                "legacy",
+                                "openai-chat",
+                                true));
 
         mockMvc.perform(
                         put("/api/admin/llm/config")
