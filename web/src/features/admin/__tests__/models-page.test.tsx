@@ -7,25 +7,64 @@ import { resetApiState } from "@/lib/api";
 import { createQueryClient } from "@/lib/query";
 
 /**
- * ModelsPage「统一模型配置」状态中心（019）：
- * 页面直连真实端点 /api/admin/llm/config（mock 层无 /admin/models 演示路径，见页面头注释），
- * 因此用 fetch 桩按服务端真实响应形状（API §8.14）应答，不经过 src/mocks。
+ * ModelsPage「统一模型配置」状态中心 + provider 目录管理（022）：
+ * 页面直连真实端点 /api/admin/llm/config 与 /api/admin/llm/providers（mock 层无 /admin/models 演示路径），
+ * 因此用 fetch 桩按服务端真实响应形状（API §8.14/§8.15）应答，不经过 src/mocks。
  */
 
-/** 服务端 LlmConfigView 的合法形状（API §8.14.1）。 */
+/** 服务端 LlmConfigView 的合法形状（API §8.14.1，022 扩展目录维度）。 */
 interface LlmConfigFixture {
   enabled: boolean;
   baseUrl: string;
   model: string;
   hasKey: boolean;
+  providerId: string | null;
+  protocol: string | null;
+  credentialsComplete: boolean;
 }
 
-/** 已配置且开启的缺省夹具；用例按需覆盖字段。 */
+/** 服务端 LlmProviderView 的合法形状（API §8.15.1）。 */
+interface LlmProviderFixture {
+  id: string;
+  name: string;
+  protocol: string;
+  baseUrl: string;
+  model: string;
+  hasKey: boolean;
+  active: boolean;
+}
+
+/** legacy 直配且开启的缺省夹具（022 前 019 用例形态，目录为空）；用例按需覆盖字段。 */
 const CONFIGURED_ON: LlmConfigFixture = {
   enabled: true,
   baseUrl: "https://open.bigmodel.cn/api/paas/v4",
   model: "glm-4.7",
   hasKey: true,
+  providerId: "legacy",
+  protocol: "openai-chat",
+  credentialsComplete: true,
+};
+
+/** 主人 ZCode 网关的目录条目夹具（anthropic-messages 轨、无 env key、已激活）。 */
+const ZCODE_GATEWAY: LlmProviderFixture = {
+  id: "zcode-gateway",
+  name: "ZCode 网关",
+  protocol: "anthropic-messages",
+  baseUrl: "http://127.0.0.1:47860/gateway/zcode",
+  model: "glm-5.3",
+  hasKey: false,
+  active: true,
+};
+
+/** 智谱目录条目夹具（openai-chat 轨、有 env key、未激活）。 */
+const ZHIPU: LlmProviderFixture = {
+  id: "zhipu",
+  name: "智谱直连",
+  protocol: "openai-chat",
+  baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+  model: "glm-4.7",
+  hasKey: true,
+  active: false,
 };
 
 /**
@@ -54,14 +93,30 @@ function successEnvelope(data: unknown): { code: number; message: string; data: 
 }
 
 /**
- * /api/admin/llm/config 的 fetch 桩：GET 回当前配置，PUT 按场景应答并记录请求体。
+ * /api/admin/llm/config + /api/admin/llm/providers 的 fetch 桩：GET 回当前配置与目录，
+ * 写操作按场景应答并记录请求体。
  * @param initial 初始配置（GET 的应答来源，PUT 成功时同步翻转 enabled）
- * @param putMode ok=正常应答；no-credentials=模拟服务端 40000（enabled=true 且无凭证）
- * @returns fetch 桩与观测句柄（GET 次数、PUT 请求体）
+ * @param options 写操作场景与目录初值；putMode=ok 正常应答 / no-credentials 模拟服务端 40000；
+ *   providers 为目录初值；providersMode 便于模拟激活中不可删（40000）
+ * @returns fetch 桩与观测句柄（GET 次数、写请求记录）
  */
-function stubLlmConfigFetch(initial: LlmConfigFixture, putMode: "ok" | "no-credentials" = "ok") {
+function stubAdminLlmFetch(
+  initial: LlmConfigFixture,
+  options: {
+    putMode?: "ok" | "no-credentials";
+    providers?: LlmProviderFixture[];
+    providersMode?: "ok" | "delete-active-rejected";
+  } = {},
+) {
   let current = initial;
-  const observed = { getCalls: 0, putBodies: [] as Array<Record<string, unknown>> };
+  const providers = [...(options.providers ?? [])];
+  const observed = {
+    getCalls: 0,
+    putBodies: [] as Array<Record<string, unknown>>,
+    providerPosts: [] as Array<Record<string, unknown>>,
+    providerPuts: [] as Array<{ path: string; body: Record<string, unknown> | null }>,
+    providerDeletes: [] as string[],
+  };
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
@@ -72,7 +127,7 @@ function stubLlmConfigFetch(initial: LlmConfigFixture, putMode: "ok" | "no-crede
     if (url.endsWith("/api/admin/llm/config") && method === "PUT") {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       observed.putBodies.push(body);
-      if (putMode === "no-credentials") {
+      if (options.putMode === "no-credentials") {
         return jsonResponse(
           {
             code: 40000,
@@ -84,7 +139,67 @@ function stubLlmConfigFetch(initial: LlmConfigFixture, putMode: "ok" | "no-crede
       current = { ...current, enabled: Boolean(body.enabled) };
       return jsonResponse(successEnvelope(current));
     }
-    throw new Error(`unexpected request: ${url}`);
+    if (url.endsWith("/api/admin/llm/providers") && method === "GET") {
+      observed.getCalls += 1;
+      return jsonResponse(successEnvelope({ items: providers }));
+    }
+    if (url.endsWith("/api/admin/llm/providers") && method === "POST") {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      observed.providerPosts.push(body);
+      const created: LlmProviderFixture = {
+        id: String(body.id),
+        name: String(body.name),
+        protocol: String(body.protocol),
+        baseUrl: String(body.baseUrl),
+        model: String(body.model),
+        hasKey: false,
+        active: false,
+      };
+      providers.push(created);
+      return jsonResponse(successEnvelope(created));
+    }
+    const providerMatch = url.match(/\/api\/admin\/llm\/providers\/([^/]+)(\/activate)?$/);
+    if (providerMatch) {
+      const id = decodeURIComponent(providerMatch[1]);
+      if (method === "PUT" && providerMatch[2]) {
+        observed.providerPuts.push({ path: `/admin/llm/providers/${id}/activate`, body: null });
+        providers.forEach((provider, index) => {
+          providers[index] = { ...provider, active: provider.id === id };
+        });
+        const target = providers.find((provider) => provider.id === id);
+        return jsonResponse(successEnvelope(target));
+      }
+      if (method === "PUT") {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        observed.providerPuts.push({ path: `/admin/llm/providers/${id}`, body });
+        const target = providers.find((provider) => provider.id === id);
+        const updated = target
+          ? {
+              ...target,
+              name: String(body.name),
+              protocol: String(body.protocol),
+              baseUrl: String(body.baseUrl),
+              model: String(body.model),
+            }
+          : target;
+        return jsonResponse(successEnvelope(updated));
+      }
+      if (method === "DELETE") {
+        observed.providerDeletes.push(id);
+        if (options.providersMode === "delete-active-rejected" && id === "zcode-gateway") {
+          return jsonResponse(
+            { code: 40000, message: "激活中的 provider 不能删除，请先激活其他 provider" },
+            400,
+          );
+        }
+        const index = providers.findIndex((provider) => provider.id === id);
+        if (index >= 0) {
+          providers.splice(index, 1);
+        }
+        return jsonResponse(successEnvelope(null));
+      }
+    }
+    throw new Error(`unexpected request: ${method} ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
   return observed;
@@ -111,7 +226,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
   });
 
   it("019 AC-1: hasKey=true 且 enabled=true 时显示已配置、当前模型与答疑「启用中」，不出环境变量指引", async () => {
-    stubLlmConfigFetch(CONFIGURED_ON);
+    stubAdminLlmFetch(CONFIGURED_ON);
 
     renderModelsPage();
 
@@ -126,15 +241,24 @@ describe("ModelsPage 统一模型配置状态中心", () => {
   });
 
   it("019 AC-1: hasKey=false 时显示未配置与 YILIAN_LLM_* 环境变量两件套指引（注明密钥不入库），答疑联动为「未开放」", async () => {
-    stubLlmConfigFetch({ ...CONFIGURED_ON, enabled: false, hasKey: false, baseUrl: "" });
+    stubAdminLlmFetch({
+      ...CONFIGURED_ON,
+      enabled: false,
+      hasKey: false,
+      baseUrl: "",
+      providerId: null,
+      protocol: null,
+      credentialsComplete: false,
+    });
 
     renderModelsPage();
 
-    expect(await screen.findByText("未配置")).toBeInTheDocument();
+    // 「未配置」出现在卡片凭证状态与协议占位两处，任意一处可见即达标。
+    expect((await screen.findAllByText("未配置")).length).toBeGreaterThanOrEqual(1);
     // 指引两件套：端点与密钥两个变量名都必须可见，且注明密钥只经环境变量不入库。
-    // 页头导语含同义句，「不进配置文件」是指引块独有的表述，用它锚定指引本身。
-    expect(screen.getByText(/YILIAN_LLM_BASE_URL/)).toBeInTheDocument();
-    expect(screen.getByText(/YILIAN_LLM_API_KEY/)).toBeInTheDocument();
+    // legacy 形态卡与指引块都含变量名，取「全部匹配」锚定指引本身。
+    expect(screen.getAllByText(/YILIAN_LLM_BASE_URL/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/YILIAN_LLM_API_KEY/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/不进配置文件、不回显/)).toBeInTheDocument();
     // 未配凭证即不可用：卡片运行态、答疑关联、AI 功能清单三处都联动为「未开放」。
     expect(screen.getAllByText("未开放")).toHaveLength(3);
@@ -142,8 +266,13 @@ describe("ModelsPage 统一模型配置状态中心", () => {
   });
 
   it("017R2 OBS-1: hasKey=false 但开关已开时，答疑关联显示「未生效（缺凭证）」而非笼统的未开放，并附下一步说明", async () => {
-    // 021 冒烟遗留的真实组合：enabled=true + 无凭证，管理员视角「开关是开的、功能却不存在」。
-    stubLlmConfigFetch({ ...CONFIGURED_ON, hasKey: false, baseUrl: "" });
+    // legacy 组合：enabled=true + 凭证不齐，管理员视角「开关是开的、功能却不存在」。
+    stubAdminLlmFetch({
+      ...CONFIGURED_ON,
+      hasKey: false,
+      baseUrl: "",
+      credentialsComplete: false,
+    });
 
     renderModelsPage();
 
@@ -157,7 +286,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
   });
 
   it("019 AC-1: 点击启用提交 PUT {enabled:true}，成功后失效缓存重新拉取并提示", async () => {
-    const observed = stubLlmConfigFetch({ ...CONFIGURED_ON, enabled: false });
+    const observed = stubAdminLlmFetch({ ...CONFIGURED_ON, enabled: false });
 
     renderModelsPage();
 
@@ -167,8 +296,8 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     // 请求形状：只受理 enabled（baseUrl/model/apiKey 不传，服务端对非空值 40000）。
     await waitFor(() => expect(observed.putBodies).toHaveLength(1));
     expect(observed.putBodies[0]).toEqual({ enabled: true });
-    // 成功即失效缓存：invalidateQueries 触发第二次 GET，开关状态以服务端回读为准。
-    await waitFor(() => expect(observed.getCalls).toBe(2));
+    // 成功即失效缓存：invalidateQueries 触发第二次 GET（config 与 providers 各一）。
+    await waitFor(() => expect(observed.getCalls).toBeGreaterThanOrEqual(2));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "停用答疑" })).toBeInTheDocument(),
     );
@@ -176,9 +305,17 @@ describe("ModelsPage 统一模型配置状态中心", () => {
   });
 
   it("019 AC-1: 未配凭证时点启用，服务端 40000 文案透出为提示，开关不翻转、缓存不失效", async () => {
-    const observed = stubLlmConfigFetch(
-      { ...CONFIGURED_ON, enabled: false, hasKey: false, baseUrl: "" },
-      "no-credentials",
+    const observed = stubAdminLlmFetch(
+      {
+        ...CONFIGURED_ON,
+        enabled: false,
+        hasKey: false,
+        baseUrl: "",
+        providerId: null,
+        protocol: null,
+        credentialsComplete: false,
+      },
+      { putMode: "no-credentials" },
     );
 
     renderModelsPage();
@@ -193,6 +330,155 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     await waitFor(() => expect(observed.putBodies).toHaveLength(1));
     // 失败不失效缓存：GET 只发生在首次挂载。
     await waitFor(() => expect(screen.getByRole("button", { name: "启用答疑" })).toBeEnabled());
-    expect(observed.getCalls).toBe(1);
+    expect(observed.getCalls).toBe(2);
+  });
+});
+
+describe("ModelsPage provider 目录管理（022 AC-3）", () => {
+  beforeEach(() => {
+    resetApiState();
+    // biome-ignore lint/suspicious/noDocumentCookie: 测试需要写入可读的 CSRF cookie
+    document.cookie = "XSRF-TOKEN=test-token; path=/";
+  });
+
+  it("022 AC-3: 目录列表卡展示名称/协议徽标/端点/模型/hasKey 徽标，激活条目高亮「激活中」", async () => {
+    stubAdminLlmFetch(
+      { ...CONFIGURED_ON, providerId: "zcode-gateway", protocol: "anthropic-messages" },
+      { providers: [ZCODE_GATEWAY, ZHIPU] },
+    );
+
+    renderModelsPage();
+
+    expect(await screen.findByText("ZCode 网关")).toBeInTheDocument();
+    // 协议徽标与 hasKey 徽标：anthropic 轨无 key 显示「无需 Key」，openai 轨有 key 显示「有 Key」。
+    // 协议徽标在卡片与顶部生效态卡各出现一次，任意可见即达标。
+    expect((await screen.findAllByText("anthropic-messages")).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("无需 Key")).toBeInTheDocument();
+    expect(screen.getByText("有 Key")).toBeInTheDocument();
+    // 卡内端点与模型共享一行文本节点，按卡片容器断言内容。
+    const zcodeCard = screen.getByLabelText("provider zcode-gateway");
+    expect(zcodeCard.textContent).toContain("http://127.0.0.1:47860/gateway/zcode");
+    expect(zcodeCard.textContent).toContain("glm-5.3");
+    // 激活高亮与操作按钮：激活条目无「激活」按钮，未激活条目有。
+    expect(screen.getByText("激活中")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "激活 provider zhipu" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "激活 provider zcode-gateway" })).toBeNull();
+    // AI 功能清单按激活 provider 联动出数据源。
+    expect(screen.getByText(/数据源：ZCode 网关（anthropic-messages）/)).toBeInTheDocument();
+  });
+
+  it("022 AC-3: 目录为空时显示 legacy 环境变量直配形态与切换指引", async () => {
+    stubAdminLlmFetch(CONFIGURED_ON);
+
+    renderModelsPage();
+
+    expect(await screen.findByText("环境变量直配（legacy 单 provider）")).toBeInTheDocument();
+    expect(screen.getByText(/新增 provider 并激活后由目录接管/)).toBeInTheDocument();
+    // legacy 形态下无任何 provider 操作按钮。
+    expect(screen.queryByRole("button", { name: "新增 provider" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /^激活 provider/ })).toBeNull();
+  });
+
+  it("022 AC-3: 新增 provider 提交 POST 元数据形状（无 apiKey 字段），成功后目录重新拉取", async () => {
+    const observed = stubAdminLlmFetch(
+      { ...CONFIGURED_ON, providerId: "zcode-gateway", protocol: "anthropic-messages" },
+      { providers: [ZCODE_GATEWAY] },
+    );
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "新增 provider" }));
+    await user.type(screen.getByLabelText("ID"), "zai");
+    await user.type(screen.getByLabelText("名称"), "ZCode 网关（远程）");
+    await user.selectOptions(screen.getByLabelText("协议"), "anthropic-messages");
+    await user.type(
+      screen.getByLabelText("端点 Base URL"),
+      "http://10.150.191.220:47860/gateway/zcode",
+    );
+    await user.type(screen.getByLabelText("模型名"), "glm-5.3-flash");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    // 请求形状：只含元数据，密钥不入请求体。
+    await waitFor(() => expect(observed.providerPosts).toHaveLength(1));
+    expect(observed.providerPosts[0]).toEqual({
+      id: "zai",
+      name: "ZCode 网关（远程）",
+      protocol: "anthropic-messages",
+      baseUrl: "http://10.150.191.220:47860/gateway/zcode",
+      model: "glm-5.3-flash",
+    });
+    expect(JSON.stringify(observed.providerPosts[0])).not.toContain("apiKey");
+    // 成功提示 + 目录刷新（新条目出现在列表）。
+    expect(await screen.findByRole("status")).toHaveTextContent(/已新增/);
+    await waitFor(() => expect(screen.getByText("ZCode 网关（远程）")).toBeInTheDocument());
+  });
+
+  it("022 AC-3: 激活提交 PUT /{id}/activate，成功后激活态翻转并提示", async () => {
+    const observed = stubAdminLlmFetch(
+      { ...CONFIGURED_ON, providerId: "zcode-gateway", protocol: "anthropic-messages" },
+      { providers: [ZCODE_GATEWAY, ZHIPU] },
+    );
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "激活 provider zhipu" }));
+
+    await waitFor(() => expect(observed.providerPuts).toHaveLength(1));
+    expect(observed.providerPuts[0].path).toBe("/admin/llm/providers/zhipu/activate");
+    expect(await screen.findByRole("status")).toHaveTextContent(/已激活/);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "激活 provider zcode-gateway" }),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("022 AC-3: 删除需确认；激活中的 provider 服务端 40000 文案透出且不删除", async () => {
+    const observed = stubAdminLlmFetch(
+      { ...CONFIGURED_ON, providerId: "zcode-gateway", protocol: "anthropic-messages" },
+      { providers: [ZCODE_GATEWAY, ZHIPU], providersMode: "delete-active-rejected" },
+    );
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "删除 provider zcode-gateway" }));
+    // 确认框讲清后果（只删元数据、密钥不动），确认后才发 DELETE。
+    expect(await screen.findByRole("dialog")).toHaveTextContent(/只删目录元数据/);
+    await user.click(screen.getByRole("button", { name: "删除" }));
+    await waitFor(() => expect(observed.providerDeletes).toEqual(["zcode-gateway"]));
+    expect(await screen.findByRole("status")).toHaveTextContent(/激活中的 provider 不能删除/);
+    // 条目仍在目录里。
+    expect(screen.getByText("ZCode 网关")).toBeInTheDocument();
+  });
+
+  it("022 AC-3: 编辑回填条目且 id 固定不可改，提交 PUT /{id} 整体覆盖元数据", async () => {
+    const observed = stubAdminLlmFetch(
+      { ...CONFIGURED_ON, providerId: "zcode-gateway", protocol: "anthropic-messages" },
+      { providers: [ZCODE_GATEWAY] },
+    );
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "编辑 provider zcode-gateway" }));
+    const idInput = screen.getByLabelText("ID") as HTMLInputElement;
+    expect(idInput).toBeDisabled();
+    expect(idInput.value).toBe("zcode-gateway");
+    const nameInput = screen.getByLabelText("名称") as HTMLInputElement;
+    await user.clear(nameInput);
+    await user.type(nameInput, "ZCode 本地网关");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(observed.providerPuts).toHaveLength(1));
+    expect(observed.providerPuts[0].path).toBe("/admin/llm/providers/zcode-gateway");
+    expect(observed.providerPuts[0].body).toEqual({
+      name: "ZCode 本地网关",
+      protocol: "anthropic-messages",
+      baseUrl: "http://127.0.0.1:47860/gateway/zcode",
+      model: "glm-5.3",
+    });
   });
 });

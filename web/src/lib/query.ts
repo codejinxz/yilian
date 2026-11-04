@@ -46,6 +46,8 @@ export const queryKeys = {
     importBatch: (batchId: string, params: Record<string, unknown>) =>
       ["admin", "imports", batchId, params] as const,
     llmConfig: ["admin", "llm-config"] as const,
+    /** provider 目录（022）：列表 + 每项 hasKey/active；激活切换后连带失效 llmConfig。 */
+    llmProviders: ["admin", "llm-providers"] as const,
   },
 };
 

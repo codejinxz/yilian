@@ -627,18 +627,30 @@ export async function updateAdminBankStatus(
 }
 
 // ---------------------------------------------------------------------------
-// 答疑 LLM 配置（017 落地的真实端点，019 ModelsPage 状态中心接入）。
-// 凭据只走 YILIAN_LLM_* 环境变量（AGENTS §3.4 密钥不入库）：GET 回 hasKey 不回读
-// apiKey；PUT 只受理 enabled，baseUrl/model/apiKey 三个字段不传——服务端对非空值
-// 一律 40000 拒绝（API §8.14.2）。
+// 答疑 LLM 配置（017 落地的真实端点，019 ModelsPage 状态中心接入；022 扩展
+// provider 目录维度）。凭据只走环境变量（AGENTS §3.4 密钥不入库）：GET 回
+// hasKey 不回读 apiKey；PUT 只受理 enabled，baseUrl/model/apiKey 三个字段不传
+// ——服务端对非空值一律 40000 拒绝（API §8.14.2）。
 // ---------------------------------------------------------------------------
 
-/** 管理端 LLM 配置视图（API §8.14.1）：enabled 为生效开关，baseUrl/model 为环境变量生效值。 */
+/** 对话协议 wire 值（022，与服务端 LlmProtocol 一致；发布后不改号）。 */
+export const llmProtocols = ["anthropic-messages", "openai-chat", "openai-responses"] as const;
+
+/** 对话协议类型。 */
+export type LlmProtocol = (typeof llmProtocols)[number];
+
+/** 管理端 LLM 配置视图（API §8.14.1）：enabled 为生效开关，baseUrl/model/hasKey 反映激活 provider（022 起目录模式）或 legacy 环境变量。 */
 export const llmConfigSchema = z.object({
   enabled: z.boolean(),
   baseUrl: z.string(),
   model: z.string(),
   hasKey: z.boolean(),
+  /** 生效 provider id；legacy 环境变量直配时为 "legacy"，未配置时为 null（022 新增）。 */
+  providerId: z.string().nullable(),
+  /** 生效协议 wire 值；未配置时为 null（022 新增）。 */
+  protocol: z.string().nullable(),
+  /** 凭证按协议口径是否齐备（anthropic-messages 轨 key 可空；不能用 hasKey 代替判断可用性）。 */
+  credentialsComplete: z.boolean(),
 });
 
 /** 管理端 LLM 配置视图类型。 */
@@ -662,6 +674,93 @@ export async function getLlmConfig(signal?: AbortSignal): Promise<LlmConfig> {
 export async function updateLlmConfig(input: { enabled: boolean }): Promise<LlmConfig> {
   const data = await jsonRequest<unknown>("/admin/llm/config", "PUT", { enabled: input.enabled });
   return parseData(llmConfigSchema, data);
+}
+
+// ---------------------------------------------------------------------------
+// provider 目录（022，API §8.15）：CC Switch 式多 provider 元数据 CRUD 与激活
+// 切换。apiKey 不入库不回读——每条目只回 hasKey（YILIAN_LLM_KEY_<大写ID> env
+// 索引）；激活中的 provider 服务端拒绝删除；激活条目即答疑等 AI 功能的数据源。
+// ---------------------------------------------------------------------------
+
+/** provider 目录条目（API §8.15.1）。 */
+export const llmProviderSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  protocol: z.enum(llmProtocols),
+  baseUrl: z.string(),
+  model: z.string(),
+  /** 该 provider 的 env 密钥是否已配置；anthropic-messages 轨无 key 也可用。 */
+  hasKey: z.boolean(),
+  /** 是否为当前激活 provider（激活唯一）。 */
+  active: z.boolean(),
+});
+
+/** provider 目录条目类型。 */
+export type LlmProvider = z.infer<typeof llmProviderSchema>;
+
+/**
+ * 列出 provider 目录（保持目录顺序）。
+ * @param signal 取消信号
+ * @returns 目录条目数组
+ */
+export async function getLlmProviders(signal?: AbortSignal): Promise<LlmProvider[]> {
+  const data = await apiRequest<unknown>("/admin/llm/providers", { signal });
+  return parseData(z.object({ items: z.array(llmProviderSchema) }), data).items;
+}
+
+/**
+ * 新增 provider（追加目录末尾，默认未激活；答疑数据源切换需显式激活）。
+ * @param input id/name/protocol/baseUrl/model 元数据（不含 apiKey）
+ * @returns 新增后的条目
+ */
+export async function createLlmProvider(input: {
+  id: string;
+  name: string;
+  protocol: LlmProtocol;
+  baseUrl: string;
+  model: string;
+}): Promise<LlmProvider> {
+  const data = await jsonRequest<unknown>("/admin/llm/providers", "POST", input);
+  return parseData(llmProviderSchema, data);
+}
+
+/**
+ * 更新 provider 元数据（id 走路径不可改）。
+ * @param id 目标 provider id
+ * @param input name/protocol/baseUrl/model
+ * @returns 更新后的条目
+ */
+export async function updateLlmProvider(
+  id: string,
+  input: { name: string; protocol: LlmProtocol; baseUrl: string; model: string },
+): Promise<LlmProvider> {
+  const data = await jsonRequest<unknown>(
+    `/admin/llm/providers/${encodeURIComponent(id)}`,
+    "PUT",
+    input,
+  );
+  return parseData(llmProviderSchema, data);
+}
+
+/**
+ * 从目录移除 provider；激活中的 provider 服务端 40000 拒绝（先激活其他条目）。
+ * @param id 目标 provider id
+ */
+export async function deleteLlmProvider(id: string): Promise<void> {
+  await jsonRequest<unknown>(`/admin/llm/providers/${encodeURIComponent(id)}`, "DELETE");
+}
+
+/**
+ * 激活 provider（激活唯一，重复激活幂等）：激活条目即时成为答疑等 AI 功能的数据源。
+ * @param id 目标 provider id
+ * @returns 激活后的条目
+ */
+export async function activateLlmProvider(id: string): Promise<LlmProvider> {
+  const data = await jsonRequest<unknown>(
+    `/admin/llm/providers/${encodeURIComponent(id)}/activate`,
+    "PUT",
+  );
+  return parseData(llmProviderSchema, data);
 }
 
 // 九页签页面直接从客户端取用户类型；schemas 保持既有导出面，不额外扩散。
