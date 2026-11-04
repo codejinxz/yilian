@@ -15,7 +15,7 @@ const QUESTION_MAX = 500;
  * API §6.12 的三态语义展开为可执行的提示，措辞对齐 API.md §8.14 的变量名与管理端入口。
  */
 const UNAVAILABLE_MESSAGES: Record<number, string> = {
-  40304: "答疑未开放：请先在管理端启用模型",
+  40304: "答疑未开放：请先在管理端启用答疑",
   40400: "答疑功能未配置：需先设置 YILIAN_LLM_* 环境变量",
 };
 

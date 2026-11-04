@@ -81,7 +81,7 @@ describe("AskPanel", () => {
 
     // 先讲清原因：定向文案可见（对齐 API §6.12 三态语义），且不是普通错误文案。
     expect(await screen.findByRole("alert")).toHaveTextContent("答疑未开放");
-    expect(screen.getByRole("alert").textContent).toContain("请先在管理端启用模型");
+    expect(screen.getByRole("alert").textContent).toContain("请先在管理端启用答疑");
     // 输入不丢：textarea 与已上屏的问句气泡都还在（受控 textarea 的值也是文本节点，
     // 两个匹配 = 气泡 + 输入框）。
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(
