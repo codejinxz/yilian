@@ -45,7 +45,8 @@ public class AdminAuditEventController {
     @Operation(
             summary = "记录审计事件",
             description =
-                    "action 白名单：RESET_PASSWORD/EXPORT_USER_DATA/SESSION_REVOKE/MODEL_CONFIG_UPDATE/MODEL_TOGGLE/PROMPT_UPDATE。")
+                    "action 白名单：EXPORT_USER_DATA/SESSION_REVOKE/MODEL_CONFIG_UPDATE/MODEL_TOGGLE/PROMPT_UPDATE；"
+                            + "重置密码已迁移到真端点 POST /api/admin/users/{id}/reset-password，不在本入口白名单内。")
     @PostMapping
     public ApiResponse<Map<String, String>> record(
             @RequestBody AdminAuditEventRequest request,
