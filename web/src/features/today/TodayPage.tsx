@@ -92,6 +92,12 @@ export function TodayPage() {
   const online = useOnlineStatus();
   const mock = isMockEnabled();
   const toast = useToast();
+  /**
+   * 题库 chips 折叠态：默认收起。内部/测试题库名平铺会淹没新用户的第一屏
+   * （体验报告 D12/S4），启动台的一次点击应直达「今天该做的事」；错题 chip 是
+   * 用户自己的待办，保持常驻不折叠。
+   */
+  const [banksOpen, setBanksOpen] = useState(false);
 
   const todayQuery = useQuery(todayQueryOptions);
   const today = todayQuery.data;
@@ -147,6 +153,8 @@ export function TodayPage() {
   const bankSentenceTotal = banksQuery.data
     ? banks.reduce((sum, bank) => sum + bank.sentenceCount, 0)
     : null;
+  /** 可练的题库 chip：0 句的库（如已回收）不可练，不再占位（体验报告 D12）。 */
+  const chipBanks = banks.filter((bank) => bank.sentenceCount > 0);
 
   const dateNow = new Date();
   const dateParts = today?.date
@@ -155,16 +163,14 @@ export function TodayPage() {
   const dateLabel = `${dateParts[1]} 月 ${dateParts[2]} 日`;
 
   /**
-   * 主按钮三态文案（todayStart）：今天已练过→继续下一句；有到期→开始 N 句；否则热身。
+   * 主按钮语义（体验报告 S4）：「开始今日 N 题」，N = 当日待练数 = 每日目标 − 已练，
+   * 两个数字都来自既有 today 聚合，不新增端点。与定级时用户选的「每天几题」对齐，
+   * 不再出现「做 10 句热身」与自选目标互相矛盾的两套口径。
+   * 清完当日目标后兜底「今日已清完，可自由练习」——按钮仍直达练习页自由练。
    */
   const doneCount = today?.doneCount ?? 0;
-  const dueCount = today?.dueCount ?? 0;
-  const ctaLabel =
-    doneCount > 0
-      ? `继续第 ${doneCount + 1} 句`
-      : dueCount > 0
-        ? `开始 ${dueCount} 句`
-        : `做 10 句热身`;
+  const remainingToday = Math.max(0, (today?.goal ?? 0) - doneCount);
+  const ctaLabel = remainingToday > 0 ? `开始今日 ${remainingToday} 题` : `今日已清完，可自由练习`;
 
   const dateHeader = (
     <div className="flex items-center gap-2.5 font-mono text-[11px] tracking-[0.12em] text-ink-faint">
@@ -233,11 +239,9 @@ export function TodayPage() {
         </Notice>
       ) : null}
 
-      {/* 主按钮三态文案todayStart；空题库时点击只提示不跳转。
+      {/* 主按钮按当日待练数生成文案（见 ctaLabel 注释）；空题库时点击只提示不跳转。
           不写静态 aria-label：可见文案本身即可访问名，静态覆盖反而让读屏用户
-          听不到「继续第 N 句 / 开始 N 句 / 做 10 句热身」的状态差异。
-          热身态的 excludeIds 语义：getNextPractice 契约只支持单个 excludeSentenceId，
-          传不了整组排除，先做普通跳转，由练习页的取题顺序（到期优先）兜底。 */}
+          听不到「开始今日 N 题 / 今日已清完」的状态差异。 */}
       <Link
         to="/practice"
         onClick={(event) => {
@@ -259,24 +263,7 @@ export function TodayPage() {
       </Link>
 
       {banksQuery.isError ? null : (
-        <div className="mt-[18px] flex flex-wrap gap-2.5">
-          {banks.map((bank) => (
-            <Link
-              key={bank.id}
-              to="/practice"
-              search={(prev) => ({ ...prev, bankId: bank.id })}
-              title={`从「${bank.name}」开始练习`}
-              onClick={(event) => {
-                if (bank.sentenceCount === 0) {
-                  event.preventDefault();
-                  toast.show("这个题库还没有句子");
-                }
-              }}
-              className="inline-flex cursor-pointer items-center rounded-[2px] border border-rule px-[11px] py-[7px] font-mono text-[11px] tracking-[0.02em] text-ink-muted hover:border-vermilion hover:text-vermilion"
-            >
-              {bank.name.split(" · ")[0]} {bank.sentenceCount}
-            </Link>
-          ))}
+        <div className="mt-[18px] flex flex-wrap items-center gap-2.5">
           {/* 错题没有独立的 bankId（不是题库表里的行），startToday('errors')：进练习页的错题集取题。
               契约里用布尔 search 表达：链接序列化为 ?errors=true，validateSearch 归一为 errors: true；
               不能裸写 ?errors=1——查询串会被 JSON 解析成数字 1，匹配不上 errors===true 的契约。 */}
@@ -288,6 +275,37 @@ export function TodayPage() {
           >
             错题 {wrongQuery.data?.total ?? "…"}
           </Link>
+          {/* 题库 chips 默认折叠（体验报告 D12/S4）：测试/内部题库名平铺会把第一屏变成
+              「9 个陌生 chip」，展开动作交给需要自选题库的用户。 */}
+          {chipBanks.length > 0 ? (
+            <button
+              type="button"
+              aria-expanded={banksOpen}
+              onClick={() => setBanksOpen((open) => !open)}
+              className="inline-flex cursor-pointer items-center rounded-[2px] border border-dashed border-rule px-[11px] py-[7px] font-mono text-[11px] tracking-[0.02em] text-ink-faint hover:border-vermilion hover:text-vermilion"
+            >
+              {banksOpen ? "收起题库" : `更多题库 ${chipBanks.length}`}
+            </button>
+          ) : null}
+          {banksOpen
+            ? chipBanks.map((bank) => (
+                <Link
+                  key={bank.id}
+                  to="/practice"
+                  search={(prev) => ({ ...prev, bankId: bank.id })}
+                  title={`从「${bank.name}」开始练习`}
+                  onClick={(event) => {
+                    if (bank.sentenceCount === 0) {
+                      event.preventDefault();
+                      toast.show("这个题库还没有句子");
+                    }
+                  }}
+                  className="inline-flex cursor-pointer items-center rounded-[2px] border border-rule px-[11px] py-[7px] font-mono text-[11px] tracking-[0.02em] text-ink-muted hover:border-vermilion hover:text-vermilion"
+                >
+                  {bank.name.split(" · ")[0]} {bank.sentenceCount}
+                </Link>
+              ))
+            : null}
         </div>
       )}
 

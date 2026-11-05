@@ -530,10 +530,12 @@ describe("auth-state routing switch", () => {
 
     renderApp("/register");
 
-    // 话术：说明本机记录去向与保留承诺；不含任何「定级/水平/等级」字样。
-    expect(
-      await screen.findByText(/注册后本机练习记录会并入账号；原始记录仍保留在本机/),
-    ).toBeInTheDocument();
+    // 话术（027 AC-8 如实化）：说明本机记录不自动并入、仍保留本机与设置页出口；
+    // 不含任何「定级/水平/等级」字样，也不再承诺「会并入账号」（D1 的承诺未兑现源头）。
+    expect(await screen.findByText(/不会自动并入账号/)).toBeInTheDocument();
+    // 登录基线与注册补充说明都提到本机保留，用 getAllByText 断言存在即可。
+    expect(screen.getAllByText(/仍保留在这台设备/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/练习记录会并入账号/)).not.toBeInTheDocument();
     expect(screen.queryByText(/定级|等级|水平测试/)).not.toBeInTheDocument();
   });
 });

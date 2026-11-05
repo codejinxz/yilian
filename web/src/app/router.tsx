@@ -16,6 +16,7 @@ import { ADMIN_URL_TABS, type AdminTabParam } from "@/features/admin/constants";
 import { clearSession, onSessionCleared } from "@/features/auth/clear-session";
 import { ForbiddenPage } from "@/features/auth/ForbiddenPage";
 import { LoginPage, RegisterPage } from "@/features/auth/LoginPage";
+import { useSessionStore } from "@/features/auth/session";
 import { PlacementPage } from "@/features/placement/PlacementPage";
 import { PracticePage } from "@/features/practice/PracticePage";
 import { ReviewPage } from "@/features/review/ReviewPage";
@@ -392,6 +393,11 @@ export function createAppRouter(options: { queryClient: QueryClient; history?: R
     const confirmed = options.queryClient.getQueryData(queryKeys.me) != null;
     if (confirmed && !hadConfirmedUser) {
       hadConfirmedUser = true;
+      // 会话恢复（刷新后经 refresh cookie 拿回登录态）同样要置位 Zustand 登录态：
+      // 此前只有登录/注册页会 setAuthenticated，刷新恢复路径停留在 unknown，
+      // 练习页按 sessionStatus 门控的「让模型复核」入口对已登录用户误隐藏（024 冒烟观察）。
+      // 登录页的置位与此幂等；登出时 clearSession 会置回 anonymous。
+      useSessionStore.getState().setAuthenticated();
       window.setTimeout(() => {
         void options.queryClient.invalidateQueries({ queryKey: ["practice"] });
         void options.queryClient.invalidateQueries({ queryKey: ["analytics"] });

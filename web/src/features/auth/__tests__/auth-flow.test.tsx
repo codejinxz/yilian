@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "@/app/providers";
 import { createAppRouter } from "@/app/router";
+import { useSessionStore } from "@/features/auth/session";
 import { getAccessToken, resetApiState, setAccessToken } from "@/lib/api";
 import {
   createMemoryEngineStorage,
@@ -257,17 +258,21 @@ describe("auth flow", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const { router } = renderApp("/today");
+    const user = userEvent.setup();
+    // 题库 chips 默认折叠（027 AC-7）：展开后才能断言游客可见的题库集合。
+    await user.click(await screen.findByRole("button", { name: /更多题库/ }));
     // 游客首屏：chips 只有公开库。
     expect(await screen.findByText(/官方题库/)).toBeInTheDocument();
     expect(screen.queryByText(/我的私有题库/)).toBeNull();
 
-    // 登录成功回今日页：banks 查询失效重取后私有库 chip 可见。
+    // 登录成功回今日页：banks 查询失效重取后私有库 chip 可见（页面重挂载后 chips
+    // 恢复折叠，需要再次展开）。
     await router.navigate({ to: "/login" });
-    const user = userEvent.setup();
     await user.type(await screen.findByLabelText("用户名或邮箱"), "admin");
     await user.type(screen.getByLabelText("密码"), "test-admin-password");
     await user.click(screen.getByRole("button", { name: "登录" }));
 
+    await user.click(await screen.findByRole("button", { name: /更多题库/ }));
     expect(await screen.findByText(/我的私有题库/)).toBeInTheDocument();
     const authedBankCalls = fetchMock.mock.calls.filter(([input, init]) => {
       if (!String(input).includes("/api/banks?")) {
@@ -409,6 +414,57 @@ describe("auth flow", () => {
       .map((call) => String(call[0]))
       .filter((url) => url.includes("/api/auth/"));
     expect(authUrls).toEqual([expect.stringContaining("/api/auth/refresh")]);
+  });
+
+  it("027 AC-11: cold-start session restore marks the zustand session authenticated so gated UI stays consistent", async () => {
+    // 刷新后经 refresh cookie 恢复会话：me 查询写入缓存即视为「已确认登录」，
+    // Zustand 登录态同步置位——练习页「让模型复核」等按 sessionStatus 门控的 UI
+    // 在恢复路径下此前停留在 unknown，已登录用户看不到复核入口。
+    markPlaced();
+    useSessionStore.getState().setAnonymous();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/auth/refresh")) {
+        return jsonResponse(authEnvelope());
+      }
+      const business = businessQueryResponse(url);
+      if (business) {
+        return business;
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp("/");
+
+    expect(await screen.findByRole("heading", { name: "今日" })).toBeInTheDocument();
+    expect(getAccessToken()).toBe("access-token");
+    expect(useSessionStore.getState().status).toBe("authenticated");
+  });
+
+  it("027 AC-11: anonymous cold start never marks the session authenticated", async () => {
+    // 反向口径：refresh 401（无会话）时不得把登录态置成 authenticated，
+    // 否则游客会看到只对登录者开放的入口。
+    markPlaced();
+    // store 是模块级单例，前序用例可能留下 authenticated；显式回游客态再验证不置位。
+    useSessionStore.getState().setAnonymous();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/auth/refresh")) {
+        return jsonResponse(errorEnvelope(40100, "请先登录"), 401);
+      }
+      const business = businessQueryResponse(url);
+      if (business) {
+        return business;
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderApp("/");
+
+    expect(await screen.findByRole("heading", { name: "今日" })).toBeInTheDocument();
+    expect(useSessionStore.getState().status).not.toBe("authenticated");
   });
 
   it("refreshes once and replays a request after access token expiry", async () => {

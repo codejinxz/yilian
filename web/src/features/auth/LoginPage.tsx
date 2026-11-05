@@ -269,10 +269,10 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
           {mode === "login" ? "登录" : "注册"}
         </h1>
         <p className="mb-[30px] mt-[10px] text-[13px] leading-[1.75] text-ink-muted">
-          登录后，错题和进度跟着账号走。不登录也能练，数据留在这台设备。
+          登录后，今日、复习与统计显示账号的数据，本机的游客记录不再出现在这些页面——原始记录仍保留在这台设备，可在设置页导出。不登录也能练，数据留在这台设备。
           {mode === "register" ? (
             <span className="mt-1.5 block">
-              注册后本机练习记录会并入账号；原始记录仍保留在本机。
+              注册后账号从零开始：本机的游客练习记录不会自动并入账号，仍保留在这台设备；登录后可在设置页导出，或手动同步到账号。
             </span>
           ) : null}
         </p>

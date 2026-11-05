@@ -323,18 +323,14 @@ export function SettingsPage() {
   });
 
   /**
-   * 切换批改方式；纯本地偏好，当前版本只存储不参与判分（页面上已注明）。
+   * 切换批改方式；纯本地偏好，当前版本只存储不参与判分（行内「演示预留」注明）。
+   * toast 同步说明这一限制，避免「切换即生效」的错觉。
    * @param mode 仅本地 / 自动 / 总是模型
    */
   function handleGradingChange(mode: GradingMode) {
     setGradingMode(mode);
-    showToast(
-      mode === "LOCAL"
-        ? "批改方式：仅本地"
-        : mode === "AUTO"
-          ? "批改方式：自动"
-          : "批改方式：总是模型",
-    );
+    const label = mode === "LOCAL" ? "仅本地" : mode === "AUTO" ? "自动" : "总是模型";
+    showToast(`批改方式已保存为「${label}」（演示：当前仍按本地判分执行）`);
   }
 
   /**
@@ -567,12 +563,20 @@ export function SettingsPage() {
 
         <SettingRow label="批改方式">
           <div className="space-y-3.5">
+            {/* 如实标注（027 定位结论）：批改方式开关当前只存不生效——gradingMode 仅由本页读写
+                （展示选中态 + toast），判分链路（练习页本地判分、提交接口、服务端 Grader）没有任何
+                读取点；「本地/服务端判分切换」是给 M3 深度批改预留的历史过渡开关，服务端当前
+                没有对应的路由能力。修到生效需要新建服务端深度批改（超出本批范围），移除则破坏
+                原型对齐并失去后续接入位，故按「如实标注为演示」处理，选项描述改为将来时语义。 */}
+            <p className="text-[11px] leading-[1.65] text-vermilion-deep">
+              演示预留：当前版本全部为本地判分，这里的选择暂不改变批改行为；深度批改待服务端能力就绪后接入。
+            </p>
             <RadioOption
               name="grading"
               value="LOCAL"
               checked={gradingMode === "LOCAL"}
               title="仅本地"
-              desc="要点匹配 + 词级 diff。离线可用，零成本。"
+              desc="将来：只做要点匹配 + 词级 diff，全程不出本机。"
               onChange={() => handleGradingChange("LOCAL")}
             />
             <RadioOption
@@ -580,7 +584,7 @@ export function SettingsPage() {
               value="AUTO"
               checked={gradingMode === "AUTO"}
               title="自动（推荐）"
-              desc="先本地出结果，置信度低时再调模型。"
+              desc="将来：先本地出结果，置信度低时再调模型。"
               onChange={() => handleGradingChange("AUTO")}
             />
             <RadioOption
@@ -588,8 +592,7 @@ export function SettingsPage() {
               value="ALWAYS_MODEL"
               checked={gradingMode === "ALWAYS_MODEL"}
               title="总是模型"
-              desc="每次都走 LLM，最准也最慢。"
-              note="当前版本全部为本地判分，选择后暂按「自动」执行。"
+              desc="将来：每次都走 LLM，最准也最慢。"
               onChange={() => handleGradingChange("ALWAYS_MODEL")}
             />
           </div>
@@ -746,9 +749,9 @@ export function SettingsPage() {
 
         <SettingRow label="数据与隐私">
           <div>
+            {/* 如实描述现状：当前没有任何模型调用发生，「会发给供应商」只属于将来的深度批改。 */}
             <p className="text-[13px] leading-[1.75] text-ink-muted">
-              深度批改会把译文发给模型供应商（当前 DeepSeek ·
-              中国），仅用于本次批改，不用于训练。开启「仅本地」后译文不会外发。
+              当前版本全部为本地判分，译文不会离开这台设备。将来开启深度批改后，译文才会发给模型供应商（仅用于本次批改，不用于训练）；届时「仅本地」开启则不外发。
             </p>
             <label className="mt-3.5 flex cursor-pointer items-start gap-2.5 text-[13px] leading-[1.5] text-ink-muted">
               <input
@@ -756,17 +759,18 @@ export function SettingsPage() {
                 checked={localOnly}
                 onChange={(event) => {
                   setLocalOnly(event.target.checked);
-                  showToast(event.target.checked ? "已切换为仅本地批改" : "已允许深度批改调用模型");
+                  showToast(
+                    event.target.checked
+                      ? "已切换为仅本地批改"
+                      : "已保存偏好（当前版本仍全部本地判分）",
+                  );
                 }}
                 className="mt-[3px] accent-vermilion"
               />
               <span>
                 <span className="text-ink">仅本地批改</span>
                 <span className="mt-1 block text-[11px] leading-[1.65] text-ink-faint">
-                  关闭后才会调用模型；首次调用前会再确认一次。
-                </span>
-                <span className="mt-1 block text-[11px] leading-[1.65] text-vermilion-deep">
-                  当前版本全部为本地判分。
+                  将来关闭该开关才允许调用模型；首次调用前会再确认一次。
                 </span>
               </span>
             </label>
