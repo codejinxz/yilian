@@ -31,10 +31,10 @@ import java.util.List;
 /**
  * external_key 唯一键双入口回归：真实 MySQL yilian_test。
  *
- * <p>回归背景：若 external_key 固定 {@code gen_%04d} 行号，行号每请求重排，同库第二次导入 必撞 {@code
- * uk_sentence_bank_external}：内容不同 → DataIntegrityViolation 冒 500；内容相同 → 本应按指纹
- * 40904。回滚批次后文件重导同文件也会撞被回收行仍占用的 key。现 AI 导入 的 key 带批次前缀（按请求隔离）；文件路径在唯一键兜底冲突时翻译为 40904。
- * 已知边界：唯一键仍覆盖已回收行，彻底放行需「仅活跃行」唯一索引迁移（active_external_key），尚未实施。
+ * <p>回归背景：若 external_key 固定 {@code gen_%04d} 行号，行号每请求重排，同库第二次导入 必撞唯一键：内容不同 → DataIntegrityViolation
+ * 冒 500；内容相同 → 本应按指纹 40904。回滚批次后文件重导同文件也会撞被回收行仍占用的 key。现 AI 导入 的 key 带批次前缀（按请求隔离）；文件路径在唯一键兜底冲突时翻译为
+ * 40904。 V11 起 {@code uk_sentence_active_external} 仅约束活跃行（回收行键占用释放），重导放行； 活跃行互斥由生成列唯一键 +
+ * 导入事务锁（bankDao.lockById 串行化同库导入）承接，并发兜底不回归。
  */
 @SpringBootTest(
         properties = {
@@ -157,15 +157,14 @@ class ImportExternalKeyReuseIntegrationTest {
     }
 
     /**
-     * [AC-5] 文件路径回滚后重导同文件：唯一键兜底冲突翻译为 40904（修复前 500）。
+     * [AC-5] 文件路径回滚后重导同文件：成功（V11 起唯一键仅约束活跃行）。
      *
-     * <p>指纹预检对已回收行放行（active_fingerprint 为 NULL），提交时 INSERT 撞被回收行仍占用的 {@code (bank_id,
-     * external_key)}；当前迁移口径下该冲突收敛为干净的 40904 + 批次 FAILED。 「重导同文件成功」需要 V11
-     * 把唯一键改为仅活跃行语义（待批准项，暂以本用例锁定错误语义）。
+     * <p>指纹预检对已回收行放行（active_fingerprint 为 NULL），提交 INSERT 不再撞被回收行的 external_key 占用——回收行
+     * active_external_key 归 NULL，唯一索引对 NULL 不去重。重导后 旧回收行保留（软删不删题），新题活跃入库。
      */
     @Test
-    @DisplayName("[AC-5] 文件回滚后重导同文件 → 干净 40904")
-    void ac5_fileReimportAfterRollbackFailsClean40904() {
+    @DisplayName("[AC-5] 文件回滚后重导同文件 → 成功")
+    void ac5_fileReimportAfterRollbackSucceeds() {
         long bankId = seedBank();
         ImportPreviewResponse first =
                 importBatchService.preview(
@@ -178,16 +177,140 @@ class ImportExternalKeyReuseIntegrationTest {
                         multipart("batch.json", fileJson(ZH_A, REF_A)), bankId, "JSON", ADMIN);
         assertThat(second.validRows()).as("已回收行不再参与指纹去重").isEqualTo(1);
 
+        ImportBatchViewResponse recommitted = importBatchService.commit(second.batchId(), ADMIN);
+        assertThat(recommitted.status()).isEqualTo("COMMITTED");
+        assertThat(recommitted.importedRows()).isEqualTo(1);
+        Long recycled =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM sentences WHERE bank_id = ? AND status = 'RECYCLED'",
+                        Long.class,
+                        bankId);
+        Long active =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM sentences WHERE bank_id = ? AND deleted_at IS NULL",
+                        Long.class,
+                        bankId);
+        assertThat(recycled).as("旧行保留在回收站").isEqualTo(1);
+        assertThat(active).as("新行活跃入库").isEqualTo(1);
+    }
+
+    /**
+     * [AC-5] 活跃行互斥回归：两个活跃行同 (bank_id, external_key) —— 唯一键兜底冲突翻译为 40904（V11
+     * 后并发导入防护的数据库层验证；回收行不挡、活跃行照挡）。
+     */
+    @Test
+    @DisplayName("[AC-5] 活跃行同键第二批次 → 40904 整批失败")
+    void ac5_activeDuplicateExternalKeyStillRejected40904() {
+        long bankId = seedBank();
+        // 同 key 不同内容：指纹互异（预检放行），唯一性由 active_external_key 兜底。
+        importBatchService.commit(
+                importBatchService
+                        .preview(
+                                multipart("batch-1.json", fileJsonWithKey(ZH_A, REF_A, "s_1")),
+                                bankId,
+                                "JSON",
+                                ADMIN)
+                        .batchId(),
+                ADMIN);
+
+        ImportPreviewResponse second =
+                importBatchService.preview(
+                        multipart("batch-2.json", fileJsonWithKey(ZH_B, REF_B, "s_1")),
+                        bankId,
+                        "JSON",
+                        ADMIN);
+        assertThat(second.validRows()).as("内容不同，指纹预检放行").isEqualTo(1);
+
         assertThatThrownBy(() -> importBatchService.commit(second.batchId(), ADMIN))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
-                        exception ->
-                                assertThat(exception.apiCode())
-                                        .isEqualTo(ApiCode.IMPORT_NOT_COMMITTABLE));
-        ImportBatchViewResponse failed =
-                importBatchService.detail(second.batchId(), 1, 20, null).batch();
-        assertThat(failed.status()).isEqualTo("FAILED");
-        assertThat(activeSentenceCount(bankId)).as("冲突整批回滚，不留半提交").isEqualTo(0);
+                        exception -> {
+                            assertThat(exception.apiCode())
+                                    .isEqualTo(ApiCode.IMPORT_NOT_COMMITTABLE);
+                            assertThat(exception.getMessage()).contains("唯一键冲突");
+                        });
+        assertThat(importBatchService.detail(second.batchId(), 1, 20, null).batch().status())
+                .isEqualTo("FAILED");
+        Long active =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM sentences WHERE bank_id = ? AND deleted_at IS NULL",
+                        Long.class,
+                        bankId);
+        assertThat(active).as("冲突整批回滚，不留半提交").isEqualTo(1);
+    }
+
+    /**
+     * [AC-5] 并发导入兜底不回归：两线程同时提交同键不同内容的两批，行锁串行化后 恰好一批 COMMITTED、另一批撞 {@code
+     * uk_sentence_active_external} 收敛为 FAILED （事务体由 causedByDataIntegrityViolation 翻译为 40904）。
+     */
+    @Test
+    @DisplayName("[AC-5] 并发同键导入 → 恰一批成功")
+    void ac5_concurrentSameKeyImportsExactlyOneCommits() throws Exception {
+        long bankId = seedBank();
+        ImportPreviewResponse first =
+                importBatchService.preview(
+                        multipart("batch-1.json", fileJsonWithKey(ZH_A, REF_A, "s_1")),
+                        bankId,
+                        "JSON",
+                        ADMIN);
+        ImportPreviewResponse second =
+                importBatchService.preview(
+                        multipart("batch-2.json", fileJsonWithKey(ZH_B, REF_B, "s_1")),
+                        bankId,
+                        "JSON",
+                        ADMIN);
+
+        java.util.concurrent.CountDownLatch ready = new java.util.concurrent.CountDownLatch(2);
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        class Committer implements Runnable {
+            final String batchId;
+            final java.util.concurrent.atomic.AtomicReference<String> outcome =
+                    new java.util.concurrent.atomic.AtomicReference<>("PENDING");
+
+            Committer(String batchId) {
+                this.batchId = batchId;
+            }
+
+            @Override
+            public void run() {
+                ready.countDown();
+                try {
+                    go.await();
+                    importBatchService.commit(batchId, ADMIN);
+                    outcome.set("COMMITTED");
+                } catch (BusinessException exception) {
+                    outcome.set(
+                            exception.apiCode() == ApiCode.IMPORT_NOT_COMMITTABLE
+                                    ? "REJECTED_40904"
+                                    : "UNEXPECTED_" + exception.apiCode().code());
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    outcome.set("INTERRUPTED");
+                }
+            }
+        }
+        Committer committerA = new Committer(first.batchId());
+        Committer committerB = new Committer(second.batchId());
+        Thread threadA = new Thread(committerA, "it-commit-a");
+        Thread threadB = new Thread(committerB, "it-commit-b");
+        threadA.start();
+        threadB.start();
+        assertThat(ready.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        go.countDown();
+        threadA.join(30_000);
+        threadB.join(30_000);
+
+        java.util.Set<String> outcomes =
+                java.util.Set.of(committerA.outcome.get(), committerB.outcome.get());
+        assertThat(outcomes)
+                .as("一胜一败，无 500 语义泄漏")
+                .containsExactlyInAnyOrder("COMMITTED", "REJECTED_40904");
+        Long active =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM sentences WHERE bank_id = ? AND deleted_at IS NULL",
+                        Long.class,
+                        bankId);
+        assertThat(active).as("同键活跃行只有一条").isEqualTo(1);
     }
 
     // ---------- 内部 ----------
@@ -283,15 +406,29 @@ class ImportExternalKeyReuseIntegrationTest {
     }
 
     /**
-     * 构造单行导入 JSON（与 AI 行同 zh/ref/chunks 内容）。
+     * 构造单行导入 JSON（与 AI 行同 zh/ref/chunks 内容，external_key 固定 s_1）。
      *
      * @param zh 中文原句
      * @param ref 参考译文
      * @return 文件文本
      */
     private static String fileJson(String zh, String ref) {
+        return fileJsonWithKey(zh, ref, "s_1");
+    }
+
+    /**
+     * 构造单行导入 JSON，external_key 显式给定（同键不同内容的并发兜底用例需要）。
+     *
+     * @param zh 中文原句
+     * @param ref 参考译文
+     * @param externalKey 导入源 key
+     * @return 文件文本
+     */
+    private static String fileJsonWithKey(String zh, String ref, String externalKey) {
         String row =
-                "{\"externalKey\":\"s_1\",\"zh\":\""
+                "{\"externalKey\":\""
+                        + externalKey
+                        + "\",\"zh\":\""
                         + zh
                         + "\",\"ref\":\""
                         + ref

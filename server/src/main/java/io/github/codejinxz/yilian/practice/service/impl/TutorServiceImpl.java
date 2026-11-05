@@ -5,8 +5,10 @@ import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 import io.github.codejinxz.yilian.practice.dao.AttemptDao;
 import io.github.codejinxz.yilian.practice.dao.AttemptGradingDao;
+import io.github.codejinxz.yilian.practice.dao.LlmUsageDao;
 import io.github.codejinxz.yilian.practice.entity.Attempt;
 import io.github.codejinxz.yilian.practice.entity.AttemptGrading;
+import io.github.codejinxz.yilian.practice.entity.LlmUsage;
 import io.github.codejinxz.yilian.practice.grading.GradingAnnotation;
 import io.github.codejinxz.yilian.practice.grading.GradingResult;
 import io.github.codejinxz.yilian.practice.llm.LlmChatClient;
@@ -27,6 +29,7 @@ import org.springframework.stereotype.Service;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -43,6 +46,9 @@ import java.util.Optional;
  *
  * <p>安全边界：提示词只包含题目中文、考点标签与该用户本人最近一次批注（与其在页面上看到的一致）， 不喂参考译文与解析全文；用户问题用显式定界符包裹并限制 500
  * 字符，系统提示声明定界区内是数据不是 指令——LLM 无工具、无判分权限，注入的最坏后果只是得到一条带免责标注的低质量回答。
+ *
+ * <p>用量观测双写（V11）：每次调用终态（成功/空回复/异常）同时记结构化日志与 {@code llm_usage} 落库（DATA-MODEL §5.18，append-only
+ * 只记元数据不落问答内容）。落库是旁路：写失败吞掉记告警， 绝不把成功回答变成 5xx——账本缺失可接受，答疑不可用不可接受。
  */
 @Service
 public class TutorServiceImpl implements TutorService {
@@ -58,12 +64,16 @@ public class TutorServiceImpl implements TutorService {
     /** 存储值当前结构版本；解析遇到其他版本按关闭处理（fail-closed）。 */
     static final int SCHEMA_VERSION = 1;
 
+    /** 用量账本的场景标识；与结构化日志的 scene 字段同源，llm_usage.scene 取此值。 */
+    static final String SCENE = "tutor-ask";
+
     private final LlmClientRegistry llmClients;
     private final LlmProperties legacyProperties;
     private final AppSettingService appSettingService;
     private final PracticeService practiceService;
     private final AttemptDao attemptDao;
     private final AttemptGradingDao gradingDao;
+    private final LlmUsageDao llmUsageDao;
     private final ObjectMapper objectMapper;
 
     /**
@@ -75,6 +85,7 @@ public class TutorServiceImpl implements TutorService {
      * @param practiceService 练习用例服务（复用 016 可见性口径）
      * @param attemptDao 提交 Dao（取本人最近批注）
      * @param gradingDao 判分 Dao
+     * @param llmUsageDao LLM 用量账本 Dao（落库旁路，失败不阻塞答疑）
      * @param objectMapper JSON 解析（判分结果与配置值）
      */
     public TutorServiceImpl(
@@ -84,6 +95,7 @@ public class TutorServiceImpl implements TutorService {
             PracticeService practiceService,
             AttemptDao attemptDao,
             AttemptGradingDao gradingDao,
+            LlmUsageDao llmUsageDao,
             ObjectMapper objectMapper) {
         this.llmClients = llmClients;
         this.legacyProperties = legacyProperties;
@@ -91,6 +103,7 @@ public class TutorServiceImpl implements TutorService {
         this.practiceService = practiceService;
         this.attemptDao = attemptDao;
         this.gradingDao = gradingDao;
+        this.llmUsageDao = llmUsageDao;
         this.objectMapper = objectMapper;
     }
 
@@ -114,12 +127,27 @@ public class TutorServiceImpl implements TutorService {
         String systemPrompt = systemPrompt();
         String userPrompt =
                 userPrompt(detail, latestWrongAnnotations(userId, sentenceId), question);
+        // 协议快照在调用前取定：目录变更即时生效，但本条用量归属「当次实际使用的协议」。
+        String protocol =
+                llmClients
+                        .effectiveConfig()
+                        .map(LlmClientRegistry.EffectiveConfig::protocol)
+                        .orElse(null);
         long startNanos = System.nanoTime();
         try {
             LlmChatClient.Reply reply = handle.client().ask(systemPrompt, userPrompt);
             long durationMs = (System.nanoTime() - startNanos) / 1_000_000;
             if (reply.content() == null || reply.content().isBlank()) {
                 // 空回复是可观测的降级路径：不计成功用量，与异常降级同文案同码。
+                recordUsage(
+                        userId,
+                        sentenceId,
+                        protocol,
+                        handle.model(),
+                        reply.promptTokens(),
+                        reply.completionTokens(),
+                        durationMs,
+                        false);
                 log.warn(
                         "LLM 空回复：scene=tutor-ask, providerId={}, userId={}, sentenceId={}, model={},"
                                 + " promptTokens={}, completionTokens={}, durationMs={}, ok=false",
@@ -132,6 +160,15 @@ public class TutorServiceImpl implements TutorService {
                         durationMs);
                 throw new BusinessException(ApiCode.INTERNAL_ERROR, "答疑暂时不可用，请稍后再试");
             }
+            recordUsage(
+                    userId,
+                    sentenceId,
+                    protocol,
+                    handle.model(),
+                    reply.promptTokens(),
+                    reply.completionTokens(),
+                    durationMs,
+                    true);
             // 用量只记元数据（token/耗时/成败），不落问题与回答内容（§3.6：译文不入日志）。
             log.info(
                     "LLM 用量：scene=tutor-ask, providerId={}, userId={}, sentenceId={}, model={},"
@@ -148,6 +185,15 @@ public class TutorServiceImpl implements TutorService {
             throw exception;
         } catch (RuntimeException exception) {
             // LLM 网络错误/超时/供应商异常统一降级：50000 + 固定友好文案，不把堆栈或供应商信息带给客户端。
+            recordUsage(
+                    userId,
+                    sentenceId,
+                    protocol,
+                    handle.model(),
+                    null,
+                    null,
+                    (System.nanoTime() - startNanos) / 1_000_000,
+                    false);
             log.warn(
                     "LLM 调用失败：scene=tutor-ask, providerId={}, userId={}, sentenceId={}, model={},"
                             + " durationMs={}, error={}",
@@ -158,6 +204,50 @@ public class TutorServiceImpl implements TutorService {
                     (System.nanoTime() - startNanos) / 1_000_000,
                     exception.getClass().getSimpleName());
             throw new BusinessException(ApiCode.INTERNAL_ERROR, "答疑暂时不可用，请稍后再试");
+        }
+    }
+
+    /**
+     * 落一条终态用量记录（llm_usage append-only）。旁路纪律：任何写失败都吞掉只记告警—— 账本缺一条可接受，把已经拿到的回答变成 5xx 不可接受。
+     *
+     * @param userId 发起用户 id
+     * @param sentenceId 题目 id
+     * @param protocol 当次生效协议（目录未命中时为 null）
+     * @param model 当次生效模型名快照
+     * @param promptTokens 提示词 token（失败未取得时为 null）
+     * @param completionTokens 回复 token（失败未取得时为 null）
+     * @param durationMs 调用耗时毫秒
+     * @param ok 调用是否成功
+     */
+    private void recordUsage(
+            Long userId,
+            String sentenceId,
+            String protocol,
+            String model,
+            Integer promptTokens,
+            Integer completionTokens,
+            long durationMs,
+            boolean ok) {
+        try {
+            llmUsageDao.save(
+                    LlmUsage.of(
+                            userId,
+                            sentenceId,
+                            SCENE,
+                            protocol,
+                            model,
+                            promptTokens,
+                            completionTokens,
+                            durationMs,
+                            ok,
+                            Instant.now()));
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "LLM 用量落库失败（旁路不阻塞）：scene={}, userId={}, sentenceId={}," + " error={}",
+                    SCENE,
+                    userId,
+                    sentenceId,
+                    exception.getClass().getSimpleName());
         }
     }
 

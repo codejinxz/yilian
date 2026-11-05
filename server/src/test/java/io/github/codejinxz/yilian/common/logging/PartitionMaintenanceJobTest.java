@@ -145,4 +145,46 @@ class PartitionMaintenanceJobTest {
 
         assertThatCode(() -> job.cleanupExpiredMultipartSessions()).doesNotThrowAnyException();
     }
+
+    /** [AC-V11-1] 孤儿属性行清理发出反连接 DELETE：属性行 LEFT JOIN 会话行，无命中即删。 */
+    @Test
+    void orphanPurgeIssuesAntiJoinDelete_v11() {
+        when(jdbcTemplate.update(PartitionMaintenanceJob.PURGE_ORPHAN_SESSION_ATTRIBUTES_SQL))
+                .thenReturn(7);
+
+        job.purgeOrphanSessionAttributes();
+
+        verify(jdbcTemplate).update(PartitionMaintenanceJob.PURGE_ORPHAN_SESSION_ATTRIBUTES_SQL);
+    }
+
+    /** [AC-V11-1] 孤儿清理零命中是常态：仍然只发一条 DELETE，不打日志噪音。 */
+    @Test
+    void orphanPurgeIssuesSingleDeleteWhenNothingOrphaned_v11() {
+        when(jdbcTemplate.update(PartitionMaintenanceJob.PURGE_ORPHAN_SESSION_ATTRIBUTES_SQL))
+                .thenReturn(0);
+
+        job.purgeOrphanSessionAttributes();
+
+        verify(jdbcTemplate, times(1))
+                .update(PartitionMaintenanceJob.PURGE_ORPHAN_SESSION_ATTRIBUTES_SQL);
+    }
+
+    /** [AC-V11-1] 孤儿清理失败只记日志不上抛：与幂等清理、分片清扫同口径，下周期重试。 */
+    @Test
+    void orphanPurgeSwallowsDatabaseFailure_v11() {
+        when(jdbcTemplate.update(PartitionMaintenanceJob.PURGE_ORPHAN_SESSION_ATTRIBUTES_SQL))
+                .thenThrow(new DataAccessResourceFailureException("db down"));
+
+        assertThatCode(() -> job.purgeOrphanSessionAttributes()).doesNotThrowAnyException();
+    }
+
+    /** [AC-V11-1] 调度注册断言补充：孤儿清理在位，小时级 fixedDelay（与分片清扫同频）。 */
+    @Test
+    void orphanPurgeIsScheduledHourly_v11() throws Exception {
+        var purge = PartitionMaintenanceJob.class.getMethod("purgeOrphanSessionAttributes");
+
+        Scheduled schedule = purge.getAnnotation(Scheduled.class);
+        assertThat(schedule).isNotNull();
+        assertThat(schedule.fixedDelay()).isEqualTo(60 * 60 * 1000L);
+    }
 }

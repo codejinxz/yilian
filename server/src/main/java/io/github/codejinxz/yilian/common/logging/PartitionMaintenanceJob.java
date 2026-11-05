@@ -29,6 +29,10 @@ import java.util.Map;
  * <p>过期幂等占位记录的清理也并入本类：{@code idempotency_record} 未分区， 只能行级 DELETE；复用同一调度入口避免另起炉灶。
  *
  * <p>分片上传会话的过期回收同样并入： 本地存储的会话映射在内存、分片在临时目录，废弃后无人回收会持续泄漏； 云实现的默认方法是无操作，由其生命周期规则管理。
+ *
+ * <p>spring_session_attributes 的孤儿 BLOB 回收也并入（V11）：V10 删除其物理外键（含 ON DELETE
+ * CASCADE）后，会话行被删而属性行残留时无自动回收。清理是反连接 DELETE （属性行 LEFT JOIN 会话行，无命中即孤儿），可重入、失败只记日志；索引无需新增—— 属性行 PK
+ * 左前缀即驱动侧扫描键，会话行 PK 即被探测侧等值键（V11 迁移注释有裁决）。
  */
 @Component
 public class PartitionMaintenanceJob {
@@ -50,6 +54,16 @@ public class PartitionMaintenanceJob {
     private static final String PURGE_EXPIRED_IDEMPOTENCY_SQL =
             "DELETE FROM idempotency_record WHERE expires_at <= ? LIMIT "
                     + IDEMPOTENCY_PURGE_BATCH_SIZE;
+
+    /**
+     * 孤儿会话属性行清理（V11）：属性行在 spring_session 里找不到归属会话即删。 反连接驱动侧是 spring_session_attributes（PK
+     * 左前缀覆盖扫描），被探测侧 spring_session 走 PK 等值； 不加 LIMIT——多表 DELETE 语法不支持，且孤儿只在会话行被异常删除时零星产生，单轮全量
+     * 规模受会话总量上界约束（半小时级过期回收持续压表），不会失控。
+     */
+    static final String PURGE_ORPHAN_SESSION_ATTRIBUTES_SQL =
+            "DELETE a FROM spring_session_attributes a"
+                    + " LEFT JOIN spring_session s ON s.PRIMARY_ID = a.SESSION_PRIMARY_ID"
+                    + " WHERE s.PRIMARY_ID IS NULL";
 
     /** 分片会话保鲜期：超过 24 小时未完成的会话视为废弃。 */
     static final Duration MULTIPART_SESSION_TTL = Duration.ofHours(24);
@@ -136,6 +150,24 @@ public class PartitionMaintenanceJob {
             }
         } catch (RuntimeException exception) {
             log.error("failed to cleanup expired multipart upload sessions", exception);
+        }
+    }
+
+    /**
+     * 每小时清理一次 spring_session_attributes 的孤儿属性行（V11）。
+     *
+     * <p>可重入：DELETE 幂等，对不存在孤儿是空操作；fixedDelay 串行调度不自我叠加。失败只记日志， 下个周期重试。与分片会话清扫同频（小时级）：两者都是
+     * 「异常残留的兜底清扫」，常态零工作量。
+     */
+    @Scheduled(fixedDelay = 60 * 60 * 1000L, initialDelay = 25 * 60 * 1000L)
+    public void purgeOrphanSessionAttributes() {
+        try {
+            int removed = jdbcTemplate.update(PURGE_ORPHAN_SESSION_ATTRIBUTES_SQL);
+            if (removed > 0) {
+                log.info("purged {} orphan spring_session_attributes rows", removed);
+            }
+        } catch (RuntimeException exception) {
+            log.error("failed to purge orphan spring_session_attributes rows", exception);
         }
     }
 

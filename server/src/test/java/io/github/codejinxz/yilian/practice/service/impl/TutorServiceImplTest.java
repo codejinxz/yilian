@@ -2,6 +2,7 @@ package io.github.codejinxz.yilian.practice.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
@@ -17,8 +18,10 @@ import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 import io.github.codejinxz.yilian.practice.dao.AttemptDao;
 import io.github.codejinxz.yilian.practice.dao.AttemptGradingDao;
+import io.github.codejinxz.yilian.practice.dao.LlmUsageDao;
 import io.github.codejinxz.yilian.practice.entity.Attempt;
 import io.github.codejinxz.yilian.practice.entity.AttemptGrading;
+import io.github.codejinxz.yilian.practice.entity.LlmUsage;
 import io.github.codejinxz.yilian.practice.grading.GradingAnnotation;
 import io.github.codejinxz.yilian.practice.grading.GradingResult;
 import io.github.codejinxz.yilian.practice.llm.LlmChatClient;
@@ -38,6 +41,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.dao.DataAccessResourceFailureException;
 
 import tools.jackson.databind.ObjectMapper;
 
@@ -91,6 +95,8 @@ class TutorServiceImplTest {
 
     @Mock private AttemptGradingDao gradingDao;
 
+    @Mock private LlmUsageDao llmUsageDao;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private TutorServiceImpl tutorService;
@@ -120,6 +126,7 @@ class TutorServiceImplTest {
                         practiceService,
                         attemptDao,
                         gradingDao,
+                        llmUsageDao,
                         objectMapper);
     }
 
@@ -261,6 +268,91 @@ class TutorServiceImplTest {
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> assertThat(exception.getMessage()).isEqualTo("答疑暂时不可用，请稍后再试"));
+    }
+
+    /**
+     * [AC-V11-1] 答疑成功 → llm_usage 落一条 ok=true 的用量行，形状与结构化日志同源：scene=tutor-ask、
+     * 协议/模型为当次快照、token/耗时如实、user/sentence 双逻辑引用齐全。
+     */
+    @Test
+    void askRecordsSuccessfulUsageRow_v11() {
+        when(llmChatClient.ask(anyString(), anyString()))
+                .thenReturn(new LlmChatClient.Reply("先看介词搭配。", 12, 34));
+
+        tutorService.ask(USER_ID, SENTENCE_ID, "这里介词为什么用 to？");
+
+        ArgumentCaptor<LlmUsage> captor = ArgumentCaptor.forClass(LlmUsage.class);
+        verify(llmUsageDao).save(captor.capture());
+        LlmUsage usage = captor.getValue();
+        assertThat(usage.getUserId()).isEqualTo(USER_ID);
+        assertThat(usage.getSentenceId()).isEqualTo(SENTENCE_ID);
+        assertThat(usage.getScene()).isEqualTo("tutor-ask");
+        assertThat(usage.getProtocol()).isEqualTo("openai-chat");
+        assertThat(usage.getModel()).isEqualTo("glm-4.7");
+        assertThat(usage.getPromptTokens()).isEqualTo(12);
+        assertThat(usage.getCompletionTokens()).isEqualTo(34);
+        assertThat(usage.getDurationMs()).isNotNull().isGreaterThanOrEqualTo(0);
+        assertThat(usage.isOk()).isTrue();
+        assertThat(usage.getCreatedAt()).isNotNull();
+    }
+
+    /** [AC-V11-1] LLM 失败 → 也落 ok=false 的一行（token 缺位为 null），降级 50000 语义不变。 */
+    @Test
+    void askRecordsFailedUsageRowOnLlmError_v11() {
+        doThrow(new IllegalStateException("boom"))
+                .when(llmChatClient)
+                .ask(anyString(), anyString());
+
+        assertThatThrownBy(() -> tutorService.ask(USER_ID, SENTENCE_ID, "问"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode()).isEqualTo(ApiCode.INTERNAL_ERROR));
+
+        ArgumentCaptor<LlmUsage> captor = ArgumentCaptor.forClass(LlmUsage.class);
+        verify(llmUsageDao).save(captor.capture());
+        LlmUsage usage = captor.getValue();
+        assertThat(usage.isOk()).isFalse();
+        assertThat(usage.getUserId()).isEqualTo(USER_ID);
+        assertThat(usage.getSentenceId()).isEqualTo(SENTENCE_ID);
+        assertThat(usage.getScene()).isEqualTo("tutor-ask");
+        assertThat(usage.getModel()).isEqualTo("glm-4.7");
+        assertThat(usage.getPromptTokens()).isNull();
+        assertThat(usage.getCompletionTokens()).isNull();
+        assertThat(usage.getDurationMs()).isNotNull().isGreaterThanOrEqualTo(0);
+    }
+
+    /** [AC-V11-1] 空回复 → 落 ok=false 且 token 如实（回复元数据可用），主链路仍降级 50000。 */
+    @Test
+    void askRecordsUsageForBlankReply_v11() {
+        doReturn(new LlmChatClient.Reply("  ", 5, 0))
+                .when(llmChatClient)
+                .ask(anyString(), anyString());
+
+        assertThatThrownBy(() -> tutorService.ask(USER_ID, SENTENCE_ID, "问"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.getMessage()).isEqualTo("答疑暂时不可用，请稍后再试"));
+
+        ArgumentCaptor<LlmUsage> captor = ArgumentCaptor.forClass(LlmUsage.class);
+        verify(llmUsageDao).save(captor.capture());
+        assertThat(captor.getValue().isOk()).isFalse();
+        assertThat(captor.getValue().getPromptTokens()).isEqualTo(5);
+        assertThat(captor.getValue().getCompletionTokens()).isEqualTo(0);
+    }
+
+    /** [AC-V11-2] 落库失败不阻塞答疑主链路：Dao 抛错被旁路吞掉，回答照常返回；同请求不重试不放大。 */
+    @Test
+    void usageWriteFailureDoesNotBlockAsk_v11() {
+        when(llmChatClient.ask(anyString(), anyString()))
+                .thenReturn(new LlmChatClient.Reply("先看介词搭配。", 12, 34));
+        doThrow(new DataAccessResourceFailureException("db down")).when(llmUsageDao).save(any());
+
+        TutorAskView view = tutorService.ask(USER_ID, SENTENCE_ID, "这里介词为什么用 to？");
+
+        assertThat(view.answer()).isEqualTo("先看介词搭配。");
+        assertThat(view.disclaimer()).isEqualTo("AI 生成，可能有误");
+        verify(llmUsageDao).save(any());
     }
 
     /** [AC-4] 可见性拒绝（40300）原样透传，不吞不裹。 */
@@ -411,6 +503,7 @@ class TutorServiceImplTest {
                         practiceService,
                         attemptDao,
                         gradingDao,
+                        llmUsageDao,
                         objectMapper);
 
         LlmConfigView view =
