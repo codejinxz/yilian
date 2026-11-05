@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 |---|---|
-| 版本 | v0.1.1（讨论稿，待确认） |
-| 日期 | 2026-10-24 |
+| 版本 | v1.2（对齐文末变更记录最新行，023 批次校正头部版本号——此前头部停在 v0.1.1 而变更记录已演进到 v1.2） |
+| 日期 | 2026-11-05 |
 | 字段来源 | `docs/DATA-MODEL.md` v0.1（唯一字段来源） |
 | 上游约束 | `AGENTS.md`、`docs/PRD.md` §4/§5/§8/§11/§12、`docs/NAMING.md` |
 | 下游 | `docs/openapi.yaml`（仅导出已实现端点）、`web/src/lib/api.ts` |
@@ -1741,16 +1741,16 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 
 ### 8.12 `POST /api/admin/audit-events`（implemented，012）
 
-用途：演示动作的通用审计入口——重置密码、导出数据、模型配置、运维吊销等尚无专属写端点的动作，用它在操作日志留下可见、有理由的记录。
+用途：演示动作的通用审计入口——导出数据、模型配置、运维吊销等尚无专属写端点的动作，用它在操作日志留下可见、有理由的记录。重置密码已迁移到真端点 `POST /api/admin/users/{id}/reset-password`（§8.2b，018），不在本入口白名单内。
 
 请求：
 
 ```json
-{ "action": "RESET_PASSWORD", "targetType": "USER", "targetId": "7", "reason": "用户忘记密码" }
+{ "action": "EXPORT_USER_DATA", "targetType": "USER", "targetId": "7", "reason": "用户申请导出" }
 ```
 
-- `action` 必填且必须在白名单内（防任意串污染只增不改的审计表）：`RESET_PASSWORD`、`EXPORT_USER_DATA`、`SESSION_REVOKE`、`MODEL_CONFIG_UPDATE`、`MODEL_TOGGLE`、`PROMPT_UPDATE`（覆盖前端 `appendAuditEvent` 的全部调用点）；越界或缺失回 `40000`。未来动作上线专属端点后从白名单移除。
-- `targetType`/`targetId`/`reason` 可空（`RESET_PASSWORD`/`EXPORT_USER_DATA` 前端不传 targetType）。
+- `action` 必填且必须在白名单内（防任意串污染只增不改的审计表）：`EXPORT_USER_DATA`、`SESSION_REVOKE`、`MODEL_CONFIG_UPDATE`、`MODEL_TOGGLE`、`PROMPT_UPDATE`（覆盖前端 `appendAuditEvent` 的全部调用点）；越界或缺失回 `40000`。未来动作上线专属端点后从白名单移除。
+- `targetType`/`targetId`/`reason` 可空（`EXPORT_USER_DATA` 前端不传 targetType）。
 - 写入行：module=`admin`、outcome=`SUCCESS`、actor=当前管理员，traceId/clientIp/request_* 与 `@OperationLog` 切面同源；`created_at` 由数据库默认值生成。
 - 本端点刻意不标 `@OperationLog`：它的产出就是一条审计行（action 随请求体动态变化），再标一次会产生重复行。
 
