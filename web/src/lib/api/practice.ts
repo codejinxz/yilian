@@ -25,6 +25,12 @@ import {
 import { jsonRequest, parseData, toQueryString } from "./shared";
 
 /**
+ * 答疑请求的超时毫秒数：覆盖服务端整条降级链路（模型调用 15s + 网关 429 冷却退避
+ * 30s 重试一次 ≈ 31.5s）再留余量；默认 10s 会在服务端仍重试时先行掐断。
+ */
+export const ASK_TIMEOUT_MS = 35_000;
+
+/**
  * 取下一题；没有可练题时返回 null（HTTP 200，页面显示空状态）。
  * sentenceId 指定句子时忽略 bankId/tag/exclude——复习页「重练」与下一步训练都依赖这一优先级。
  * errors=1 时改为只在错题里取下一题（今日页「错题」chip）；本地引擎与 mock 应答，不依赖网络。
@@ -276,6 +282,8 @@ export async function postponeReviews(reason?: string): Promise<PostponeView> {
 /**
  * 题目答疑（API §6.12，017）：就当前句一问一答；回答必带免责标注。
  * 未配置模型凭证返回 40400、答疑未开放返回 40304，调用方据 ApiError.code 分支处理。
+ * 超时放宽到 35s：服务端模型调用自身 15s，网关 429 冷却退避 30s 重试一次后整条降级链路
+ * 约 31.5s——默认 10s 会在服务端还在重试时先把用户侧掐断，永远等不到降级回复。
  * @param sentenceId 题目 id
  * @param question 用户问题（1-500 字符；服务端同样校验）
  * @returns 回答与免责标注
@@ -285,6 +293,7 @@ export async function askTutor(sentenceId: string, question: string): Promise<Tu
     `/practice/${encodeURIComponent(sentenceId)}/ask`,
     "POST",
     { question },
+    { timeoutMs: ASK_TIMEOUT_MS },
   );
   return parseData(tutorAskResponseSchema, data);
 }

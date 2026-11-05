@@ -199,13 +199,48 @@ describe("SentencePicker（020 AC-2/AC-3）", () => {
     expect(screen.queryByText("他越来越重视这件事。")).toBeNull();
   });
 
-  /** [AC-2] 无 bankId（他人私有库不在可见列表 → 页面入口不渲染同源）：bank=null 时不请求也不渲染行。 */
-  it("rendersWithoutRowsWhenBankMissing_ac2", () => {
+  /** [023 AC-1] 无 bankId（他人私有库不在可见列表 → 页面入口不渲染同源）：bank=null 时不请求，降级为「题库不可用」而非永久加载态。 */
+  it("showsBankUnavailableInsteadOfPendingWhenBankMissing_023ac1", () => {
     renderPicker({ bank: null });
 
     expect(getPickerSentencesMock).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog")).toBeTruthy();
+    // 深链失效的降级态：明确「不可用」文案，绝不挂在「正在载入句子…」。
+    expect(screen.getByText(/该题库不可用/)).toBeTruthy();
+    expect(screen.queryByText("正在载入句子…")).toBeNull();
     expect(screen.queryByText("他越来越重视这件事。")).toBeNull();
+  });
+
+  /** [023 AC-1] 列表请求期间题库被下架/删除（40401）：同归「题库不可用」口径，不给重试误导。 */
+  it("showsBankUnavailableOn40401_023ac1", async () => {
+    getPickerSentencesMock.mockRejectedValue(new ApiError(404, 40401, "题库不存在", "response"));
+    renderPicker();
+
+    await waitFor(() => {
+      expect(screen.getByText(/该题库不可用/)).toBeTruthy();
+    });
+    expect(screen.queryByText("他越来越重视这件事。")).toBeNull();
+  });
+
+  /** [023 AC-1] 面板 portal 到 body：脱离壳层 .page 的层叠上下文，遮罩与 × 不再被 .topbar 盖住。 */
+  it("rendersPanelIntoDocumentBody_023ac1", () => {
+    const { container } = render(
+      <QueryClientProvider client={createQueryClient()}>
+        <SentencePicker
+          open
+          bank={BANK}
+          currentSentenceId={null}
+          onJump={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    // RTL 挂载容器里不应有对话框节点；面板经 portal 挂在 document.body 直下。
+    expect(container.querySelector("[role='dialog']")).toBeNull();
+    expect(document.body.querySelector("[role='dialog']")).toBeTruthy();
+    // portal 后面板仍在文档流里可交互（× 按钮可达）。
+    expect(document.body.querySelector("button[aria-label='关闭选题面板']")).toBeTruthy();
   });
 
   /** [AC-3] open=false 不渲染（一屏一句纪律：展开层关闭后练习页原样保留）。 */

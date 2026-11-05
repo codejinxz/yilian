@@ -1,7 +1,9 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { getPickerSentences } from "@/lib/api/content";
+import { ApiError } from "@/lib/api-error";
 import { describeDue } from "@/lib/format";
 import { queryKeys } from "@/lib/query";
 import type { PickerSentence } from "@/lib/schemas/content";
@@ -38,6 +40,9 @@ const PRACTICE_STATE_LABELS: Record<PickerSentence["reviewState"] & string, stri
 
 /** 每页条数；与服务端 size 上限一致，大题库经「加载更多」翻页。 */
 const PICKER_PAGE_SIZE = 100;
+
+/** 深链失效的降级文案：bank 缺失或服务端 40401 都归于「题库不可用」，绝不挂在永久 pending。 */
+const BANK_UNAVAILABLE_TEXT = "该题库不可用：链接指向的题库不存在或未发布。";
 
 /**
  * 抽屉动效：原型 .drawer（右移入 24px、.26s、cubic-bezier(.2,.8,.2,1)）与
@@ -86,9 +91,11 @@ function pickerMeta(sentence: PickerSentence, isCurrent: boolean): string {
  *
  * <p>数据走 §5.3.1 选题句列表端点：匿名仅公开库（练过态恒「未学」），登录后本人私有库
  * 可见并逐行携带卡状态；无 bankId 时入口在练习页不渲染（onJump 也就不会被触发）。
+ * 深链 bankId 失效（bank=null 或列表 40401）时按「该题库不可用」降级，不挂永久加载态。
+ * 面板 portal 到 body 渲染：壳层 .page 的层叠上下文会让 fixed 层压不过顶栏。
  *
  * @param props.open 是否展开
- * @param props.bank 当前题库（id/名称/说明/句数）；null 时面板不渲染内容行
+ * @param props.bank 当前题库（id/名称/说明/句数）；null 时面板显示「题库不可用」降级态
  * @param props.currentSentenceId 当前练习的句子 id（行高亮 + aria-current）
  * @param props.onJump 点选已发布句的回调（跳句动作与状态清理由调用方执行）
  * @param props.onClose 关闭回调
@@ -146,7 +153,10 @@ export function SentencePicker({
     return null;
   }
 
-  return (
+  // portal 到 body：壳层 .page 自带 z-index:1 的层叠上下文，面板写在页面内时
+  // fixed 层永远压不过 z-index:10 的 .topbar——遮罩顶部条带与 × 按钮被顶栏盖住。
+  // 脱离页面上下文后 z-[70] 直接与顶栏同层比较，覆盖全屏（confirm-dialog 同法）。
+  return createPortal(
     <div
       className="fixed inset-0 z-[70] flex justify-end"
       role="dialog"
@@ -189,14 +199,27 @@ export function SentencePicker({
         {/* 原型 .drawer .section-title：上边距 30px，全局类自带 16px 下边距。 */}
         <p className="section-title mt-[30px]">题目</p>
         <div>
-          {pickerQuery.isPending ? (
+          {!bank ? (
+            // 深链带了已下架/他人私有库等无效 bankId 时，页面按「不可用」降级而不是
+            // 永远停在加载态：查询对 bankId 为空恒禁用，pending 分支永远不会自愈。
+            <p className="m-0 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
+              {BANK_UNAVAILABLE_TEXT}
+            </p>
+          ) : pickerQuery.isPending ? (
             <p className="m-0 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
               正在载入句子…
             </p>
           ) : pickerQuery.isError ? (
-            <p className="m-0 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
-              句子列表加载失败，请稍后重试。
-            </p>
+            pickerQuery.error instanceof ApiError && pickerQuery.error.code === 40401 ? (
+              // 列表请求期间题库被下架/删除（40401）：同归于「不可用」口径，不给重试误导。
+              <p className="m-0 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
+                {BANK_UNAVAILABLE_TEXT}
+              </p>
+            ) : (
+              <p className="m-0 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
+                句子列表加载失败，请稍后重试。
+              </p>
+            )
           ) : rows.length === 0 ? (
             <p className="m-0 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
               这个题库还没有句子。
@@ -246,6 +269,7 @@ export function SentencePicker({
           ) : null}
         </div>
       </aside>
-    </div>
+    </div>,
+    document.body,
   );
 }

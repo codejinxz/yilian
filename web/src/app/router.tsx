@@ -378,7 +378,9 @@ export function createAppRouter(options: { queryClient: QueryClient; history?: R
   setAuthStateProbe(() => options.queryClient.getQueryData(queryKeys.me) != null);
 
   // 订阅 me 缓存变化：从未确认到确认的瞬间失效本地路由组的 Query，让首屏本地应答
-  // 切换为服务端数据。确认过再重取 me 不重复失效；会话清空后重置，等待下次确认。
+  // 切换为服务端数据；content 组一并失效——题库列表/选题句列表可能在匿名期已按游客
+  // 口径缓存（私有库缺失、练过态全「未学」），staleTime 内不会自愈，登录后必须重取。
+  // 确认过再重取 me 不重复失效；会话清空后重置，等待下次确认。
   // invalidate 必须推迟一拍（setTimeout 0）：cache.subscribe 的回调在 QueryCache 的
   // notifyManager batch 内执行，同步 invalidate 的 refetch 调度会被外层 batch 抑制，
   // 延迟到 batch 外发起才能让 practice/analytics 查询真正重取。
@@ -393,6 +395,7 @@ export function createAppRouter(options: { queryClient: QueryClient; history?: R
       window.setTimeout(() => {
         void options.queryClient.invalidateQueries({ queryKey: ["practice"] });
         void options.queryClient.invalidateQueries({ queryKey: ["analytics"] });
+        void options.queryClient.invalidateQueries({ queryKey: ["content"] });
       }, 0);
     } else if (!confirmed) {
       hadConfirmedUser = false;

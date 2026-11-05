@@ -45,15 +45,21 @@ export function toQueryString(
  * @param path 路径
  * @param method HTTP 方法
  * @param body 请求体
+ * @param options 超时等请求控制项；缺省用全局默认（10 秒），慢接口按需放宽
  * @returns 解包后的 data
  */
 export function jsonRequest<T>(
   path: string,
   method: "POST" | "PUT" | "PATCH" | "DELETE",
   body?: unknown,
+  options?: { timeoutMs?: number },
 ): Promise<T> {
-  return apiRequest<T>(path, {
-    method,
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  return apiRequest<T>(
+    path,
+    {
+      method,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    },
+    options,
+  );
 }

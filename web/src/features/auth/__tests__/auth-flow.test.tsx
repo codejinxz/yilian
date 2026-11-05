@@ -180,6 +180,108 @@ describe("auth flow", () => {
     expect(fetchMock).toHaveBeenCalled();
   });
 
+  it("023 AC-1: logs in after a guest cold load and refetches anonymously cached banks so private banks appear", async () => {
+    // 冷加载竞态：游客先到今日页，题库 chips 以匿名口径发出并被缓存（staleTime 内
+    // 不自愈）；登录确认后必须失效 content 组重取，否则私有库在缓存过期前一直缺失。
+    markPlaced();
+    const publicBank = {
+      id: "1",
+      ownerId: null,
+      name: "官方题库 · TEM8 翻译",
+      description: null,
+      visibility: "PUBLIC",
+      status: "PUBLISHED",
+      version: 1,
+      sentenceCount: 8,
+    };
+    const privateBank = {
+      ...publicBank,
+      id: "9",
+      name: "我的私有题库 · 私享",
+      visibility: "PRIVATE",
+      sentenceCount: 4,
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/auth/refresh")) {
+        return jsonResponse(errorEnvelope(40100, "请先登录"), 401);
+      }
+      if (url.endsWith("/api/auth/login")) {
+        return jsonResponse(authEnvelope());
+      }
+      if (url.endsWith("/api/auth/me")) {
+        return jsonResponse(successEnvelope(ADMIN));
+      }
+      if (url.includes("/api/banks?")) {
+        // 匿名只回公开库；带 Bearer 的重取才回私有库——chip 出现即证明重取发生。
+        const authed = Boolean(
+          new Headers((init as RequestInit | undefined)?.headers as HeadersInit | undefined).get(
+            "Authorization",
+          ),
+        );
+        const items = authed ? [publicBank, privateBank] : [publicBank];
+        return jsonResponse(
+          successEnvelope({
+            items,
+            page: 1,
+            size: 100,
+            total: items.length,
+            totalPages: 1,
+            hasNext: false,
+          }),
+        );
+      }
+      if (url.includes("/api/banks/") && url.includes("/sentences?")) {
+        return jsonResponse(successEnvelope({ version: 1, items: [], nextSinceVersion: 1 }));
+      }
+      if (url.includes("/api/analytics/accuracy")) {
+        return jsonResponse(
+          successEnvelope({
+            from: "2026-01-01",
+            to: "2026-01-05",
+            totalAttempts: 0,
+            correctRate: null,
+            averageScore: null,
+            byMode: [],
+            daily14: [],
+            recent: [],
+          }),
+        );
+      }
+      const business = businessQueryResponse(url);
+      if (business) {
+        return business;
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { router } = renderApp("/today");
+    // 游客首屏：chips 只有公开库。
+    expect(await screen.findByText(/官方题库/)).toBeInTheDocument();
+    expect(screen.queryByText(/我的私有题库/)).toBeNull();
+
+    // 登录成功回今日页：banks 查询失效重取后私有库 chip 可见。
+    await router.navigate({ to: "/login" });
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("用户名或邮箱"), "admin");
+    await user.type(screen.getByLabelText("密码"), "test-admin-password");
+    await user.click(screen.getByRole("button", { name: "登录" }));
+
+    expect(await screen.findByText(/我的私有题库/)).toBeInTheDocument();
+    const authedBankCalls = fetchMock.mock.calls.filter(([input, init]) => {
+      if (!String(input).includes("/api/banks?")) {
+        return false;
+      }
+      // headers 可能是 Headers 实例或普通对象，统一包一层再读。
+      const headers = new Headers(
+        (init as RequestInit | undefined)?.headers as HeadersInit | undefined,
+      );
+      return Boolean(headers.get("Authorization"));
+    });
+    expect(authedBankCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
   it("shows the server message when login fails", async () => {
     // 登录页已并入壳层：壳层定级门要求本地已有「已定级」状态，预置一份让 /login 能渲染登录表单。
     markPlaced();

@@ -265,8 +265,10 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     expect(screen.getByRole("button", { name: "启用答疑" })).toBeEnabled();
   });
 
-  it("017R2 OBS-1: hasKey=false 但开关已开时，答疑关联显示「未生效（缺凭证）」而非笼统的未开放，并附下一步说明", async () => {
-    // legacy 组合：enabled=true + 凭证不齐，管理员视角「开关是开的、功能却不存在」。
+  it("017R2 OBS-1: 开关已开且凭证按协议口径不齐（credentialsComplete=false）时，答疑关联显示「未生效（缺凭证）」而非笼统的未开放，并附下一步说明", async () => {
+    // legacy openai 轨组合：enabled=true + 凭证不齐（hasKey=false 是不齐的原因），
+    // 管理员视角「开关是开的、功能却不存在」。齐备性判定以服务端 credentialsComplete
+    // 为准（协议分口径），hasKey 只是展示徽标。
     stubAdminLlmFetch({
       ...CONFIGURED_ON,
       hasKey: false,
@@ -283,6 +285,31 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     expect(screen.getByText(/开关已开启但未生效/)).toBeInTheDocument();
     // 运行态卡仍如实显示未开放（不谎称运行中）。
     expect(screen.getByText("未配置")).toBeInTheDocument();
+  });
+
+  it("023 AC-1: anthropic 轨 hasKey=false 是合法可启用态——credentialsComplete=true 且开关已开时答疑关联为「启用中」，不出现缺凭证提示", async () => {
+    // anthropic-messages 轨 key 可空（齐备只看端点）：hasKey=false 不是缺凭证。
+    // 若展示仍按 openai 语义把 hasKey=false 当缺凭证，管理员在网关部署上会看到
+    // 「未生效（缺凭证）」与事实相反——这里按 022 后的 credentialsComplete 口径锁死。
+    stubAdminLlmFetch(
+      { ...CONFIGURED_ON, hasKey: false, credentialsComplete: true },
+      { providers: [ZCODE_GATEWAY] },
+    );
+
+    renderModelsPage();
+
+    // 答疑关联与 AI 功能清单两处联动位都是「启用中」。
+    expect(await screen.findAllByText("启用中")).toHaveLength(2);
+    // 不出现缺凭证形态：无「未生效（缺凭证）」、无环境变量指引块、无对称说明行。
+    expect(screen.queryByText("未生效（缺凭证）")).not.toBeInTheDocument();
+    expect(screen.queryByText(/开关已开启但未生效/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/凭证不齐/)).not.toBeInTheDocument();
+    // 运行态为「运行中」，凭证状态按协议口径显示已配置。
+    expect(screen.getByText("运行中")).toBeInTheDocument();
+    expect(screen.getByText("已配置")).toBeInTheDocument();
+    // provider 卡上 anthropic 轨无 key 徽标是「无需 Key」而非「缺 Key」。
+    expect(screen.getByText("无需 Key")).toBeInTheDocument();
+    expect(screen.queryByText("缺 Key")).not.toBeInTheDocument();
   });
 
   it("019 AC-1: 点击启用提交 PUT {enabled:true}，成功后失效缓存重新拉取并提示", async () => {
