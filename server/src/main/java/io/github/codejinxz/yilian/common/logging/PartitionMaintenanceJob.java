@@ -30,7 +30,7 @@ import java.util.Map;
  *
  * <p>分片上传会话的过期回收同样并入： 本地存储的会话映射在内存、分片在临时目录，废弃后无人回收会持续泄漏； 云实现的默认方法是无操作，由其生命周期规则管理。
  *
- * <p>spring_session_attributes 的孤儿 BLOB 回收也并入（V11）：V10 删除其物理外键（含 ON DELETE
+ * <p>spring_session_ATTRIBUTES 的孤儿 BLOB 回收也并入（V11）：V10 删除其物理外键（含 ON DELETE
  * CASCADE）后，会话行被删而属性行残留时无自动回收。清理是反连接 DELETE （属性行 LEFT JOIN 会话行，无命中即孤儿），可重入、失败只记日志；索引无需新增—— 属性行 PK
  * 左前缀即驱动侧扫描键，会话行 PK 即被探测侧等值键（V11 迁移注释有裁决）。
  */
@@ -56,12 +56,15 @@ public class PartitionMaintenanceJob {
                     + IDEMPOTENCY_PURGE_BATCH_SIZE;
 
     /**
-     * 孤儿会话属性行清理（V11）：属性行在 spring_session 里找不到归属会话即删。 反连接驱动侧是 spring_session_attributes（PK
+     * 孤儿会话属性行清理（V11）：属性行在 spring_session 里找不到归属会话即删。 反连接驱动侧是 spring_session_ATTRIBUTES（PK
      * 左前缀覆盖扫描），被探测侧 spring_session 走 PK 等值； 不加 LIMIT——多表 DELETE 语法不支持，且孤儿只在会话行被异常删除时零星产生，单轮全量
      * 规模受会话总量上界约束（半小时级过期回收持续压表），不会失控。
+     *
+     * <p>属性表名必须用运行时精确拼写（V12）：spring-session-jdbc 按 table-name 配置拼接 "_ATTRIBUTES" 大写后缀，在
+     * lower_case_table_names=0 的 Linux/CI 上大小写敏感， 手写 SQL 若用全小写会报 Table doesn't exist。
      */
     static final String PURGE_ORPHAN_SESSION_ATTRIBUTES_SQL =
-            "DELETE a FROM spring_session_attributes a"
+            "DELETE a FROM spring_session_ATTRIBUTES a"
                     + " LEFT JOIN spring_session s ON s.PRIMARY_ID = a.SESSION_PRIMARY_ID"
                     + " WHERE s.PRIMARY_ID IS NULL";
 
@@ -154,7 +157,7 @@ public class PartitionMaintenanceJob {
     }
 
     /**
-     * 每小时清理一次 spring_session_attributes 的孤儿属性行（V11）。
+     * 每小时清理一次 spring_session_ATTRIBUTES 的孤儿属性行（V11，表名精确拼写见 V12）。
      *
      * <p>可重入：DELETE 幂等，对不存在孤儿是空操作；fixedDelay 串行调度不自我叠加。失败只记日志， 下个周期重试。与分片会话清扫同频（小时级）：两者都是
      * 「异常残留的兜底清扫」，常态零工作量。
@@ -164,10 +167,10 @@ public class PartitionMaintenanceJob {
         try {
             int removed = jdbcTemplate.update(PURGE_ORPHAN_SESSION_ATTRIBUTES_SQL);
             if (removed > 0) {
-                log.info("purged {} orphan spring_session_attributes rows", removed);
+                log.info("purged {} orphan spring_session_ATTRIBUTES rows", removed);
             }
         } catch (RuntimeException exception) {
-            log.error("failed to purge orphan spring_session_attributes rows", exception);
+            log.error("failed to purge orphan spring_session_ATTRIBUTES rows", exception);
         }
     }
 

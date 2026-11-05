@@ -86,7 +86,7 @@ class PracticeMainFlowE2EIntegrationTest {
     void setUp() {
         baseUrl = "http://localhost:" + environment.getProperty("local.server.port");
         cleanDatabase();
-        jdbcTemplate.update("DELETE FROM spring_session_attributes");
+        jdbcTemplate.update("DELETE FROM spring_session_ATTRIBUTES");
         jdbcTemplate.update("DELETE FROM spring_session");
         jdbcTemplate.update("DELETE FROM users WHERE username <> ?", ADMIN_USERNAME);
         int adminUpdated =

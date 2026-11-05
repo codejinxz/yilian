@@ -45,7 +45,7 @@ import java.util.stream.Collectors;
  * <p><strong>前置条件</strong>：可用的 MySQL 8 实例与 {@code YILIAN_TEST_DB_PASSWORD} 等环境 变量（见
  * docs/BOOTSTRAP.md §5）。不满足时本类会显式失败，而不是像 Testcontainers 那样跳过。
  *
- * <p>每个用例开始前清理 {@code spring_session}、{@code spring_session_attributes} 以及除 bootstrap 管理员 {@code
+ * <p>每个用例开始前清理 {@code spring_session}、{@code spring_session_ATTRIBUTES} 以及除 bootstrap 管理员 {@code
  * admin} 之外的应用账号，并把 {@code admin} 的密码重置为测试值、首登改密标记 置为已改密、角色修正为 {@code
  * ADMIN}，保证重复运行与全新库（CI）幂等；{@code admin} 由应用启动时的 bootstrap 流程创建，测试不会删除它。
  */
@@ -94,8 +94,8 @@ class AuthFlowIntegrationTest {
     @BeforeEach
     void setUp() {
         baseUrl = "http://localhost:" + environment.getProperty("local.server.port");
-        // 先删属性表再删会话表，避免触发 spring_session_attributes 的外键约束。
-        jdbcTemplate.update("DELETE FROM spring_session_attributes");
+        // 先删属性表再删会话表，避免触发 spring_session_ATTRIBUTES 的外键约束。
+        jdbcTemplate.update("DELETE FROM spring_session_ATTRIBUTES");
         jdbcTemplate.update("DELETE FROM spring_session");
         jdbcTemplate.update("DELETE FROM import_batch_rows");
         jdbcTemplate.update("DELETE FROM import_batches");

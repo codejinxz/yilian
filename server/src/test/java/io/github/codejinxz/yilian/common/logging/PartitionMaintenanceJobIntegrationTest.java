@@ -14,7 +14,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * spring_session_attributes 孤儿清理集成测试 [AC-V11-1]（真实 MySQL，V11 后无物理外键）。
+ * spring_session_ATTRIBUTES 孤儿清理集成测试 [AC-V11-1]（真实 MySQL，V11 后无物理外键）。
  *
  * <p>反连接 DELETE 是 MySQL 多表语法，Mock 单测锁不住执行面——本测试播种「有归属的属性行 + 孤儿属性行」后真跑 {@link
  * PartitionMaintenanceJob#purgeOrphanSessionAttributes()}， 验证：孤儿 行被删、有归属行保留、重复执行幂等（可重入语义的数据库级实证）。
@@ -51,7 +51,7 @@ class PartitionMaintenanceJobIntegrationTest {
     @AfterEach
     void clean() {
         jdbcTemplate.update(
-                "DELETE FROM spring_session_attributes WHERE SESSION_PRIMARY_ID IN (?, ?)",
+                "DELETE FROM spring_session_ATTRIBUTES WHERE SESSION_PRIMARY_ID IN (?, ?)",
                 LIVE_SESSION,
                 GONE_SESSION);
         jdbcTemplate.update(
@@ -68,7 +68,7 @@ class PartitionMaintenanceJobIntegrationTest {
      */
     private void insertAttribute(String sessionPrimaryId, String name) {
         jdbcTemplate.update(
-                "INSERT INTO spring_session_attributes (SESSION_PRIMARY_ID, ATTRIBUTE_NAME,"
+                "INSERT INTO spring_session_ATTRIBUTES (SESSION_PRIMARY_ID, ATTRIBUTE_NAME,"
                         + " ATTRIBUTE_BYTES)"
                         + " VALUES (?, ?, CONCAT('blob-', ?))",
                 sessionPrimaryId,
@@ -104,13 +104,13 @@ class PartitionMaintenanceJobIntegrationTest {
 
         Integer orphanLeft =
                 jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM spring_session_attributes"
+                        "SELECT COUNT(*) FROM spring_session_ATTRIBUTES"
                                 + " WHERE SESSION_PRIMARY_ID = ?",
                         Integer.class,
                         GONE_SESSION);
         Integer liveLeft =
                 jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM spring_session_attributes"
+                        "SELECT COUNT(*) FROM spring_session_ATTRIBUTES"
                                 + " WHERE SESSION_PRIMARY_ID = ? AND ATTRIBUTE_NAME = 'attr'",
                         Integer.class,
                         LIVE_SESSION);
@@ -121,7 +121,7 @@ class PartitionMaintenanceJobIntegrationTest {
         job.purgeOrphanSessionAttributes();
         assertThat(
                         jdbcTemplate.queryForObject(
-                                "SELECT COUNT(*) FROM spring_session_attributes"
+                                "SELECT COUNT(*) FROM spring_session_ATTRIBUTES"
                                         + " WHERE SESSION_PRIMARY_ID = ?",
                                 Integer.class,
                                 LIVE_SESSION))
