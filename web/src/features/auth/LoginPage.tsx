@@ -268,13 +268,11 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
         <h1 className="font-serif text-[32px] font-medium text-ink">
           {mode === "login" ? "登录" : "注册"}
         </h1>
+        {/* 话术对齐真实数据流：登录/注册成功会在后台把本机游客答题记录自动并入账号
+            （原始记录不删，失败可在设置页导出/重试）；复习排程按账号侧队列计算、不随
+            记录迁移——这正是「刚注册账号复习为 0」观感的真相，先说清避免二次困惑。 */}
         <p className="mb-[30px] mt-[10px] text-[13px] leading-[1.75] text-ink-muted">
-          登录后，今日、复习与统计显示账号的数据，本机的游客记录不再出现在这些页面——原始记录仍保留在这台设备，可在设置页导出。不登录也能练，数据留在这台设备。
-          {mode === "register" ? (
-            <span className="mt-1.5 block">
-              注册后账号从零开始：本机的游客练习记录不会自动并入账号，仍保留在这台设备；登录后可在设置页导出，或手动同步到账号。
-            </span>
-          ) : null}
+          登录或注册后，本机的练习记录会自动并入账号（原始记录仍保留在本机，设置页可导出或重试）；复习安排不随记录迁移，会按之后的练习重新排。不登录也能练，数据留在这台设备。
         </p>
 
         <div className="mb-[26px] flex gap-[22px] border-b border-rule">

@@ -8,10 +8,10 @@ import { createQueryClient } from "@/lib/query";
 /**
  * 027 AC-8 · 认证页数据叙事如实化。
  *
- * 体验报告 D1/D2：注册页承诺「本机练习记录会并入账号」但账号侧今日/复习/统计为 0（承诺
- * 未兑现）；登录已有账号时本机视图被静默替换且无提示。文案改为如实描述——本机数据不自动
- * 并入账号、登录后页面显示账号数据、原始记录保留本机并可在设置页导出/手动同步；
- * 导入功能另批实现，本批不承诺。
+ * 真实数据流：登录/注册成功后 syncGuestAttemptsInBackground 会把本机游客答题记录自动并入
+ * 账号（原始记录保留本机，未并入的可在设置页导出/重试）；但复习排程按账号侧队列计算，
+ * 不随记录迁移——这是「刚注册账号今日/复习为 0」观感的真相。文案按此描述，
+ * 不得出现与自动同步行为矛盾的「不会并入」，也不得有不带「自动」限定的并入承诺。
  */
 
 const api = vi.hoisted(() => ({
@@ -61,28 +61,27 @@ describe("认证页数据叙事文案（027 AC-8）", () => {
     api.register.mockReset();
   });
 
-  /** 注册页：不再承诺「会并入账号」，如实说明不自动并入 + 本机保留 + 设置页出口。 */
-  it("registerCopyTruthful_ac8: 注册页不再承诺本机记录自动并入账号", async () => {
+  /** 注册页：如实描述自动并入 + 本机保留 + 复习安排不随迁移，三个事实一个都不能少。 */
+  it("registerCopyTruthful_ac8: 注册页如实描述自动并入与本机保留", async () => {
     renderAuth(<RegisterPage />);
 
-    // 旧承诺（D1 的「承诺未兑现」源头）必须消失。
+    // 自动并入（与登录/注册成功后的后台同步行为一致）+ 原始记录保留本机。
+    expect(await screen.findByText(/会自动并入账号/)).toBeInTheDocument();
+    expect(screen.getByText(/原始记录仍保留在本机/)).toBeInTheDocument();
+    // 部分迁移的真相写给用户：复习安排按账号重新排，解释「新账号复习为 0」的观感。
+    expect(screen.getByText(/复习安排不随记录迁移/)).toBeInTheDocument();
+    // 旧的不带「自动」限定的并入承诺不再出现。
     expect(screen.queryByText(/练习记录会并入账号/)).toBeNull();
-    // 注册补充说明：不自动并入 + 原始记录保留本机 + 设置页导出/手动同步出口。
-    const registerNote = await screen.findByText(/注册后账号从零开始/);
-    expect(registerNote.textContent).toContain("不会自动并入账号");
-    expect(registerNote.textContent).toContain("仍保留在这台设备");
-    expect(registerNote.textContent).toContain("手动同步到账号");
   });
 
-  /** 登录页：如实说明数据视图切换（D2 的静默替换现有了预告）与游客记录去向。 */
-  it("loginCopyTruthful_ac8: 登录页如实说明账号数据视图与游客记录去向", async () => {
+  /** 登录页：与注册页同一口径，不再有互相矛盾的话术。 */
+  it("loginCopyTruthful_ac8: 登录页与自动同步行为同一口径", async () => {
     renderAuth(<LoginPage />);
 
-    // 登录后显示账号的数据（视图切换不再静默）。
-    expect(await screen.findByText(/显示账号的数据/)).toBeInTheDocument();
-    expect(screen.getByText(/不再出现在这些页面/)).toBeInTheDocument();
-    expect(screen.getByText(/可在设置页导出/)).toBeInTheDocument();
-    // 旧文案「错题和进度跟着账号走」的模糊承诺不再出现。
+    expect(await screen.findByText(/会自动并入账号/)).toBeInTheDocument();
+    expect(screen.getByText(/复习安排不随记录迁移/)).toBeInTheDocument();
+    // 旧文案「错题和进度跟着账号走」与修订前那句「不会自动并入」都不再出现。
     expect(screen.queryByText(/错题和进度跟着账号走/)).toBeNull();
+    expect(screen.queryByText(/不会自动并入/)).toBeNull();
   });
 });

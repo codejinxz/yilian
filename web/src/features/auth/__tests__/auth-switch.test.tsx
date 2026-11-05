@@ -530,11 +530,10 @@ describe("auth-state routing switch", () => {
 
     renderApp("/register");
 
-    // 话术（027 AC-8 如实化）：说明本机记录不自动并入、仍保留本机与设置页出口；
-    // 不含任何「定级/水平/等级」字样，也不再承诺「会并入账号」（D1 的承诺未兑现源头）。
-    expect(await screen.findByText(/不会自动并入账号/)).toBeInTheDocument();
-    // 登录基线与注册补充说明都提到本机保留，用 getAllByText 断言存在即可。
-    expect(screen.getAllByText(/仍保留在这台设备/).length).toBeGreaterThan(0);
+    // 话术对齐自动同步行为：如实描述自动并入、本机保留与复习安排不迁移；
+    // 不含任何「定级/水平/等级」字样，也不再有与后台同步矛盾的「不会并入」表述。
+    expect(await screen.findByText(/会自动并入账号/)).toBeInTheDocument();
+    expect(screen.getByText(/原始记录仍保留在本机/)).toBeInTheDocument();
     expect(screen.queryByText(/练习记录会并入账号/)).not.toBeInTheDocument();
     expect(screen.queryByText(/定级|等级|水平测试/)).not.toBeInTheDocument();
   });
