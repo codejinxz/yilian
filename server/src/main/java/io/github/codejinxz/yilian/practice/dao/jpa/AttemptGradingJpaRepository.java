@@ -29,6 +29,14 @@ public interface AttemptGradingJpaRepository extends JpaRepository<AttemptGradin
     Optional<AttemptGrading> findFirstByAttemptIdOrderBySequenceDesc(String attemptId);
 
     /**
+     * 首判（sequence 最小的本地判分行，错题池「首判口径」用）。
+     *
+     * @param attemptId 提交 id
+     * @return 首判记录
+     */
+    Optional<AttemptGrading> findFirstByAttemptIdOrderBySequenceAsc(String attemptId);
+
+    /**
      * 批量取多个提交的全部判分（最新行由 Dao 侧按 sequence 归并）。
      *
      * @param attemptIds 提交 id 集合
@@ -37,7 +45,9 @@ public interface AttemptGradingJpaRepository extends JpaRepository<AttemptGradin
     List<AttemptGrading> findByAttemptIdIn(java.util.Collection<String> attemptIds);
 
     /**
-     * score&lt;100 的判分数（跨聚合 JPQL 联接）。
+     * score&lt;100 的首判数（跨聚合 JPQL 联接，wrongCount 派生）。
+     *
+     * <p>限定 sequence=1（首判）：模型复核行不参与计数——错题口径跟随复核分会让 wrongCount 随一次复核凭空 +1。
      *
      * @param userId 用户 id
      * @param sentenceId 题目 ULID
@@ -46,7 +56,7 @@ public interface AttemptGradingJpaRepository extends JpaRepository<AttemptGradin
     @Query(
             "select count(g) from AttemptGrading g join Attempt a on a.id = g.attemptId"
                     + " where a.userId = :userId and a.sentenceId = :sentenceId"
-                    + " and g.score is not null and g.score < 100")
+                    + " and g.sequence = 1 and g.score is not null and g.score < 100")
     long countWrong(@Param("userId") Long userId, @Param("sentenceId") String sentenceId);
 
     /**

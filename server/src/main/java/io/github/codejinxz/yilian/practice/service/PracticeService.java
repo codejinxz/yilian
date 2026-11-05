@@ -10,6 +10,7 @@ import io.github.codejinxz.yilian.practice.service.vo.AppealView;
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
 import io.github.codejinxz.yilian.practice.service.vo.ErrorTagsView;
 import io.github.codejinxz.yilian.practice.service.vo.GuestUpgradeView;
+import io.github.codejinxz.yilian.practice.service.vo.ModelReviewView;
 import io.github.codejinxz.yilian.practice.service.vo.NextPracticeView;
 import io.github.codejinxz.yilian.practice.service.vo.OverloadView;
 import io.github.codejinxz.yilian.practice.service.vo.PostponeView;
@@ -103,7 +104,7 @@ public interface PracticeService {
     NextPracticeView next(Long userId, NextQuery query);
 
     /**
-     * 错题列表：LEARNING 卡 + 最近判分未全对；disputed 批注按参数过滤。
+     * 错题列表：LEARNING 卡 + 最近提交首判未全对（模型复核不改错题口径）；disputed 批注按参数过滤。
      *
      * @param userId 当前用户 id
      * @param page 页码，从 1 起
@@ -195,4 +196,17 @@ public interface PracticeService {
      * @return 迁移结果
      */
     GuestUpgradeView guestUpgrade(Long userId, GuestUpgradeCommand command);
+
+    /**
+     * 模型复核（API §6.13）：对本人的已判分提交追加一条 grader=MODEL 的判分记录（append-only）。
+     *
+     * <p>归属与可见性复用作答详情口径（40403 不存在 / 40300 非本人或句子不可读）；同一 attempt 已有 MODEL
+     * 复核行时幂等返回既有结果，不重复调模型；模型不可用（40400）或调用/解析失败（重试 1 次 后仍败）按答疑同款 50000 语义降级，不落任何新行。复核不改 FSRS
+     * 排程与错题队列（首判口径）， 回看与统计按最新 sequence 自然取复核分。
+     *
+     * @param userId 当前用户 id
+     * @param attemptId 提交 id
+     * @return 复核结果（新分 + 理由 + 快照与耗时 + 首判分）
+     */
+    ModelReviewView reviewAttempt(Long userId, String attemptId);
 }

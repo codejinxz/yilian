@@ -34,6 +34,17 @@ public interface AttemptGradingDao {
     Optional<AttemptGrading> findLatestByAttemptId(String attemptId);
 
     /**
+     * 某提交的首判（sequence=1 的本地判分行）。
+     *
+     * <p>错题池等「首判口径」消费方必须读本行而不是最新行：模型复核会追加更高 sequence 的行， 若错题判定跟着复核分走，复核一次就会把题目移出/移入错题队列，
+     * 与「复核不影响复习计划」的口径冲突。
+     *
+     * @param attemptId 提交 id
+     * @return 首判记录
+     */
+    Optional<AttemptGrading> findFirstByAttemptId(String attemptId);
+
+    /**
      * 批量取多个提交的最新判分（一条 IN 查询，analytics 装配用，替代逐条 N+1）。
      *
      * @param attemptIds 提交 id 集合

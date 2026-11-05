@@ -40,6 +40,11 @@ public class JpaAttemptGradingDao implements AttemptGradingDao {
     }
 
     @Override
+    public Optional<AttemptGrading> findFirstByAttemptId(String attemptId) {
+        return gradings.findFirstByAttemptIdOrderBySequenceAsc(attemptId);
+    }
+
+    @Override
     public List<AttemptGrading> findLatestByAttemptIds(Collection<String> attemptIds) {
         if (attemptIds.isEmpty()) {
             return List.of();

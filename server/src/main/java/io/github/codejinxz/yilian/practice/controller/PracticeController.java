@@ -16,6 +16,7 @@ import io.github.codejinxz.yilian.practice.service.dto.PostponeRequest;
 import io.github.codejinxz.yilian.practice.service.dto.ReviewResetRequest;
 import io.github.codejinxz.yilian.practice.service.vo.AppealView;
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
+import io.github.codejinxz.yilian.practice.service.vo.ModelReviewView;
 import io.github.codejinxz.yilian.practice.service.vo.NextPracticeView;
 import io.github.codejinxz.yilian.practice.service.vo.OverloadView;
 import io.github.codejinxz.yilian.practice.service.vo.PostponeView;
@@ -234,6 +235,63 @@ public class PracticeController {
                         attemptId,
                         annotationKey,
                         request == null ? null : request.reason()));
+    }
+
+    /**
+     * 模型复核：对本人的已判分提交追加一条 grader=MODEL 的判分记录（append-only），不覆盖首判。
+     *
+     * <p>归属与可见性复用作答详情口径（40403 不存在 / 40300 非本人或句子不可读）；同一 attempt 已有 复核行时幂等返回既有结果，不再调模型。按账号限流 5
+     * 次/分钟（成本护栏，与答疑配额互不占用）； 模型不可用 40400（功能不存在）；调用或输出解析失败（重试 1 次后仍败）统一降级 50000 固定文案， 不落任何新行、原判分保留。
+     *
+     * @param attemptId 提交 id
+     * @param principal 当前用户
+     * @return 复核结果（新分 + 理由 + 快照/耗时/序号 + 首判分）
+     */
+    @Operation(
+            summary = "模型复核",
+            description =
+                    "对已判分提交追加 MODEL 判分行（sequence=首判+1），不改 FSRS 排程与错题队列；"
+                            + "复核后回看与统计取最新 sequence 分数。同 attempt 幂等返回既有复核结果；"
+                            + "模型调用失败降级 50000「模型复核暂时不可用」，原判分保留。")
+    @ApiResponses({
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "200",
+                description = "复核成功（含幂等回读）；data 为 ModelReviewView"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "400",
+                description = "提交无可复核判分（REVEAL 等，code=40000）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "401",
+                description = "未登录（40100）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "403",
+                description = "提交不属于当前用户或句子不可读（40300）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "404",
+                description = "答题记录不存在（40403）或模型未配置（40400）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "429",
+                description = "触发限流（42900，5 次/分钟/账号），带 Retry-After",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "500",
+                description = "模型调用/输出解析失败降级（50000，文案「模型复核暂时不可用」），不落行",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class)))
+    })
+    @RateLimit(
+            scene = "model-review",
+            dimensions = RateLimitDimension.ACCOUNT,
+            limit = 5,
+            windowSeconds = 60)
+    @PostMapping("/attempts/{attemptId}/review")
+    public ApiResponse<ModelReviewView> reviewAttempt(
+            @PathVariable String attemptId,
+            @AuthenticationPrincipal YilianUserPrincipal principal) {
+        return ApiResponse.success(practiceService.reviewAttempt(principal.id(), attemptId));
     }
 
     /**

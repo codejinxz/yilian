@@ -8,16 +8,21 @@ import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 import io.github.codejinxz.yilian.practice.dao.AppealDao;
 import io.github.codejinxz.yilian.practice.dao.AttemptDao;
 import io.github.codejinxz.yilian.practice.dao.AttemptGradingDao;
+import io.github.codejinxz.yilian.practice.dao.LlmUsageDao;
 import io.github.codejinxz.yilian.practice.dao.ReviewDao;
 import io.github.codejinxz.yilian.practice.dao.ReviewLogDao;
 import io.github.codejinxz.yilian.practice.entity.Appeal;
 import io.github.codejinxz.yilian.practice.entity.Attempt;
 import io.github.codejinxz.yilian.practice.entity.AttemptGrading;
+import io.github.codejinxz.yilian.practice.entity.LlmUsage;
 import io.github.codejinxz.yilian.practice.entity.Review;
 import io.github.codejinxz.yilian.practice.entity.ReviewLog;
 import io.github.codejinxz.yilian.practice.grading.Grader;
 import io.github.codejinxz.yilian.practice.grading.GradingAnnotation;
 import io.github.codejinxz.yilian.practice.grading.GradingResult;
+import io.github.codejinxz.yilian.practice.grading.ModelReviewPromptBuilder;
+import io.github.codejinxz.yilian.practice.llm.LlmChatClient;
+import io.github.codejinxz.yilian.practice.llm.LlmClientRegistry;
 import io.github.codejinxz.yilian.practice.scheduler.FsrsScheduleParams;
 import io.github.codejinxz.yilian.practice.scheduler.FsrsScheduler;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
@@ -30,6 +35,7 @@ import io.github.codejinxz.yilian.practice.service.vo.AppealView;
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
 import io.github.codejinxz.yilian.practice.service.vo.ErrorTagsView;
 import io.github.codejinxz.yilian.practice.service.vo.GuestUpgradeView;
+import io.github.codejinxz.yilian.practice.service.vo.ModelReviewView;
 import io.github.codejinxz.yilian.practice.service.vo.NextPracticeView;
 import io.github.codejinxz.yilian.practice.service.vo.OverloadView;
 import io.github.codejinxz.yilian.practice.service.vo.PostponeView;
@@ -99,6 +105,15 @@ public class PracticeServiceImpl implements PracticeService {
     /** analytics from/to 闭区间上限（本地日数）：全量内存聚合的量级保护，超长按 40000 拒绝。 */
     private static final int MAX_RANGE_DAYS = 92;
 
+    /** 模型复核的 LLM 场景标识：llm_usage.scene 与结构化日志的 scene 同源。 */
+    static final String MODEL_REVIEW_SCENE = "review";
+
+    /** 模型复核输出解析的最大调用次数：首次 + 解析失败重试 1 次，仍败即降级。 */
+    private static final int MODEL_REVIEW_MAX_ATTEMPTS = 2;
+
+    /** 模型复核降级文案：与答疑同款固定话术，不外抛堆栈与供应商信息。 */
+    static final String MODEL_REVIEW_DEGRADE_MESSAGE = "模型复核暂时不可用，请稍后再试";
+
     private final AttemptDao attemptDao;
 
     private final AttemptGradingDao gradingDao;
@@ -108,6 +123,10 @@ public class PracticeServiceImpl implements PracticeService {
     private final ReviewLogDao reviewLogDao;
 
     private final AppealDao appealDao;
+
+    private final LlmClientRegistry llmClients;
+
+    private final LlmUsageDao llmUsageDao;
 
     private final FsrsScheduler fsrsScheduler;
 
@@ -130,6 +149,8 @@ public class PracticeServiceImpl implements PracticeService {
      * @param reviewDao 复习卡 Dao
      * @param reviewLogDao 排程日志 Dao
      * @param appealDao 申诉/不认同 Dao（disputed overlay）
+     * @param llmClients LLM 客户端注册表（模型复核用；目录 + legacy 兼容轨）
+     * @param llmUsageDao LLM 用量账本 Dao（复核调用旁路记账，失败不阻塞）
      * @param fsrsScheduler FSRS 排程参数装配（ACTIVE 权重解码）
      * @param contentQueryService 题目内容只读查询（content 模块）
      * @param userAccountService 用户设置查询（system 模块）
@@ -142,6 +163,8 @@ public class PracticeServiceImpl implements PracticeService {
             ReviewDao reviewDao,
             ReviewLogDao reviewLogDao,
             AppealDao appealDao,
+            LlmClientRegistry llmClients,
+            LlmUsageDao llmUsageDao,
             FsrsScheduler fsrsScheduler,
             ContentQueryService contentQueryService,
             UserAccountService userAccountService,
@@ -152,6 +175,8 @@ public class PracticeServiceImpl implements PracticeService {
         this.reviewDao = reviewDao;
         this.reviewLogDao = reviewLogDao;
         this.appealDao = appealDao;
+        this.llmClients = llmClients;
+        this.llmUsageDao = llmUsageDao;
         this.fsrsScheduler = fsrsScheduler;
         this.contentQueryService = contentQueryService;
         this.userAccountService = userAccountService;
@@ -1086,12 +1111,13 @@ public class PracticeServiceImpl implements PracticeService {
     }
 
     /**
-     * 错题池：LEARNING 卡 + 最近判分未全对 + 题库/考点过滤（API §6.6）。
+     * 错题池：LEARNING 卡 + 首判未全对 + 题库/考点过滤（API §6.6）。
      *
      * <p>错题列表（wrongQuestions）与 errors=1 取题（next）共用同一口径，避免「今日页错题 chip
-     * 推的题不在错题列表里」的割裂。行级语义：最近一次判分未全对（REVEAL 的 null 分也算未全对）；
-     * 批注全被「不认同」且无其他错误的题隐藏（includeDisputed=false 时），看答案无批注的行同样 不进池（与既有错题列表行为一致，这里与本地引擎/mock 的唯一偏差，已在
-     * API §6.1 登记）。 顺序沿用 {@code findLearning} 的 dueAt 升序，同 dueAt 保持稳定序。
+     * 推的题不在错题列表里」的割裂。行级语义：最近一次提交的**首判**未全对（REVEAL 的 null 分也算 未全对）——读 sequence=1
+     * 行是因为模型复核只追加判分行不改错题队列，复核分不参与错题进出池； 批注全被「不认同」且无其他错误的题隐藏（includeDisputed=false 时），看答案无批注的行同样
+     * 不进池（与既有错题列表行为一致，这里与本地引擎/mock 的唯一偏差，已在 API §6.1 登记）。 顺序沿用 {@code findLearning} 的 dueAt 升序，同
+     * dueAt 保持稳定序。
      *
      * <p>练习史豁免：池候选即本人复习卡，可访问性按构造成立——库转私不断 错题重练；回收句由 practiceable 过滤排除（tombstone 不进池），豁免不适用。
      *
@@ -1122,14 +1148,17 @@ public class PracticeServiceImpl implements PracticeService {
             }
             Optional<Attempt> latestAttempt =
                     attemptDao.findLatestByUserAndSentence(userId, card.getSentenceId());
-            Optional<AttemptGrading> latestGrading =
+            // 错题池读首判（sequence=1）而不是最新判分行：模型复核会追加更高 sequence 的行，
+            // 若错题判定跟着复核分走，复核一次就能把题目移出/移入错题队列，与
+            // 「复核不影响复习计划」的口径冲突；复核前首判即唯一判分，行为不变。
+            Optional<AttemptGrading> firstGrading =
                     latestAttempt.flatMap(
-                            attempt -> gradingDao.findLatestByAttemptId(attempt.getId()));
-            if (latestAttempt.isEmpty() || latestGrading.isEmpty()) {
+                            attempt -> gradingDao.findFirstByAttemptId(attempt.getId()));
+            if (latestAttempt.isEmpty() || firstGrading.isEmpty()) {
                 continue;
             }
-            Integer lastScore = latestGrading.get().getScore();
-            // 错题口径：最近判分未全对（REVEAL 的 null 分也算未全对）。
+            Integer lastScore = firstGrading.get().getScore();
+            // 错题口径：首判未全对（REVEAL 的 null 分也算未全对）。
             if (lastScore != null && lastScore >= 100) {
                 continue;
             }
@@ -1138,10 +1167,10 @@ public class PracticeServiceImpl implements PracticeService {
                             .map(Appeal::getAnnotationKey)
                             .collect(Collectors.toSet());
             List<GradingAnnotation> wrongAnnotations =
-                    latestGrading.get().getResult() == null
+                    firstGrading.get().getResult() == null
                             ? List.of()
                             : objectMapper
-                                    .readValue(latestGrading.get().getResult(), GradingResult.class)
+                                    .readValue(firstGrading.get().getResult(), GradingResult.class)
                                     .annotations()
                                     .stream()
                                     .filter(annotation -> !annotation.correct())
@@ -1510,6 +1539,338 @@ public class PracticeServiceImpl implements PracticeService {
             // 只落 attempts/attempt_gradings，不触发 FSRS 排程：迁移的是历史记录而非队列。
         }
         return new GuestUpgradeView(imported, skipped, 0);
+    }
+
+    @Override
+    public ModelReviewView reviewAttempt(Long userId, String attemptId) {
+        // 刻意不加 @Transactional：模型外呼最长 15s（网关退避更久）不占数据库连接；复核行落库由
+        // Dao 自身事务提交，并发撞 uk 的回读不需要 REQUIRES_NEW（本方法没有持有中的写事务）。
+        Attempt attempt =
+                attemptDao
+                        .findById(attemptId)
+                        .orElseThrow(() -> new BusinessException(ApiCode.ATTEMPT_NOT_FOUND));
+        if (!attempt.getUserId().equals(userId)) {
+            throw new BusinessException(ApiCode.ACCESS_DENIED);
+        }
+        // 句子内容可读性复用作答详情（getAttempt）口径：库转私且无练习史豁免的提交不再回显
+        // 参考译文，复核同样拒绝——复核提示词里含参考译文与语块答案，不能绕过内容边界。
+        // 回看容许句子消失（重放落库 JSON 即可），复核必须现场取原句/参考译文拼提示词，
+        // 所以句子取不到（已删/已回收）与不可读同判：40300「句子不可读」。
+        SentenceDetail detail =
+                contentQueryService.findSentence(attempt.getSentenceId()).orElse(null);
+        if (detail == null || !accessibleForPractice(userId, detail)) {
+            throw new BusinessException(ApiCode.ACCESS_DENIED);
+        }
+        AttemptGrading first =
+                gradingDao
+                        .findFirstByAttemptId(attemptId)
+                        .orElseThrow(
+                                () ->
+                                        new BusinessException(
+                                                ApiCode.INTERNAL_ERROR, "判分记录缺失：" + attemptId));
+        if (first.getScore() == null) {
+            // REVEAL 提交没有判分（score=null）：没有可复核的对象，属客户端请求错误。
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, "该提交没有可复核的判分");
+        }
+        // 幂等闸：已有 MODEL 复核行直接返回既有结果，不再调模型——省 token 防重复计费，
+        // POST 非严格幂等在此为有意取舍（复核一人一次，重复点击只是取回同一份结果）。
+        Optional<AttemptGrading> existing = findModelReviewRow(attemptId);
+        if (existing.isPresent()) {
+            return toReviewView(existing.get(), first.getScore());
+        }
+        GradingResult localResult = parseFirstResult(first);
+        LlmClientRegistry.ChatHandle handle = llmClients.chatHandle().orElse(null);
+        if (handle == null) {
+            // 无可用客户端（目录空且 legacy 未配置/目录未激活/激活条目凭证不齐）=功能不存在，
+            // 与答疑同口径返回 40400。
+            throw new BusinessException(ApiCode.NOT_FOUND);
+        }
+        // 协议快照在调用前取定：本条用量归属「当次实际使用的协议」（与答疑同口径）。
+        String protocol =
+                llmClients
+                        .effectiveConfig()
+                        .map(LlmClientRegistry.EffectiveConfig::protocol)
+                        .orElse(null);
+        String systemPrompt = ModelReviewPromptBuilder.systemPrompt();
+        String userPrompt =
+                ModelReviewPromptBuilder.userPrompt(detail, parseAnswer(attempt), localResult);
+        long startNanos = System.nanoTime();
+        ModelReviewPromptBuilder.ModelReviewOutput output =
+                callModelWithRetry(
+                        userId,
+                        attempt.getSentenceId(),
+                        handle,
+                        protocol,
+                        systemPrompt,
+                        userPrompt);
+        long latencyMs = (System.nanoTime() - startNanos) / 1_000_000;
+        // 复核行的 result JSON 承载首判批注结构（分数与摘要被复核值替换）：回看解析、申诉批注定位、
+        // 答疑批注上下文都按「最新判分行」读取，复核后这些链路必须照常工作。
+        GradingResult reviewed =
+                new GradingResult(
+                        localResult.schemaVersion(),
+                        output.score(),
+                        localResult.maxScore(),
+                        localResult.hitCount(),
+                        localResult.totalCount(),
+                        localResult.annotations(),
+                        output.reason());
+        int sequence =
+                gradingDao
+                        .findLatestByAttemptId(attemptId)
+                        .map(g -> g.getSequence() + 1)
+                        .orElse(first.getSequence() + 1);
+        String modelSnapshot = handle.providerId() + ":" + handle.model();
+        try {
+            AttemptGrading grading =
+                    gradingDao.save(
+                            AttemptGrading.createModelReview(
+                                    attemptId,
+                                    sequence,
+                                    output.score(),
+                                    objectMapper.writeValueAsString(reviewed),
+                                    modelSnapshot,
+                                    (int) Math.min(latencyMs, Integer.MAX_VALUE),
+                                    first.getNormalizerVersion(),
+                                    first.getRubricVersion(),
+                                    Instant.now()));
+            log.info(
+                    "model_review userId={} attemptId={} sequence={} score={} model={}"
+                            + " latencyMs={}",
+                    userId,
+                    attemptId,
+                    sequence,
+                    output.score(),
+                    modelSnapshot,
+                    grading.getLatencyMs());
+            return toReviewView(grading, first.getScore());
+        } catch (DataIntegrityViolationException exception) {
+            // 并发复核撞 uk_grading_attempt_sequence：幂等以数据库唯一约束为准，回读已落行的
+            // 复核结果返回（第二次调用不再发生，结果与首调一致）。
+            AttemptGrading winner =
+                    findModelReviewRow(attemptId)
+                            .orElseThrow(
+                                    () ->
+                                            new BusinessException(
+                                                    ApiCode.INTERNAL_ERROR,
+                                                    "复核记录写入冲突：" + attemptId));
+            return toReviewView(winner, first.getScore());
+        }
+    }
+
+    /**
+     * 带重试的模型复核调用：输出解析失败或空回复重试 1 次（共最多 {@link #MODEL_REVIEW_MAX_ATTEMPTS} 次）， 仍败按答疑同款 50000
+     * 语义降级——不落复核行、不外抛堆栈与供应商信息，主链路（原判分）不受影响。
+     *
+     * <p>每次调用的终态都旁路记一条 llm_usage（scene=review）：成功与非空但不可解析的回复 ok=true （token 消耗真实发生），空回复与异常
+     * ok=false。
+     *
+     * @param userId 发起用户 id
+     * @param sentenceId 题目 id
+     * @param handle 当前可用的客户端句柄
+     * @param protocol 当次生效协议（目录未命中时为 null）
+     * @param systemPrompt 系统提示
+     * @param userPrompt 用户消息
+     * @return 解析并钳制后的复核输出
+     */
+    private ModelReviewPromptBuilder.ModelReviewOutput callModelWithRetry(
+            Long userId,
+            String sentenceId,
+            LlmClientRegistry.ChatHandle handle,
+            String protocol,
+            String systemPrompt,
+            String userPrompt) {
+        for (int call = 1; call <= MODEL_REVIEW_MAX_ATTEMPTS; call++) {
+            long callStartNanos = System.nanoTime();
+            try {
+                LlmChatClient.Reply reply = handle.client().ask(systemPrompt, userPrompt);
+                long durationMs = (System.nanoTime() - callStartNanos) / 1_000_000;
+                if (reply.content() == null || reply.content().isBlank()) {
+                    // 空回复是可观测的降级路径：ok=false，与答疑同口径；先重试再降级。
+                    recordReviewUsage(
+                            userId,
+                            sentenceId,
+                            protocol,
+                            handle.model(),
+                            reply.promptTokens(),
+                            reply.completionTokens(),
+                            durationMs,
+                            false);
+                    log.warn(
+                            "LLM 空回复：scene={}, providerId={}, userId={}, sentenceId={},"
+                                    + " call={}/{}, durationMs={}, ok=false",
+                            MODEL_REVIEW_SCENE,
+                            handle.providerId(),
+                            userId,
+                            sentenceId,
+                            call,
+                            MODEL_REVIEW_MAX_ATTEMPTS,
+                            durationMs);
+                    continue;
+                }
+                recordReviewUsage(
+                        userId,
+                        sentenceId,
+                        protocol,
+                        handle.model(),
+                        reply.promptTokens(),
+                        reply.completionTokens(),
+                        durationMs,
+                        true);
+                Optional<ModelReviewPromptBuilder.ModelReviewOutput> parsed =
+                        ModelReviewPromptBuilder.parse(objectMapper, reply.content());
+                if (parsed.isPresent()) {
+                    return parsed.get();
+                }
+                // 非空但不可解析（strict JSON 契约被违反）：token 已消耗记 ok=true，内容层失败重试。
+                log.warn(
+                        "LLM 输出解析失败：scene={}, providerId={}, userId={}, sentenceId={},"
+                                + " call={}/{}",
+                        MODEL_REVIEW_SCENE,
+                        handle.providerId(),
+                        userId,
+                        sentenceId,
+                        call,
+                        MODEL_REVIEW_MAX_ATTEMPTS);
+            } catch (RuntimeException exception) {
+                // LLM 网络错误/超时/供应商异常：ok=false（token 未取得），重试一次后降级。
+                recordReviewUsage(
+                        userId,
+                        sentenceId,
+                        protocol,
+                        handle.model(),
+                        null,
+                        null,
+                        (System.nanoTime() - callStartNanos) / 1_000_000,
+                        false);
+                log.warn(
+                        "LLM 调用失败：scene={}, providerId={}, userId={}, sentenceId={},"
+                                + " call={}/{}, durationMs={}, error={}",
+                        MODEL_REVIEW_SCENE,
+                        handle.providerId(),
+                        userId,
+                        sentenceId,
+                        call,
+                        MODEL_REVIEW_MAX_ATTEMPTS,
+                        (System.nanoTime() - callStartNanos) / 1_000_000,
+                        exception.getClass().getSimpleName());
+            }
+        }
+        throw new BusinessException(ApiCode.INTERNAL_ERROR, MODEL_REVIEW_DEGRADE_MESSAGE);
+    }
+
+    /**
+     * 取某提交的 MODEL 复核行（幂等回读与并发竞态回读共用）。
+     *
+     * @param attemptId 提交 id
+     * @return 最新一条 MODEL 复核行；无则空
+     */
+    private Optional<AttemptGrading> findModelReviewRow(String attemptId) {
+        return gradingDao.findByAttemptId(attemptId).stream()
+                .filter(grading -> "MODEL".equals(grading.getGrader()))
+                .findFirst();
+    }
+
+    /**
+     * 解析首判 result JSON；损坏视为数据完整性故障，按复核降级处理（不落行、保留原分）， 不把解析异常当未知 500 暴露堆栈。
+     *
+     * @param first 首判行
+     * @return 首判结果
+     */
+    private GradingResult parseFirstResult(AttemptGrading first) {
+        try {
+            return objectMapper.readValue(first.getResult(), GradingResult.class);
+        } catch (JacksonException exception) {
+            log.warn(
+                    "首判 result JSON 损坏，复核降级：attemptId={}, error={}",
+                    first.getAttemptId(),
+                    exception.getClass().getSimpleName());
+            throw new BusinessException(ApiCode.INTERNAL_ERROR, MODEL_REVIEW_DEGRADE_MESSAGE);
+        }
+    }
+
+    /**
+     * 解析提交载荷（提示词「我的提交」上下文）；损坏按「未取得」处理，不阻塞复核。
+     *
+     * @param attempt 提交
+     * @return 提交载荷；解析失败为 null
+     */
+    private AnswerPayload parseAnswer(Attempt attempt) {
+        try {
+            return objectMapper.readValue(attempt.getAnswer(), AnswerPayload.class);
+        } catch (JacksonException exception) {
+            return null;
+        }
+    }
+
+    /**
+     * 落一条复核调用终态用量记录（llm_usage append-only）。旁路纪律与答疑一致：写失败吞掉只记告警—— 账本缺一条可接受，把已经拿到的复核结果变成 5xx 不可接受。
+     *
+     * @param userId 发起用户 id
+     * @param sentenceId 题目 id
+     * @param protocol 当次生效协议（目录未命中时为 null）
+     * @param model 当次生效模型名快照
+     * @param promptTokens 提示词 token（失败未取得时为 null）
+     * @param completionTokens 回复 token（失败未取得时为 null）
+     * @param durationMs 调用耗时毫秒
+     * @param ok 是否拿到非空回复
+     */
+    private void recordReviewUsage(
+            Long userId,
+            String sentenceId,
+            String protocol,
+            String model,
+            Integer promptTokens,
+            Integer completionTokens,
+            long durationMs,
+            boolean ok) {
+        try {
+            llmUsageDao.save(
+                    LlmUsage.of(
+                            userId,
+                            sentenceId,
+                            MODEL_REVIEW_SCENE,
+                            protocol,
+                            model,
+                            promptTokens,
+                            completionTokens,
+                            durationMs,
+                            ok,
+                            Instant.now()));
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "LLM 用量落库失败（旁路不阻塞）：scene={}, userId={}, sentenceId={}, error={}",
+                    MODEL_REVIEW_SCENE,
+                    userId,
+                    sentenceId,
+                    exception.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * 复核行 → 响应视图。理由取复核行 result JSON 的 summary（落库时已替换为模型理由）， 保证幂等回读与并发竞态回读都返回与首次调用一致的完整结果。
+     *
+     * @param review MODEL 复核行
+     * @param originalScore 首判分
+     * @return 复核视图
+     */
+    private ModelReviewView toReviewView(AttemptGrading review, Integer originalScore) {
+        String reason;
+        try {
+            GradingResult result = objectMapper.readValue(review.getResult(), GradingResult.class);
+            reason = result.summary();
+        } catch (JacksonException exception) {
+            // 复核行 JSON 损坏只在并发/运维事故下出现；理由退化为固定文案，分数仍如实返回。
+            reason = "复核结果已记录";
+        }
+        return new ModelReviewView(
+                review.getScore() == null ? 0 : review.getScore(),
+                reason,
+                review.getModelSnapshot(),
+                review.getLatencyMs() == null ? null : review.getLatencyMs().longValue(),
+                review.getCreatedAt(),
+                review.getSequence(),
+                originalScore == null ? 0 : originalScore);
     }
 
     /**

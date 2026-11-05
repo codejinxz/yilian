@@ -31,6 +31,7 @@ import io.github.codejinxz.yilian.practice.service.dto.AttemptCommand;
 import io.github.codejinxz.yilian.practice.service.dto.NextQuery;
 import io.github.codejinxz.yilian.practice.service.vo.AppealView;
 import io.github.codejinxz.yilian.practice.service.vo.AttemptView;
+import io.github.codejinxz.yilian.practice.service.vo.ModelReviewView;
 import io.github.codejinxz.yilian.practice.service.vo.NextPracticeView;
 import io.github.codejinxz.yilian.practice.service.vo.OverloadView;
 import io.github.codejinxz.yilian.practice.service.vo.PostponeView;
@@ -684,6 +685,64 @@ class PracticeControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.postponed").value(0));
         verify(practiceService).postpone(7L, null);
+    }
+
+    /** [AC-3] 匿名请求模型复核：401 信封（code=40100），不触达 Service。 */
+    @Test
+    void reviewRejectsAnonymousWith401_ac3() throws Exception {
+        mockMvc.perform(
+                        post("/api/practice/attempts/{attemptId}/review", "3f0e8e50-0001")
+                                .with(csrf()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(ApiCode.AUTH_REQUIRED.code()));
+        verifyNoInteractions(practiceService);
+    }
+
+    /** [AC-1] 复核委托：POST 无请求体，Service 返回复核视图并按统一信封回显新分与理由。 */
+    @Test
+    void reviewDelegatesToService_ac1() throws Exception {
+        when(practiceService.reviewAttempt(7L, "3f0e8e50-0001"))
+                .thenReturn(
+                        new ModelReviewView(
+                                88,
+                                "整体可懂，介词搭配需要调整",
+                                "stub:glm-4.7",
+                                640L,
+                                Instant.parse("2026-11-06T12:00:00Z"),
+                                2,
+                                61));
+        mockMvc.perform(
+                        post("/api/practice/attempts/{attemptId}/review", "3f0e8e50-0001")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER")))
+                                .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.score").value(88))
+                .andExpect(jsonPath("$.data.reason").value("整体可懂，介词搭配需要调整"))
+                .andExpect(jsonPath("$.data.modelSnapshot").value("stub:glm-4.7"))
+                .andExpect(jsonPath("$.data.latencyMs").value(640))
+                .andExpect(jsonPath("$.data.sequence").value(2))
+                .andExpect(jsonPath("$.data.originalScore").value(61));
+        verify(practiceService).reviewAttempt(7L, "3f0e8e50-0001");
+    }
+
+    /** [AC-6] 复核限流注解契约：按账号 5 次/60 秒（成本护栏），场景名不含用户输入。 */
+    @Test
+    void reviewHasAccountRateLimitOfFivePerMinute_ac6() throws Exception {
+        RateLimit rateLimit =
+                PracticeController.class
+                        .getDeclaredMethod("reviewAttempt", String.class, YilianUserPrincipal.class)
+                        .getAnnotation(RateLimit.class);
+        org.assertj.core.api.Assertions.assertThat(rateLimit).isNotNull();
+        org.assertj.core.api.Assertions.assertThat(rateLimit.scene()).isEqualTo("model-review");
+        org.assertj.core.api.Assertions.assertThat(rateLimit.limit()).isEqualTo(5);
+        org.assertj.core.api.Assertions.assertThat(rateLimit.windowSeconds()).isEqualTo(60);
+        org.assertj.core.api.Assertions.assertThat(rateLimit.dimensions())
+                .containsExactly(
+                        io.github.codejinxz.yilian.common.ratelimit.RateLimitDimension.ACCOUNT);
     }
 
     /**
