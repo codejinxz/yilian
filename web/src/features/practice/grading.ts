@@ -270,6 +270,90 @@ export function hasPhrase(text: string, phrase: string): boolean {
   return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, "i").test(normalizeAnswer(text));
 }
 
+/** 参考对位视图里的一个期望词：词面 + 是否被用户输入命中 + 在规范答案中的位置（渲染 key 用）。 */
+export interface ReferenceWord {
+  word: string;
+  hit: boolean;
+  position: number;
+}
+
+/** 一个挖空语块的参考对位结果：期望词逐词命中态与用户完整输入。 */
+export interface ChunkAlignment {
+  /** 规范答案逐词拆分后的期望词与命中态，顺序与词面一致。 */
+  words: ReferenceWord[];
+  /** 用户输入按空白切词；超出期望词数的部分同样保留，对位视图不丢字。 */
+  receivedWords: string[];
+}
+
+/**
+ * 「按参考对位」视图的逐词对位计算。
+ *
+ * <p>命中口径与判分展示保持可读优先：先按位置比对（与本地判分的部分分同口径），
+ * 位置错开但词面存在的输入（多打了引导词导致整体后移）经贪心多重集匹配兜底记为命中——
+ * 对位视图要回答的是「哪个词没写对」，分数仍以判分结果为准。
+ *
+ * @param answers 语块可接受答案列表（第一个为规范答案）
+ * @param received 用户在该空的完整输入
+ * @returns 期望词命中态与用户切词结果；无可接受答案时 words 为空
+ */
+export function alignToReference(answers: string[], received: string): ChunkAlignment {
+  const expected = answers.filter((answer) => normalizeAnswer(answer) !== "");
+  const canonical = expected[0] ?? "";
+  const canonicalWords = canonical.trim() === "" ? [] : canonical.split(/\s+/).filter(Boolean);
+  const receivedWords = received.trim() === "" ? [] : received.split(/\s+/).filter(Boolean);
+  // 与可接受答案词数相同的备选答案，按位置提供同位置替身词（与骨架渲染的 alts 语义一致）。
+  const altWordsByPosition = canonicalWords.map((_, position) =>
+    expected
+      .map((answer) => answer.split(/\s+/).filter(Boolean))
+      .filter((words) => words.length === canonicalWords.length)
+      .map((words) => words[position])
+      .filter(Boolean),
+  );
+
+  const normalizedReceived = receivedWords.map(normalizeAnswer);
+  const consumed = receivedWords.map(() => false);
+  /** 用户第 receivedIndex 个输入词是否命中期望词（含同位置替身词）。 */
+  const matchesExpected = (receivedIndex: number, word: string, position: number): boolean =>
+    normalizedReceived[receivedIndex] === normalizeAnswer(word) ||
+    altWordsByPosition[position].some(
+      (alt) => normalizeAnswer(alt) === normalizedReceived[receivedIndex],
+    );
+
+  // 第一轮：按位置比对，与判分部分分同口径。
+  const hitFlags = canonicalWords.map((word, position) => {
+    if (receivedWords[position] && matchesExpected(position, word, position)) {
+      consumed[position] = true;
+      return true;
+    }
+    return false;
+  });
+  // 第二轮：位置错开的兜底匹配，只对仍未命中的期望词找未被占用的同词面输入。
+  for (let position = 0; position < canonicalWords.length; position += 1) {
+    if (hitFlags[position]) {
+      continue;
+    }
+    const altSet = new Set(altWordsByPosition[position].map(normalizeAnswer));
+    const matchIndex = normalizedReceived.findIndex(
+      (typed, index) =>
+        !consumed[index] &&
+        (typed === normalizeAnswer(canonicalWords[position]) || altSet.has(typed)),
+    );
+    if (matchIndex >= 0) {
+      consumed[matchIndex] = true;
+      hitFlags[position] = true;
+    }
+  }
+
+  return {
+    words: canonicalWords.map((word, position) => ({
+      word,
+      hit: hitFlags[position],
+      position,
+    })),
+    receivedWords,
+  };
+}
+
 /** 一枚要点 chip：语块中文 + 是否命中。 */
 export interface FreeChunkChip {
   index: number;

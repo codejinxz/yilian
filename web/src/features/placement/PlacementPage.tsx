@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ErrorState, LoadingBlock } from "@/components/feedback";
 import { normalizeAnswer } from "@/features/practice/grading";
 import {
@@ -39,6 +39,23 @@ export function PlacementPage() {
   const [missedTags, setMissedTags] = useState<string[]>([]);
   const [result, setResult] = useState<{ correct: number; missedTags: string[] } | null>(null);
   const [dailyGoal, setDailyGoal] = useState<1 | 3 | 5>(3);
+  /**
+   * 「已记录」微反馈：提交后先确认再进下一题。定级是全程唯一「答了没回音」的地方
+   * （体验报告 S1/D14），三题连答像答案消失；这里停留约 0.6s 给一个落定确认，
+   * 动效只用既有 rise 入场（透明度/位移），不弹窗、不引入新动效库。
+   */
+  const [recorded, setRecorded] = useState(false);
+  const recordTimerRef = useRef<number | null>(null);
+
+  // 卸载时清掉未触发的进题计时器，避免对已卸载组件 setState。
+  useEffect(
+    () => () => {
+      if (recordTimerRef.current !== null) {
+        window.clearTimeout(recordTimerRef.current);
+      }
+    },
+    [],
+  );
 
   // 定级题一次性拉取；空列表按失败处理，重试态交给 ErrorState。
   const sentencesQuery = useQuery<PracticeSentence[]>({
@@ -87,12 +104,13 @@ export function PlacementPage() {
 
   /**
    * 提交当前题：空输入只提示不打分；其余按归一化后的整句比对计分。
+   * 命中判定先算好，进题推迟到「已记录」微反馈结束之后。
    * @param event 输入框回车或按钮触发的默认表单事件
    */
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const current = sentences?.[index];
-    if (!current || result) {
+    if (!current || result || recorded) {
       return;
     }
     if (normalizeAnswer(answer) === "") {
@@ -100,7 +118,15 @@ export function PlacementPage() {
       return;
     }
     setHint(null);
-    advance(normalizeAnswer(answer) === normalizeAnswer(current.ref));
+    const hit = normalizeAnswer(answer) === normalizeAnswer(current.ref);
+    setRecorded(true);
+    if (recordTimerRef.current !== null) {
+      window.clearTimeout(recordTimerRef.current);
+    }
+    recordTimerRef.current = window.setTimeout(() => {
+      setRecorded(false);
+      advance(hit);
+    }, 600);
   }
 
   /** 「先开始，稍后再测」：直接视为已定级（不定起点），回今日。 */
@@ -197,18 +223,37 @@ export function PlacementPage() {
             </p>
           ) : null}
 
+          {recorded ? (
+            // 「已记录」确认：苔绿小字 + rise 入场，0.6s 后进下一题；微反馈期间按钮全部禁用，
+            // 避免连点造成双进题。
+            <p role="status" className="rise mt-3 text-xs tracking-[0.04em] text-moss">
+              已记录 ✓
+            </p>
+          ) : null}
+
           {/* .actions：36px 上距、14px 间距；提交为 .btn.primary（13px、11px 22px、2px 圆角） */}
           <div className="mt-9 flex flex-wrap items-center gap-3.5">
             <button
               type="submit"
-              className="cursor-pointer rounded-[2px] border border-vermilion bg-vermilion px-[22px] py-[11px] text-[13px] leading-[1.2] tracking-[0.06em] text-white transition-colors duration-200 hover:border-vermilion-deep hover:bg-vermilion-deep"
+              disabled={recorded}
+              className="cursor-pointer rounded-[2px] border border-vermilion bg-vermilion px-[22px] py-[11px] text-[13px] leading-[1.2] tracking-[0.06em] text-white transition-colors duration-200 hover:border-vermilion-deep hover:bg-vermilion-deep disabled:cursor-not-allowed disabled:opacity-50"
             >
               提交
             </button>
-            <button type="button" className={linkishClass()} onClick={() => advance(false)}>
+            <button
+              type="button"
+              disabled={recorded}
+              className={cn(linkishClass(), "disabled:cursor-not-allowed disabled:opacity-50")}
+              onClick={() => advance(false)}
+            >
               跳过这题
             </button>
-            <button type="button" className={linkishClass()} onClick={skipPlacement}>
+            <button
+              type="button"
+              disabled={recorded}
+              className={cn(linkishClass(), "disabled:cursor-not-allowed disabled:opacity-50")}
+              onClick={skipPlacement}
+            >
               先开始，稍后再测
             </button>
           </div>

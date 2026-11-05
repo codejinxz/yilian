@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useSessionStore } from "@/features/auth/session";
 import { AskPanel } from "@/features/practice/AskPanel";
 import {
+  alignToReference,
   freeModeChips,
   gradeCloze,
   gradeFree,
@@ -411,6 +412,14 @@ export function PracticePage() {
   const [review, setReview] = useState<ModelReview | null>(null);
   /** 本会话内改对已确认（RETRY 成功）：豁免原 attempt 的 retryRequired，换句/重答即重置。 */
   const [retryFixed, setRetryFixed] = useState(false);
+  /**
+   * 判分对位双视图：「按我的输入」是现状视图（默认），「按参考对位」以规范答案词序重排
+   * 逐词命中态。多词块被固定词框强拆后红绿错位、看不清错在哪个词（体验报告 D4），
+   * 参考对位视图给第二条可读路径；纯本地状态，不进任何持久层。
+   */
+  const [slotView, setSlotView] = useState<"mine" | "reference">("mine");
+  /** 「已记录」微反馈：判分落定后短暂出现，1.8s 自动消失（与 toast 同节奏，不打断作答）。 */
+  const [recordedFlash, setRecordedFlash] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   /** 「问一问」面板开关：只针对当前句。 */
   const [askOpen, setAskOpen] = useState(false);
@@ -422,6 +431,7 @@ export function PracticePage() {
   const [askAvailable, setAskAvailable] = useState(() => !isAskUnavailableMarked());
   const startedAtRef = useRef(Date.now());
   const toastTimerRef = useRef<number | null>(null);
+  const recordedTimerRef = useRef<number | null>(null);
   const skeletonRef = useRef<HTMLParagraphElement | null>(null);
   const resultRef = useRef<HTMLElement | null>(null);
   const activeSentenceIdRef = useRef<string | null>(null);
@@ -436,6 +446,15 @@ export function PracticePage() {
       window.clearTimeout(toastTimerRef.current);
     }
     toastTimerRef.current = window.setTimeout(() => setToastMessage(null), 1800);
+  }
+
+  /** 「已记录」微反馈：判分落定即亮起，1.8s 自动消失；连续提交时重置计时。 */
+  function flashRecorded() {
+    setRecordedFlash(true);
+    if (recordedTimerRef.current !== null) {
+      window.clearTimeout(recordedTimerRef.current);
+    }
+    recordedTimerRef.current = window.setTimeout(() => setRecordedFlash(false), 1800);
   }
 
   const todayQuery = useQuery(todayQueryOptions);
@@ -551,7 +570,16 @@ export function PracticePage() {
     setReview(null);
     setRetryFixed(false);
     setIpaVisible(false);
+    setSlotView("mine");
+    setRecordedFlash(false);
   }, [sentenceId]);
+
+  // 结果被清掉（返回修改/切模式/换库）时把对位视图回默认：重新判分后不应直接落在「按参考对位」。
+  useEffect(() => {
+    if (!attempt) {
+      setSlotView("mine");
+    }
+  }, [attempt]);
 
   // 判分结果渲染后把焦点移到结果块（原型 $('#result').focus()）：读屏立即播报结果，
   // 键盘用户不必 Tab 寻址；先平滑滚到可视再无滚动聚焦，避免移动端把结果顶出视口。
@@ -826,6 +854,7 @@ export function PracticePage() {
     const submission = { request, sentence, result };
     setSubmitError(null);
     setOptimistic(localAttempt(request, result));
+    flashRecorded();
 
     if (!online) {
       enqueueAttempt(request);
@@ -893,6 +922,7 @@ export function PracticePage() {
     // 需要乐观渲染看答案结果。
     if (kind === "REVEAL") {
       setOptimistic(localAttempt(request, result));
+      flashRecorded();
     }
     if (!online) {
       enqueueAttempt(request);
@@ -1284,6 +1314,30 @@ export function PracticePage() {
     displayMode === "FREE" && !isReveal && displaySentence
       ? freeModeChips(displaySentence.chunks, submittedFree)
       : [];
+  // 整句聚合批注（free:0）的分化正文：既有命中的语块也有未命中的语块时，先确认命中的
+  //（苔绿），「参考写法」只列未命中的语块——避免「答对的部分被错误条目样式淹没」的误读
+  //（体验报告 D5）。全中/全不中时不需要分化，回退原有正文。
+  const freeSplit =
+    displayMode === "FREE" && !isReveal && freeChips.length > 0
+      ? (() => {
+          const hit = freeChips.filter((chip) => chip.hit);
+          const missed = freeChips.filter((chip) => !chip.hit);
+          if (hit.length === 0 || missed.length === 0) {
+            return null;
+          }
+          const missedAnswers = missed
+            .map(
+              (chip) =>
+                displaySentence?.chunks.find((item) => item.index === chip.index)?.answers[0] ??
+                null,
+            )
+            .filter((answer): answer is string => Boolean(answer))
+            .join(" / ");
+          return missedAnswers
+            ? { hitZh: hit.map((chip) => chip.zh).join("」「"), missedAnswers }
+            : null;
+        })()
+      : null;
   const score = attempt?.score ?? null;
   const missedCount = attempt
     ? attempt.result.annotations.filter((item) => !item.correct).length
@@ -1292,6 +1346,11 @@ export function PracticePage() {
   const disabledActions = !online || Boolean(optimistic);
   const dueCount = todayQuery.data?.dueCount ?? 0;
   const goal = todayQuery.data?.goal ?? null;
+
+  // 判分对位双视图的开关条件：已判分 + 填空 + 非看答案 + 有未命中的空。
+  // 全对时两个视图内容一致，不出现切换行，避免给达标反馈添噪音。
+  const showViewToggle = submittedSlots !== null && !isReveal && missedCount > 0;
+  const referenceView = submittedSlots !== null && !isReveal && slotView === "reference";
 
   // 进度条位置：优先按当前句在所选题库中的序号（与原型 01/08 展示一致）；
   // 指定句深链不属于当前题库或题库未加载时，回退为本轮进度（done/goal）。
@@ -1479,6 +1538,36 @@ export function PracticePage() {
 
               {displayMode === "CLOZE" ? (
                 <div>
+                  {showViewToggle ? (
+                    // 判分对位双视图：默认「按我的输入」保持现状；多词输入被固定词框强拆而
+                    // 红绿错位时（体验报告 D4），「按参考对位」以规范答案词序给出逐词命中态。
+                    <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                      <span className="font-mono text-[10px] tracking-[0.14em] text-ink-faint">
+                        判分对位
+                      </span>
+                      {(
+                        [
+                          ["mine", "按我的输入"],
+                          ["reference", "按参考对位"],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          aria-pressed={slotView === value}
+                          onClick={() => setSlotView(value)}
+                          className={cn(
+                            "cursor-pointer border-b pb-px text-[11px] tracking-[0.06em] transition-colors duration-150",
+                            slotView === value
+                              ? "border-vermilion text-ink"
+                              : "border-transparent text-ink-faint hover:text-ink-muted",
+                          )}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                   {/* 原型 .skeleton：衬线、行高 2.5、≤520px 缩为 17px/2.7；字号随参考译文长度三档。 */}
                   <p
                     ref={skeletonRef}
@@ -1508,6 +1597,41 @@ export function PracticePage() {
                               (item) => item.chunkIndex === chunk.index,
                             ) ?? null)
                           : null;
+                        if (referenceView) {
+                          // 「按参考对位」：以规范答案词序展示逐词命中态（命中苔绿 / 未命中朱红），
+                          // 用户完整输入随注保留——不再把多词输入强拆进固定词框（D4 的错位来源）。
+                          const alignment = alignToReference(chunk.answers, value);
+                          return (
+                            <Fragment key={chunk.index}>
+                              <span className="relative inline-flex max-w-full flex-wrap items-baseline gap-x-[.4ch] whitespace-nowrap">
+                                <span className={BLANK_BADGE}>{blankIndex + 1}</span>
+                                {alignment.words.map((word) => (
+                                  // key 用对位数据自带的位置标识（词面可重复，如 more and more）。
+                                  <span
+                                    key={word.position}
+                                    className={cn(
+                                      "font-serif",
+                                      word.hit ? "text-moss" : "text-vermilion",
+                                    )}
+                                  >
+                                    {word.word}
+                                  </span>
+                                ))}
+                                {annotation?.correct ? null : alignment.receivedWords.length ===
+                                  0 ? (
+                                  <span className="font-sans text-[0.72em] tracking-[0.01em] text-ink-faint">
+                                    未填写
+                                  </span>
+                                ) : (
+                                  <span className="font-sans text-[0.72em] tracking-[0.01em] text-ink-faint">
+                                    你写：{alignment.receivedWords.join(" ")}
+                                  </span>
+                                )}
+                              </span>
+                              {trailing}
+                            </Fragment>
+                          );
+                        }
                         // 原型按规范答案逐词开框：每个词一个下划线输入框，宽度随词长 ch 自适应；
                         // 答案仍以整块字符串存取（草稿/提交契约不变），此处按位置拆词回填。
                         const canonical = chunk.answers[0] ?? "";
@@ -1595,7 +1719,12 @@ export function PracticePage() {
                                   </Fragment>
                                 );
                               })}
-                              {annotation && !annotation.correct && annotation.minimalFix ? (
+                              {/* 行内朱批（期望文本）只属于「按我的输入」视图：参考对位视图里
+                                  期望词已逐词展开，再悬浮一段红色期望文本就是 D4 的混乱本身。 */}
+                              {!referenceView &&
+                              annotation &&
+                              !annotation.correct &&
+                              annotation.minimalFix ? (
                                 <span className="ml-[7px] font-sans text-[0.7em] tracking-[0.01em] text-vermilion">
                                   {annotation.minimalFix}
                                 </span>
@@ -1753,6 +1882,16 @@ export function PracticePage() {
                   <span className="ml-1 font-mono text-[13px] text-ink-faint">/100</span>
                 </p>
                 <p className="text-[13px] tracking-[0.04em] text-ink-muted">{displayNote}</p>
+                {recordedFlash ? (
+                  // 判分落定的「已记录」确认：复用 rise 入场（透明度/位移 0.3s），1.8s 自动消失，
+                  // 不弹窗不打断一屏一句（体验报告 S1 的练习侧落点）。
+                  <span
+                    role="status"
+                    className="rise font-mono text-[11px] tracking-[0.08em] text-moss"
+                  >
+                    已记录 ✓
+                  </span>
+                ) : null}
                 {attempt.replayed ? (
                   <span className="font-mono text-[10px] tracking-[0.08em] text-ink-faint">
                     幂等重放
@@ -1971,8 +2110,15 @@ export function PracticePage() {
                     key={annotation.key}
                     className="relative mb-[18px] pl-[22px] text-[12.5px] leading-[1.8] text-ink-muted"
                   >
-                    <b className="absolute left-0 top-[1px] font-mono text-[10px] font-medium text-vermilion">
-                      {index + 1}
+                    {/* 正确/错误语块样式分化（体验报告 D5）：命中的语块用苔绿对勾 + 中性正文，
+                        只有未命中的语块用朱红编号并配申诉入口——答对的部分不再混在错误条目里。 */}
+                    <b
+                      className={cn(
+                        "absolute left-0 top-[1px] font-mono text-[10px] font-medium",
+                        annotation.correct ? "text-moss" : "text-vermilion",
+                      )}
+                    >
+                      {annotation.correct ? "✓" : index + 1}
                     </b>
                     {zh ? (
                       <>
@@ -1986,19 +2132,28 @@ export function PracticePage() {
                     </span>
                     {!annotation.correct ? (
                       // 原型批注正文（renderNotes）：语块教学注优先，缺省回退「正确写法」；
+                      // 整句聚合批注在命中/未命中并存时改用分化正文（见 freeSplit）；
                       // received/minimalFix 已由骨架删除线与行内 .fix 呈现，不再重复成块展示。
                       <span>
-                        {chunkNote ||
+                        {annotation.key.startsWith("free:") && freeSplit ? (
+                          <>
+                            <span className="text-moss">「{freeSplit.hitZh}」已写对。</span>
+                            {"未命中的语块参考写法："}
+                            <em className="font-serif not-italic">{freeSplit.missedAnswers}</em>
+                          </>
+                        ) : (
+                          chunkNote ||
                           (annotation.expected.length > 0 ? (
                             <>
                               正确写法：
                               <em className="font-serif not-italic">{annotation.expected[0]}</em>
                             </>
-                          ) : null)}
+                          ) : null)
+                        )}
                       </span>
-                    ) : annotation.message ? (
-                      <span>{annotation.message}</span>
-                    ) : null}
+                    ) : (
+                      <span>{annotation.message ?? "已写对"}</span>
+                    )}
                     {!annotation.correct ? (
                       <AnnotationActions
                         attemptId={attempt.attemptId}
