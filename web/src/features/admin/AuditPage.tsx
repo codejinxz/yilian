@@ -88,7 +88,11 @@ export function AuditPage() {
       {logsQuery.isPending ? (
         <LoadingBlock label="正在载入操作日志…" />
       ) : logsQuery.isError ? (
-        <ErrorState error={logsQuery.error} onRetry={() => void logsQuery.refetch()} />
+        <ErrorState
+          error={logsQuery.error}
+          onRetry={() => void logsQuery.refetch()}
+          variant="admin"
+        />
       ) : (
         <>
           <RowList>

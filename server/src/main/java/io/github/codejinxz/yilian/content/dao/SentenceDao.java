@@ -35,15 +35,6 @@ public interface SentenceDao {
     List<Sentence> findByIds(Collection<String> ids);
 
     /**
-     * 按题库与外部键查题目。
-     *
-     * @param bankId 题库 id
-     * @param externalKey 外部键
-     * @return 题目
-     */
-    Optional<Sentence> findByExternalKey(long bankId, String externalKey);
-
-    /**
      * 按指纹查未删题目。
      *
      * @param bankId 题库 id

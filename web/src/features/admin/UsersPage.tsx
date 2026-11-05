@@ -225,7 +225,11 @@ export function UsersPage() {
       {usersQuery.isPending ? (
         <LoadingBlock label="正在载入用户…" />
       ) : usersQuery.isError ? (
-        <ErrorState error={usersQuery.error} onRetry={() => void usersQuery.refetch()} />
+        <ErrorState
+          error={usersQuery.error}
+          onRetry={() => void usersQuery.refetch()}
+          variant="admin"
+        />
       ) : (
         <>
           <RowList>

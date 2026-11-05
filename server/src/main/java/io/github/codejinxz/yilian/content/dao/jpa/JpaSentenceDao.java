@@ -45,11 +45,6 @@ public class JpaSentenceDao implements SentenceDao {
     }
 
     @Override
-    public Optional<Sentence> findByExternalKey(long bankId, String externalKey) {
-        return sentences.findByBankIdAndExternalKey(bankId, externalKey);
-    }
-
-    @Override
     public Optional<Sentence> findActiveByFingerprint(long bankId, String fingerprint) {
         return sentences.findActiveByFingerprint(bankId, fingerprint);
     }

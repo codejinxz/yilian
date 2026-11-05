@@ -36,7 +36,9 @@ export function OverviewPage() {
     return <LoadingBlock label="正在汇总运营数据…" />;
   }
   if (overview.isError) {
-    return <ErrorState error={overview.error} onRetry={() => void overview.refetch()} />;
+    return (
+      <ErrorState error={overview.error} onRetry={() => void overview.refetch()} variant="admin" />
+    );
   }
 
   const data = overview.data;

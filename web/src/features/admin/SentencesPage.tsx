@@ -269,7 +269,11 @@ export function SentencesPage() {
       {sentencesQuery.isPending ? (
         <LoadingBlock label="正在载入题目…" />
       ) : sentencesQuery.isError ? (
-        <ErrorState error={sentencesQuery.error} onRetry={() => void sentencesQuery.refetch()} />
+        <ErrorState
+          error={sentencesQuery.error}
+          onRetry={() => void sentencesQuery.refetch()}
+          variant="admin"
+        />
       ) : (
         <>
           <RowList>

@@ -143,7 +143,11 @@ export function BanksPage() {
         {banksQuery.isPending ? (
           <LoadingBlock label="正在载入题库…" />
         ) : banksQuery.isError ? (
-          <ErrorState error={banksQuery.error} onRetry={() => void banksQuery.refetch()} />
+          <ErrorState
+            error={banksQuery.error}
+            onRetry={() => void banksQuery.refetch()}
+            variant="admin"
+          />
         ) : (
           <>
             <RowList>

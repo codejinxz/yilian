@@ -15,15 +15,6 @@ import java.util.Optional;
 public interface SentenceJpaRepository extends JpaRepository<Sentence, String> {
 
     /**
-     * 按题库与导入源 id 查题目。
-     *
-     * @param bankId 题库 id
-     * @param externalKey 导入源 id
-     * @return 题目
-     */
-    Optional<Sentence> findByBankIdAndExternalKey(long bankId, String externalKey);
-
-    /**
      * 按题库与内容指纹查未删题目，用于精确重复拦截。
      *
      * <p>命中生成列 {@code active_fingerprint}（未删时 = fingerprint，已删恒为 NULL）而非基础列， 让导入去重探测走上唯一索引 {@code

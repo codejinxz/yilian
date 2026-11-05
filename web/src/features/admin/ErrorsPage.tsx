@@ -100,7 +100,11 @@ export function ErrorsPage() {
       {logsQuery.isPending ? (
         <LoadingBlock label="正在载入异常日志…" />
       ) : logsQuery.isError ? (
-        <ErrorState error={logsQuery.error} onRetry={() => void logsQuery.refetch()} />
+        <ErrorState
+          error={logsQuery.error}
+          onRetry={() => void logsQuery.refetch()}
+          variant="admin"
+        />
       ) : (
         <>
           <RowList>
@@ -154,6 +158,7 @@ export function ErrorsPage() {
             compact
             error={detailQuery.error}
             onRetry={() => void detailQuery.refetch()}
+            variant="admin"
           />
         ) : (
           <>

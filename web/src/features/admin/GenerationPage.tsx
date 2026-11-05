@@ -413,7 +413,11 @@ export function GenerationPage() {
         {batchesQuery.isPending ? (
           <LoadingBlock label="正在载入批次…" />
         ) : batchesQuery.isError ? (
-          <ErrorState error={batchesQuery.error} onRetry={() => void batchesQuery.refetch()} />
+          <ErrorState
+            error={batchesQuery.error}
+            onRetry={() => void batchesQuery.refetch()}
+            variant="admin"
+          />
         ) : (
           <RowList>
             {batchesQuery.data.items.length === 0 ? (
