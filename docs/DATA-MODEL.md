@@ -68,7 +68,8 @@
 | admin | `error_log` | PRD §18.2 | M1 |
 | system | `app_settings` | PRD §17 | M1（只读配置；编辑 M3） |
 | analytics | `user_daily_stats` | PRD §16 | M3 预留，不建 |
-| ai | `llm_providers` / `llm_models` / `prompt_templates` / `prompt_versions` / `llm_usage` | PRD §17 | M3 预留，不建 |
+| ai | `llm_usage` | PRD §17 | **V11 已建**（§5.18，append-only 用量账本，内部表无端点） |
+| ai | `llm_providers` / `llm_models` / `prompt_templates` / `prompt_versions` | PRD §17 | M3 预留，不建 |
 
 基础设施表（不属于业务实体，但属于最终 schema）：
 
@@ -324,12 +325,13 @@ erDiagram
 |---|---|---|---|---|
 | `id` | CHAR(26) | 否 | — | ULID，全局唯一 |
 | `bank_id` | BIGINT | 否 | — | 所属题库 |
-| `external_key` | VARCHAR(64) | 是 | NULL | 导入源 id（如 `s_0001`）；同题库唯一 |
+| `external_key` | VARCHAR(64) | 是 | NULL | 导入源 id（如 `s_0001`）；同题库**活跃行**唯一（V11） |
 | `status` | VARCHAR(16) | 否 | `DRAFT` | 同题库生命周期 |
 | `current_version_id` | BIGINT | 是 | NULL | 指向 `sentence_versions.id`；插入时先空，同事务回填 |
 | `version` | BIGINT | 否 | `0` | 银行级修订号（用于增量 `sinceVersion`） |
 | `fingerprint` | CHAR(64) | 否 | — | 归一化 `zh|ref|chunks` 的 SHA-256 |
 | `active_fingerprint` | CHAR(64) | 是 | 生成列 | `IF(deleted_at IS NULL, fingerprint, NULL)`；用于未删重复硬拦 |
+| `active_external_key` | VARCHAR(64) | 是 | 生成列 | `IF(deleted_at IS NULL, external_key, NULL)`（V11）；未删重复硬拦与重导放行 |
 | `created_by` | BIGINT | 是 | NULL | 创建者 |
 | `updated_by` | BIGINT | 是 | NULL | 最近修改者 |
 | `created_at` | DATETIME(6) | 否 | — | UTC |
@@ -340,7 +342,9 @@ erDiagram
 索引/约束：
 
 - 主键 `(id)`
-- 唯一 `uk_sentence_bank_external (bank_id, external_key)`
+- 唯一 `uk_sentence_active_external (bank_id, active_external_key)`（V11 起替代全行唯一的
+  `uk_sentence_bank_external`：回收行 `active_external_key` 为 NULL 不参与唯一性，
+  批次回滚后同文件重导放行；活跃行互斥由本键 + 导入事务 `lockById` 锁承接，并发导入兜底不变）
 - 唯一 `uk_sentence_bank_active_fingerprint (bank_id, active_fingerprint)`
 - 普通 `idx_sentence_bank_version (bank_id, version)`（增量拉取）
 - `version` 在导入提交/回滚中「每题递增」：同批次每行获得独立银行修订号（P1-1），增量分页不丢行。
@@ -737,7 +741,37 @@ UI 三档映射（确定性投影）：
 
 主键 `(user_id, stat_date)`；索引 `(stat_date)`。M3 统计页使用；M2 统计先查 `attempts`。
 
-### 5.18 M3 预留表（只登记，不建）
+### 5.18 AI 域表
+
+#### `llm_usage`（V11 已建）
+
+append-only 用量账本：每次 LLM 调用的**终态**写一行，只记元数据——问题与回答内容一律不落
+（AGENTS §3.6 口径）。无物理外键（V10 决策）：`user_id`/`sentence_id` 为逻辑引用，仅建查询索引。
+由答疑链路（`TutorServiceImpl`）落库：结构化日志 + 落库双写，落库失败只记告警不阻塞主链路。
+内部表，不暴露端点（API.md §8.15 内部表注）。
+
+| 字段 | 类型 | 可空 | 说明 |
+|---|---|---|---|
+| `id` | BIGINT PK | 否 | 自增 |
+| `user_id` | BIGINT | 是 | 逻辑引用 `app_user.id`；系统级调用为 NULL |
+| `sentence_id` | CHAR(26) | 是 | 逻辑引用 `sentences.id`（ULID）；与题目无关的调用为 NULL |
+| `scene` | VARCHAR(32) | 否 | 调用场景（当前 `tutor-ask`，与结构化日志 scene 同源） |
+| `protocol` | VARCHAR(32) | 是 | 当次生效协议快照（`anthropic-messages`/`openai-chat`/`openai-responses`） |
+| `model` | VARCHAR(128) | 是 | 当次生效模型名快照（模型可能下线，快照使历史行自解释） |
+| `prompt_tokens` | INT | 是 | 提示词 token；失败未取得为 NULL |
+| `completion_tokens` | INT | 是 | 回复 token；失败未取得为 NULL |
+| `duration_ms` | BIGINT | 是 | 调用耗时（毫秒）；失败路径同样记录 |
+| `ok` | BOOLEAN | 否 | 是否成功（拿到非空回复）；失败/空回复为 false |
+| `created_at` | DATETIME(6) | 否 | UTC，默认 CURRENT_TIMESTAMP(6) |
+
+索引：`(user_id, created_at)`（按用户聚合）、`(sentence_id)`（按题排障）、`(created_at)`（时段报表/清扫）。
+保留策略未定（M3 用量页一并裁决），先经 `idx_llm_usage_created` 支撑清扫扫描。
+
+> 原 §5.18 形状（M3 预留版，含 provider_id/cost/purpose/attempt_grading_id 等）作废——
+> 全量模型配置域（`llm_providers`/`llm_models`/`prompt_templates`/`prompt_versions`）仍 M3 预留，
+> 届时如需成本核算可加列或另建映射，不回改本表已有行。
+
+#### M3 预留表（只登记，不建）
 
 #### `llm_providers`
 
@@ -754,10 +788,6 @@ UI 三档映射（确定性投影）：
 #### `prompt_versions`
 
 `id BIGINT PK`、`template_id BIGINT`、`version_no INT`、`content TEXT`、`variables JSON`、`status VARCHAR(16)`（`DRAFT`/`CANDIDATE`/`PRODUCTION`/`RETIRED`）、`created_by BIGINT`、`created_at DATETIME(6)`；唯一 `(template_id, version_no)`；不可变。
-
-#### `llm_usage`
-
-`id BIGINT PK`、`user_id BIGINT NULL`、`provider_id BIGINT`、`model_id BIGINT`、`prompt_version_id BIGINT NULL`、`attempt_grading_id BIGINT NULL`、`purpose VARCHAR(16)`（`GRADE`/`APPEAL`/`TEST`）、`prompt_tokens INT`、`completion_tokens INT`、`cost DECIMAL(12,6)`、`latency_ms INT`、`ok BOOLEAN`、`error_code VARCHAR(64)`、`created_at DATETIME(6)`。
 
 ---
 
@@ -1031,7 +1061,7 @@ UI 三档映射（确定性投影）：
 | `ErrorModule` | `account` / `content` / `practice` / `ai` / `admin` / `analytics` / `system` | `error_log.module` | 与日志 module 同源 |
 | `PromptStatus` | `DRAFT` / `CANDIDATE` / `PRODUCTION` / `RETIRED` | `prompt_versions.status` | M3 |
 | `ModelStatus` | `ONLINE` / `OFFLINE` | `llm_models.status` | M3 |
-| `LlmPurpose` | `GRADE` / `APPEAL` / `TEST` | `llm_usage.purpose` | M3 |
+| `LlmPurpose` | `GRADE` / `APPEAL` / `TEST` | 原 `llm_usage.purpose`（V11 建表未收录；scene 字段承载场景维度，GRADE/APPEAL 等 purpose 随 M3 申诉/深度批改落地再评估加列） | M3 |
 
 ### 7.1 CHECK 约束（MySQL 8.0.16+ 强制执行）
 
