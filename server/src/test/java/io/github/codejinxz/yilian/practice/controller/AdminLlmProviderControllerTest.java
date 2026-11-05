@@ -119,9 +119,12 @@ class AdminLlmProviderControllerTest {
         verifyNoInteractions(providerAdminService);
     }
 
-    /** [AC-2] GET：目录条目形状——元数据 + hasKey + active，无 apiKey 字段回显。 */
+    /**
+     * [AC-2] GET：data 为 {items:[...]} 列表信封（022 巡检 DEF-01）；条目形状——元数据 + hasKey + active，无 apiKey
+     * 字段回显。
+     */
     @Test
-    void listReturnsMetadataWithHasKeyAndActive_ac2() throws Exception {
+    void listReturnsItemsEnvelopeWithHasKeyAndActive_ac2() throws Exception {
         when(providerAdminService.list())
                 .thenReturn(
                         List.of(
@@ -142,15 +145,35 @@ class AdminLlmProviderControllerTest {
                                                         ADMIN, null, "ROLE_ADMIN"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.data[0].id").value("zai"))
-                .andExpect(jsonPath("$.data[0].name").value("ZCode 网关"))
-                .andExpect(jsonPath("$.data[0].protocol").value("anthropic-messages"))
+                .andExpect(jsonPath("$.data.items").isArray())
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].id").value("zai"))
+                .andExpect(jsonPath("$.data.items[0].name").value("ZCode 网关"))
+                .andExpect(jsonPath("$.data.items[0].protocol").value("anthropic-messages"))
                 .andExpect(
-                        jsonPath("$.data[0].baseUrl").value("http://127.0.0.1:47860/gateway/zcode"))
-                .andExpect(jsonPath("$.data[0].model").value("glm-5.3"))
-                .andExpect(jsonPath("$.data[0].hasKey").value(false))
-                .andExpect(jsonPath("$.data[0].active").value(true))
-                .andExpect(jsonPath("$.data[0].apiKey").doesNotExist());
+                        jsonPath("$.data.items[0].baseUrl")
+                                .value("http://127.0.0.1:47860/gateway/zcode"))
+                .andExpect(jsonPath("$.data.items[0].model").value("glm-5.3"))
+                .andExpect(jsonPath("$.data.items[0].hasKey").value(false))
+                .andExpect(jsonPath("$.data.items[0].active").value(true))
+                .andExpect(jsonPath("$.data.items[0].apiKey").doesNotExist());
+    }
+
+    /** [AC-2] GET：空目录——信封仍为 {items:[]}，不退回裸数组。 */
+    @Test
+    void listReturnsEmptyItemsArrayForEmptyDirectory_ac2() throws Exception {
+        when(providerAdminService.list()).thenReturn(List.of());
+
+        mockMvc.perform(
+                        get("/api/admin/llm/providers")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.items").isArray())
+                .andExpect(jsonPath("$.data.items.length()").value(0));
     }
 
     /** [AC-2] POST：合法请求透传 Service（id/name/protocol/baseUrl/model + 操作者），返回条目视图。 */

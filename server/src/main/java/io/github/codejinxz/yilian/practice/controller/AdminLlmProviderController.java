@@ -6,6 +6,7 @@ import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
 import io.github.codejinxz.yilian.practice.service.LlmProviderAdminService;
 import io.github.codejinxz.yilian.practice.service.dto.LlmProviderCreateRequest;
 import io.github.codejinxz.yilian.practice.service.dto.LlmProviderUpdateRequest;
+import io.github.codejinxz.yilian.practice.service.vo.LlmProviderListView;
 import io.github.codejinxz.yilian.practice.service.vo.LlmProviderView;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -25,8 +26,6 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 /**
  * 管理端 provider 目录接口（API §8.15）：CC Switch 式多 provider 的元数据 CRUD 与激活切换，服务端 ADMIN 鉴权； 写操作全部审计 {@code
@@ -53,15 +52,15 @@ public class AdminLlmProviderController {
      * 列出 provider 目录。
      *
      * @param principal 当前管理员
-     * @return 目录条目列表（含 hasKey 与激活态）
+     * @return 目录列表信封（data.items 为条目数组，含 hasKey 与激活态）
      */
     @Operation(
             summary = "列出 LLM provider 目录",
-            description = "每项含元数据、hasKey（YILIAN_LLM_KEY_<大写ID> 是否已配置）与激活态；apiKey 不回读。")
+            description = "data.items 每项含元数据、hasKey（YILIAN_LLM_KEY_<大写ID> 是否已配置）与激活态；apiKey 不回读。")
     @ApiResponses({
         @io.swagger.v3.oas.annotations.responses.ApiResponse(
                 responseCode = "200",
-                description = "返回目录条目数组（可为空；空目录 + legacy 环境变量时答疑仍走 legacy 轨）"),
+                description = "返回 {items: [...]} 列表信封（items 可为空；空目录 + legacy 环境变量时答疑仍走 legacy 轨）"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(
                 responseCode = "401",
                 description = "未登录（40100）",
@@ -72,9 +71,9 @@ public class AdminLlmProviderController {
                 content = @Content(schema = @Schema(implementation = ApiResponse.class)))
     })
     @GetMapping
-    public ApiResponse<List<LlmProviderView>> list(
+    public ApiResponse<LlmProviderListView> list(
             @AuthenticationPrincipal YilianUserPrincipal principal) {
-        return ApiResponse.success(providerAdminService.list());
+        return ApiResponse.success(LlmProviderListView.of(providerAdminService.list()));
     }
 
     /**
