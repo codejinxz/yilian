@@ -37,6 +37,8 @@ import {
  * 本页做元数据 CRUD 与激活切换，密钥按 id 经 YILIAN_LLM_KEY_&lt;大写ID&gt; 注入（UI 只显
  * hasKey 徽标）；目录为空时回退 legacy 单 provider（YILIAN_LLM_* 环境变量直配，只读展示）。
  * 激活的 provider 即答疑等 AI 功能的数据源；llm.tutor 开关独立沿用。
+ * 表单一律空白手填，不内置任何 provider 预设模板；页面说明只描述当前实际行为，
+ * 不把未落地的能力写成既有能力、也不把现状渠道承诺为唯一通道。
  * mock 口径：本页直连真实端点，mock 层不新增演示路径。
  */
 
@@ -104,20 +106,16 @@ const PROTOCOL_LABELS: Record<LlmProtocol, string> = {
   "openai-responses": "OpenAI Responses",
 };
 
-/** ZCode 网关的预设模板：一键预填，密钥仍需按 id 配 env。 */
-const ZCODE_PRESET = {
-  id: "zcode-gateway",
-  name: "ZCode 网关",
-  protocol: "anthropic-messages" as LlmProtocol,
-  baseUrl: "http://127.0.0.1:47860/gateway/zcode",
-  model: "glm-5.3",
-};
+/** 页面顶部的现状说明：只描述本页与密钥的当前解析方式，不对密钥通道做唯一性承诺。 */
+const PAGE_NOTE =
+  "本页管理 provider 目录、激活切换与答疑开关；条目密钥按条目 ID 对应的环境变量解析，" +
+  "不入库、不回显，密钥管理通道的动态化在后续批次；开关改动写入操作日志。";
 
-/** 新增/编辑表单的字段状态。 */
+/** 新增/编辑表单的字段状态；protocol 允许空串表达「未选择」，新增时不预填默认协议。 */
 interface ProviderFormState {
   id: string;
   name: string;
-  protocol: LlmProtocol;
+  protocol: LlmProtocol | "";
   baseUrl: string;
   model: string;
 }
@@ -143,12 +141,12 @@ function askLinkageLabel(enabled: boolean, credentialsComplete: boolean): string
   return enabled ? "未生效（缺凭证）" : "未开放";
 }
 
-/** 表单初始值：新增为空白，编辑回填条目（id 固定不可改）。 */
+/** 表单初始值：新增为全空白（协议也不预选），编辑回填条目（id 固定不可改）。 */
 function formStateFor(provider?: LlmProvider): ProviderFormState {
   return {
     id: provider?.id ?? "",
     name: provider?.name ?? "",
-    protocol: provider?.protocol ?? "openai-chat",
+    protocol: provider?.protocol ?? "",
     baseUrl: provider?.baseUrl ?? "",
     model: provider?.model ?? "",
   };
@@ -329,8 +327,7 @@ export function ModelsPage() {
     return (
       <div>
         <p className="font-mono text-[11px] leading-[1.7] tracking-[0.06em] text-ink-faint">
-          统一模型配置：密钥只经环境变量注入（provider 目录按 YILIAN_LLM_KEY_&lt;大写ID&gt; 索引），
-          不入库、不回显；本页管理 provider 目录、激活切换与答疑开关。
+          {PAGE_NOTE}
         </p>
         <LoadingBlock />
       </div>
@@ -372,8 +369,7 @@ export function ModelsPage() {
   return (
     <div>
       <p className="font-mono text-[11px] leading-[1.7] tracking-[0.06em] text-ink-faint">
-        统一模型配置：密钥只经环境变量注入（provider 目录按 YILIAN_LLM_KEY_&lt;大写ID&gt; 索引），
-        不入库、不回显；本页管理 provider 目录、激活切换与答疑开关。
+        {PAGE_NOTE}
       </p>
 
       <div
@@ -429,7 +425,7 @@ export function ModelsPage() {
                 : `YILIAN_LLM_KEY_${config.providerId.replaceAll("-", "_").toUpperCase()}（模型服务密钥）`}
             </p>
             <p className="mt-2.5 font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
-              API Key 只经环境变量注入，不入库、不进配置文件、不回显；目录元数据存 app_settings。
+              API Key 当前经环境变量注入，不入库、不进配置文件、不回显。
             </p>
           </div>
         ) : null}
@@ -446,7 +442,7 @@ export function ModelsPage() {
               YILIAN_LLM_API_KEY（模型服务密钥）
             </p>
             <p className="mt-2.5 font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
-              API Key 只经环境变量注入，不入库、不进配置文件、不回显；后台开关只存 enabled。
+              API Key 当前经环境变量注入，不入库、不进配置文件、不回显。
             </p>
           </div>
         ) : null}
@@ -461,7 +457,7 @@ export function ModelsPage() {
             {config.enabled ? "停用答疑" : "启用答疑"}
           </button>
           <span className="font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
-            开关存 app_settings（llm.tutor），保存即时生效，无需重启；改动写入操作日志。
+            保存即时生效，无需重启；改动写入操作日志。
           </span>
         </div>
         {config.credentialsComplete && !config.enabled ? (
@@ -493,9 +489,8 @@ export function ModelsPage() {
         }
       >
         <p className="mb-3 font-mono text-[11px] leading-[1.7] tracking-[0.06em] text-ink-faint">
-          多协议多 provider 目录（CC Switch 式）：元数据存 app_settings，密钥按 id 走
-          YILIAN_LLM_KEY_&lt;大写ID&gt; 环境变量；激活的 provider 是答疑等 AI
-          功能的数据源，切换即时生效。
+          多协议多 provider 目录：激活的 provider 是答疑等 AI
+          功能的数据源，切换即时生效；条目密钥按条目 ID 对应的环境变量解析，不入库、不回显。
         </p>
         {providers.length === 0 ? (
           // legacy 单 provider 形态：目录为空时沿用环境变量直配，只读展示生效值。
@@ -512,8 +507,8 @@ export function ModelsPage() {
               {config.model || "—"}
             </p>
             <p className="mt-2.5 font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
-              当前模型接入来自 YILIAN_LLM_* 环境变量；新增 provider
-              并激活后由目录接管，无需改动本卡。
+              目录为空时的回退形态：当前模型接入来自 YILIAN_LLM_* 环境变量；新增 provider
+              并激活后由目录接管，本卡只读展示、无需改动。
             </p>
           </div>
         ) : (
@@ -628,7 +623,7 @@ export function ModelsPage() {
         onClose={() => setForm(null)}
         kicker="Provider 目录"
         title={form?.mode === "edit" ? "编辑 provider" : "新增 provider"}
-        meta="只存元数据；密钥按 id 走 YILIAN_LLM_KEY_<大写ID> 环境变量，不入库、不回显。"
+        meta="只存元数据；条目密钥按 ID 对应的环境变量解析，不入库、不回显。"
       >
         {form ? (
           <form
@@ -647,6 +642,11 @@ export function ModelsPage() {
               }
               if (!/^[a-z0-9-]+$/.test(state.id.trim())) {
                 toast("id 只允许小写字母、数字与连字符");
+                return;
+              }
+              // 协议不预填默认值：未显式选择就不提交，避免静默落成错误协议。
+              if (!state.protocol) {
+                toast("请选择协议");
                 return;
               }
               if (form.mode === "create") {
@@ -706,10 +706,13 @@ export function ModelsPage() {
                 onChange={(event) =>
                   setForm({
                     ...form,
-                    state: { ...form.state, protocol: event.target.value as LlmProtocol },
+                    // 空串对应「请选择协议」占位项：允许改回未选择态，提交前再校验。
+                    state: { ...form.state, protocol: event.target.value as LlmProtocol | "" },
                   })
                 }
               >
+                {/* 占位空选项：新增时协议不预填默认值，须显式选择后才可保存。 */}
+                <option value="">请选择协议</option>
                 {(Object.keys(PROTOCOL_LABELS) as LlmProtocol[]).map((protocol) => (
                   <option key={protocol} value={protocol}>
                     {PROTOCOL_LABELS[protocol]}（{protocol}）
@@ -740,15 +743,6 @@ export function ModelsPage() {
                 }
               />
             </AdminField>
-            {form.mode === "create" ? (
-              <button
-                type="button"
-                className="linkish text-[12px]"
-                onClick={() => setForm({ mode: "create", state: { ...ZCODE_PRESET } })}
-              >
-                填入 ZCode 网关模板
-              </button>
-            ) : null}
             <div className="mt-8 flex items-center gap-4">
               <button type="submit" className="btn primary" disabled={busy}>
                 保存

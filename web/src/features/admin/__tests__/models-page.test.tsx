@@ -436,6 +436,8 @@ describe("ModelsPage provider 目录管理（022 AC-3）", () => {
 
     expect(await screen.findByText("环境变量直配（legacy 单 provider）")).toBeInTheDocument();
     expect(screen.getByText(/新增 provider 并激活后由目录接管/)).toBeInTheDocument();
+    // 回退语义明示：本卡只是目录为空时的 legacy 形态，只读展示、不承担目录管理。
+    expect(screen.getByText(/目录为空时的回退形态/)).toBeInTheDocument();
     // legacy 形态下无任何 provider 操作按钮。
     expect(screen.queryByRole("button", { name: "新增 provider" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: /^激活 provider/ })).toBeNull();
@@ -542,5 +544,138 @@ describe("ModelsPage provider 目录管理（022 AC-3）", () => {
       baseUrl: "http://127.0.0.1:47860/gateway/zcode",
       model: "glm-5.3",
     });
+  });
+});
+
+describe("ModelsPage provider 表单去预设与全字段动态编辑", () => {
+  beforeEach(() => {
+    resetApiState();
+    // biome-ignore lint/suspicious/noDocumentCookie: 测试需要写入可读的 CSRF cookie
+    document.cookie = "XSRF-TOKEN=test-token; path=/";
+  });
+
+  it("新增抽屉为空白表单：无预置模板入口，ID/名称/端点/模型初始为空、协议未预选", async () => {
+    const observed = stubAdminLlmFetch(
+      { ...CONFIGURED_ON, providerId: "zcode-gateway", protocol: "anthropic-messages" },
+      { providers: [ZCODE_GATEWAY] },
+    );
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "新增 provider" }));
+
+    // 预置模板入口已移除：抽屉内不存在任何「一键预填」按钮。
+    expect(screen.queryByText(/填入.*模板/)).not.toBeInTheDocument();
+    // 空白表单：文本字段全空，不携带任何默认值。
+    expect((screen.getByLabelText("ID") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("名称") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("端点 Base URL") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("模型名") as HTMLInputElement).value).toBe("");
+    const protocolSelect = screen.getByLabelText("协议") as HTMLSelectElement;
+    expect(protocolSelect.value).toBe("");
+    // 占位空选项 + 恰好三个协议可选项，顺序与协议目录一致。
+    expect(screen.getByRole("option", { name: "请选择协议" })).toBeInTheDocument();
+    const protocols = [...protocolSelect.options]
+      .map((option) => option.value)
+      .filter((value) => value !== "");
+    expect(protocols).toEqual(["anthropic-messages", "openai-chat", "openai-responses"]);
+    // 打开抽屉不产生任何写请求。
+    expect(observed.providerPosts).toHaveLength(0);
+  });
+
+  it("未选协议时保存被拦截；三协议任选其一后全字段手填保存成功", async () => {
+    const observed = stubAdminLlmFetch(
+      { ...CONFIGURED_ON, providerId: "zcode-gateway", protocol: "anthropic-messages" },
+      { providers: [ZCODE_GATEWAY] },
+    );
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "新增 provider" }));
+    await user.type(screen.getByLabelText("ID"), "glm-openai");
+    await user.type(screen.getByLabelText("名称"), "自建网关");
+    await user.type(screen.getByLabelText("端点 Base URL"), "https://llm.example.com/v4");
+    await user.type(screen.getByLabelText("模型名"), "glm-5.3-flash");
+    // 协议留空提交：被前端校验拦截，不发出 POST。
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("请选择协议");
+    expect(observed.providerPosts).toHaveLength(0);
+
+    // 任选一个协议后保存：POST 只含手填元数据，无 apiKey 字段。
+    await user.selectOptions(screen.getByLabelText("协议"), "openai-responses");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(observed.providerPosts).toHaveLength(1));
+    expect(observed.providerPosts[0]).toEqual({
+      id: "glm-openai",
+      name: "自建网关",
+      protocol: "openai-responses",
+      baseUrl: "https://llm.example.com/v4",
+      model: "glm-5.3-flash",
+    });
+    expect(JSON.stringify(observed.providerPosts[0])).not.toContain("apiKey");
+    expect(await screen.findByRole("status")).toHaveTextContent(/已新增/);
+  });
+
+  it("编辑抽屉全字段可改：名称/协议/端点/模型逐项修改后整体提交，id 走路径不变", async () => {
+    const observed = stubAdminLlmFetch(
+      { ...CONFIGURED_ON, providerId: "zcode-gateway", protocol: "anthropic-messages" },
+      { providers: [ZCODE_GATEWAY] },
+    );
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "编辑 provider zcode-gateway" }));
+    // 协议回填条目当前值，可改为三协议中的任意另一个。
+    const protocolSelect = screen.getByLabelText("协议") as HTMLSelectElement;
+    expect(protocolSelect.value).toBe("anthropic-messages");
+    await user.clear(screen.getByLabelText("名称"));
+    await user.type(screen.getByLabelText("名称"), "内网网关");
+    await user.selectOptions(protocolSelect, "openai-chat");
+    await user.clear(screen.getByLabelText("端点 Base URL"));
+    await user.type(screen.getByLabelText("端点 Base URL"), "http://10.0.0.8:8080/v4");
+    await user.clear(screen.getByLabelText("模型名"));
+    await user.type(screen.getByLabelText("模型名"), "glm-4.7-air");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(observed.providerPuts).toHaveLength(1));
+    expect(observed.providerPuts[0].path).toBe("/admin/llm/providers/zcode-gateway");
+    expect(observed.providerPuts[0].body).toEqual({
+      name: "内网网关",
+      protocol: "openai-chat",
+      baseUrl: "http://10.0.0.8:8080/v4",
+      model: "glm-4.7-air",
+    });
+  });
+
+  it("顶部说明为现状中性描述：不含 YILIAN_LLM_KEY 硬编码指引，也不暴露存储实现细节", async () => {
+    // 凭证缺失场景：条目变量名只允许出现在按 providerId 动态计算的指引块里，
+    // 顶部说明不得再硬编码「YILIAN_LLM_KEY_<大写ID>」式指引或唯一通道承诺。
+    stubAdminLlmFetch(
+      {
+        ...CONFIGURED_ON,
+        providerId: "zhipu",
+        protocol: "openai-chat",
+        hasKey: false,
+        credentialsComplete: false,
+      },
+      { providers: [ZHIPU] },
+    );
+
+    renderModelsPage();
+
+    // 加载分支也渲染顶部说明（同一段文案），先等目录数据就绪再断言，避免撞上加载态。
+    await screen.findByText("智谱直连");
+    const topNote = await screen.findByText(/本页管理 provider 目录/);
+    expect(topNote.textContent).not.toContain("YILIAN_LLM_KEY");
+    // env 字样允许保留，但必须是描述现状（按条目 ID 索引环境变量），且不对通道做唯一性承诺。
+    expect(topNote.textContent).toContain("环境变量");
+    // 全页不再出现存储实现细节（app_settings）与模板预填入口。
+    expect(screen.queryByText(/app_settings/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/填入.*模板/)).not.toBeInTheDocument();
+    // 条目密钥变量名按现状动态给出：指引块随激活条目计算，顶部说明不再越俎代庖。
+    expect(screen.getByText(/YILIAN_LLM_KEY_ZHIPU/)).toBeInTheDocument();
   });
 });
