@@ -3,6 +3,8 @@ package io.github.codejinxz.yilian.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.codejinxz.yilian.common.logging.ErrorLogRecorder;
+import io.github.codejinxz.yilian.common.security.JwtProperties;
+import io.github.codejinxz.yilian.common.util.IdUtils;
 import io.github.codejinxz.yilian.support.InsecureCookieHandler;
 import io.github.codejinxz.yilian.support.TestDatabases;
 
@@ -15,6 +17,11 @@ import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.net.URI;
@@ -22,6 +29,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -68,6 +76,11 @@ class AuthFlowIntegrationTest {
     @Autowired private PasswordEncoder passwordEncoder;
 
     @Autowired private ErrorLogRecorder errorLogRecorder;
+
+    /** 与生产同源的 JWT 编码器与配置：过期反向测试用它自签 exp 已过的合法结构 token。 */
+    @Autowired private JwtEncoder jwtEncoder;
+
+    @Autowired private JwtProperties jwtProperties;
 
     private String baseUrl;
 
@@ -249,6 +262,35 @@ class AuthFlowIntegrationTest {
     void invalidAccessTokenIsUnauthorized() throws Exception {
         HttpResponse<String> response =
                 get(newClient(), "/api/auth/me", Map.of("Authorization", "Bearer not-a-jwt"));
+
+        assertThat(response.statusCode()).isEqualTo(401);
+        assertThat(response.body()).contains("\"code\":40100");
+    }
+
+    /**
+     * 过期 access token 的反向测试：用与生产同源的 HS256 编码器自签一个 exp 已过的合法 结构 token（签名有效、只是过期），解码器必须按 JwtException
+     * 拒绝 → 401。 伪造/损坏 token 用例只证明「解析失败」被拒；本条补上「签名有效但过期」同样被拒。
+     */
+    @Test
+    void expiredAccessTokenIsUnauthorized_023ac2() throws Exception {
+        Instant now = Instant.now();
+        JwtClaimsSet claims =
+                JwtClaimsSet.builder()
+                        .issuer(jwtProperties.issuer())
+                        .issuedAt(now.minusSeconds(3_600))
+                        .expiresAt(now.minusSeconds(1_800))
+                        .subject("1")
+                        .claim("username", ADMIN_USERNAME)
+                        .claim("role", "ADMIN")
+                        .claim("pwdChanged", true)
+                        .id(IdUtils.newUlid())
+                        .build();
+        JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).type("JWT").build();
+        String expiredToken =
+                jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
+
+        HttpResponse<String> response =
+                get(newClient(), "/api/auth/me", Map.of("Authorization", "Bearer " + expiredToken));
 
         assertThat(response.statusCode()).isEqualTo(401);
         assertThat(response.body()).contains("\"code\":40100");

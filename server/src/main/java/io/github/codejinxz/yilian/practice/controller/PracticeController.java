@@ -49,6 +49,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/practice")
 public class PracticeController {
 
+    /** 页码上限；与 content/upload 的 MAX_PAGE=10_000 口径一致，防深页码 offset 溢出。 */
+    private static final int MAX_PAGE = 10_000;
+
     private final PracticeService practiceService;
 
     /**
@@ -389,11 +392,14 @@ public class PracticeController {
     /**
      * 分页参数白名单校验。
      *
-     * @param page 页码
-     * @param size 每页大小
+     * <p>页码带上限（与 content/upload 管理端口径一致 MAX_PAGE=10_000）：错题与复习列表的 深页码 {@code (page-1)*size}
+     * 会整数溢出，被数据库静默截断成第一页——客户端输入错误 不能伪装成「空数据」，一律 40004 拒绝。
+     *
+     * @param page 页码，从 1 开始，≤10_000
+     * @param size 每页大小，1–100
      */
     private void requireValidPagination(int page, int size) {
-        if (page < 1 || size < 1 || size > 100) {
+        if (page < 1 || page > MAX_PAGE || size < 1 || size > 100) {
             throw new BusinessException(ApiCode.INVALID_PAGINATION);
         }
     }

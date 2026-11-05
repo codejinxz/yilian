@@ -321,6 +321,45 @@ class PracticeControllerTest {
                 .andExpect(jsonPath("$.code").value(ApiCode.INVALID_PAGINATION.code()));
     }
 
+    /** 深页码（offset 溢出）与负页码：40004 拦在 Controller，Service 不触达、不静默回首页。 */
+    @Test
+    void wrongQuestionsRejectsDeepAndNegativePage_023ac2() throws Exception {
+        mockMvc.perform(
+                        get("/api/practice/wrong-questions")
+                                .param("page", "10001")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ApiCode.INVALID_PAGINATION.code()));
+        mockMvc.perform(
+                        get("/api/practice/wrong-questions")
+                                .param("page", "-1")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ApiCode.INVALID_PAGINATION.code()));
+        verifyNoInteractions(practiceService);
+    }
+
+    /** 复习队列同样受页码上限约束：page=10001 → 40004，与 content/upload 口径一致。 */
+    @Test
+    void reviewsRejectsDeepPage_023ac2() throws Exception {
+        mockMvc.perform(
+                        get("/api/practice/reviews")
+                                .param("page", "10001")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ApiCode.INVALID_PAGINATION.code()));
+        verifyNoInteractions(practiceService);
+    }
+
     /** 提交限流口径：60 次/分钟、账号维度。 */
     @Test
     void submitAttemptRateLimitIsSixtyPerMinutePerUser() throws Exception {
