@@ -3,12 +3,13 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { useSessionStore } from "@/features/auth/session";
 import { PracticePage } from "@/features/practice/PracticePage";
 import { ApiError } from "@/lib/api-error";
 import { createQueryClient } from "@/lib/query";
 import type { PageResponse } from "@/lib/schemas/common";
 import type { BankView } from "@/lib/schemas/content";
-import type { PracticeSentence, Today } from "@/lib/schemas/practice";
+import type { AttemptResponse, ModelReview, PracticeSentence, Today } from "@/lib/schemas/practice";
 
 /**
  * PracticePage 的答疑入口会话记忆：只覆盖「问一问」入口的显隐口径，
@@ -27,6 +28,7 @@ const practiceApi = vi.hoisted(() => ({
   appealAnnotation: vi.fn(),
   disputeAnnotation: vi.fn(),
   askTutor: vi.fn(),
+  reviewAttempt: vi.fn(),
 }));
 
 vi.mock("@/lib/api/practice", () => practiceApi);
@@ -40,7 +42,10 @@ const contentApi = vi.hoisted(() => ({
 
 vi.mock("@/lib/api/content", () => contentApi);
 
-/** 最小 router 桩：练习页测试不感知真实路由，search 恒为空（新题流）；href 仅为过 a11y 检查。 */
+/** 路由 search 的可变桩：缺省空（新题流），回看用例注入 attemptId。 */
+const routerState = vi.hoisted(() => ({ search: {} as Record<string, unknown> }));
+
+/** 最小 router 桩：练习页测试不感知真实路由，search 取 routerState（逐用例可注入）；href 仅为过 a11y 检查。 */
 vi.mock("@tanstack/react-router", () => ({
   Link: (props: { to?: string; search?: unknown; className?: string; children?: ReactNode }) => (
     <a href="#stub" className={props.className}>
@@ -48,7 +53,7 @@ vi.mock("@tanstack/react-router", () => ({
     </a>
   ),
   useNavigate: () => async () => {},
-  useSearch: () => ({}),
+  useSearch: () => routerState.search,
 }));
 
 /** 练习页取题桩句：一空填空句，字段只要页面消费到的最小集。 */
@@ -187,5 +192,172 @@ describe("PracticePage 答疑入口显隐（017 三态 + 017R2 会话记忆）",
     await screen.findByText("环境保护");
     expect(screen.queryByRole("button", { name: "问一问" })).toBeNull();
     expect(screen.queryByRole("region", { name: "题目答疑" })).toBeNull();
+  });
+});
+
+/** 服务端已判分 attempt 桩：grading.id 为服务端 ULID、首判 61 分、一条错误批注。 */
+const SERVER_ATTEMPT: AttemptResponse = {
+  attemptId: "3f0e8e50-6b1d-4e0f-9d3a-5f2c1b9e0001",
+  sentenceId: SENTENCE.id,
+  sentenceVersionId: SENTENCE.sentenceVersionId,
+  mode: "CLOZE",
+  kind: "FIRST",
+  score: 61,
+  maxScore: 100,
+  result: {
+    schemaVersion: 1,
+    score: 61,
+    maxScore: 100,
+    hitCount: 1,
+    totalCount: 2,
+    annotations: [
+      {
+        key: "slot:1",
+        chunkIndex: 1,
+        tag: "搭配",
+        expected: ["importance to"],
+        received: "importance on",
+        correct: false,
+        message: "介词搭配不正确",
+        minimalFix: "importance to",
+      },
+    ],
+    summary: "还差 1 处",
+  },
+  grading: {
+    id: "01HGRADING0000000000000000",
+    sequence: 1,
+    grader: "LOCAL",
+    normalizerVersion: "norm-1",
+    rubricVersion: "rubric-1",
+    createdAt: "2026-11-06T04:00:00Z",
+  },
+  review: null,
+  reference: { ref: SENTENCE.ref, note: null },
+  nextAction: { retryRequired: true, canReveal: true },
+  replayed: false,
+};
+
+/** 与 SERVER_ATTEMPT 同形但判分行是本地占位（游客/离线引擎提交）：复核入口必须隐藏。 */
+function localAttemptFixture(): AttemptResponse {
+  return {
+    ...SERVER_ATTEMPT,
+    grading: { ...SERVER_ATTEMPT.grading, id: "local" },
+  };
+}
+
+/** 服务端复核结果桩：模型给 88 分。 */
+const REVIEW: ModelReview = {
+  score: 88,
+  reason: "整体可懂，介词搭配需要调整",
+  modelSnapshot: "stub:glm-4.7",
+  latencyMs: 640,
+  createdAt: "2026-11-06T04:30:00Z",
+  sequence: 2,
+  originalScore: 61,
+};
+
+/**
+ * 挂载回看场景的练习页：路由带 attemptId、题干快照就位、getAttempt 回服务端判分。
+ * @param attempt getAttempt 返回的判分结果
+ * @returns RTL 句柄（多实例用例需要手动卸载）
+ */
+async function renderAttemptView(attempt: AttemptResponse) {
+  routerState.search = { attemptId: attempt.attemptId };
+  sessionStorage.setItem(`yilian.practice.sentence.${SENTENCE.id}`, JSON.stringify(SENTENCE));
+  practiceApi.getAttempt.mockResolvedValue(attempt);
+  const view = renderPage();
+  // 等判分视图渲染完成（展示分出现即结果区已就位）。
+  await screen.findByText("61");
+  return view;
+}
+
+describe("PracticePage 模型复核（API §6.13）", () => {
+  beforeAll(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    routerState.search = {};
+    useSessionStore.setState({ status: "anonymous" });
+    practiceApi.getToday.mockResolvedValue(TODAY);
+    practiceApi.getNextPractice.mockResolvedValue({
+      sentence: SENTENCE,
+      review: null,
+      selection: "NEW",
+    });
+    practiceApi.getAttempt.mockResolvedValue(null);
+    practiceApi.reviewAttempt.mockReset();
+    contentApi.getBanks.mockResolvedValue({
+      items: [BANK],
+      page: 1,
+      size: 100,
+      total: 1,
+      totalPages: 1,
+      hasNext: false,
+    } satisfies PageResponse<BankView>);
+    contentApi.getBankSentences.mockResolvedValue({
+      version: 1,
+      items: [SENTENCE],
+      nextSinceVersion: 0,
+      hasMore: false,
+    });
+  });
+
+  /** [AC-8] 门禁：匿名态或本地占位判分（游客/离线引擎）都不显示复核入口。 */
+  it("hidesReviewEntryForAnonymousAndLocalAttempts_ac8", async () => {
+    // 匿名 + 服务端判分：不显示。
+    const anonymousView = await renderAttemptView(SERVER_ATTEMPT);
+    expect(screen.queryByRole("button", { name: "让模型复核" })).toBeNull();
+    anonymousView.unmount();
+
+    // 登录 + 本地占位判分：仍不显示（服务端没有这条记录，复核无从发起）。
+    useSessionStore.setState({ status: "authenticated" });
+    const localView = await renderAttemptView(localAttemptFixture());
+    expect(screen.queryByRole("button", { name: "让模型复核" })).toBeNull();
+    expect(practiceApi.reviewAttempt).not.toHaveBeenCalled();
+    localView.unmount();
+  });
+
+  /** [AC-8] 成功：登录态 + 服务端判分可发起；成功后展示新分+理由+「复核不影响复习计划」注记，并刷新 attempt。 */
+  it("showsReviewedScoreReasonAndScheduleNoteOnSuccess_ac8", async () => {
+    useSessionStore.setState({ status: "authenticated" });
+    await renderAttemptView(SERVER_ATTEMPT);
+    practiceApi.reviewAttempt.mockResolvedValue(REVIEW);
+
+    await userEvent.setup().click(await screen.findByRole("button", { name: "让模型复核" }));
+
+    // 新分与理由：展示分换为复核分，理由进批改文案。
+    expect(await screen.findByText("88")).toBeTruthy();
+    expect(screen.getByText(/复核 88 分/).textContent).toContain("原判 61 分");
+    expect(screen.getByText(/复核 88 分/).textContent).toContain("stub:glm-4.7");
+    expect(screen.getByText("整体可懂，介词搭配需要调整")).toBeTruthy();
+    // 「复核不影响复习计划」注记常驻。
+    expect(screen.getByText(/复核不影响复习计划/)).toBeTruthy();
+    // 入口收起：复核一人一次，重复点击走幂等回读而非再调模型。
+    expect(screen.queryByRole("button", { name: "让模型复核" })).toBeNull();
+    // attempt 查询已刷新（回看按最新 sequence 取复核分）。
+    await waitFor(() => expect(practiceApi.getAttempt.mock.calls.length).toBeGreaterThan(1));
+    // 「演示占位」假文案不再出现。
+    expect(screen.queryByText(/演示占位/)).toBeNull();
+  });
+
+  /** [AC-8] 失败：toast 服务端文案，展示分保留首判分，不出现复核注记。 */
+  it("keepsOriginalScoreAndToastsOnFailure_ac8", async () => {
+    useSessionStore.setState({ status: "authenticated" });
+    await renderAttemptView(SERVER_ATTEMPT);
+    practiceApi.reviewAttempt.mockRejectedValue(
+      new ApiError(500, 50000, "模型复核暂时不可用，请稍后再试"),
+    );
+
+    await userEvent.setup().click(await screen.findByRole("button", { name: "让模型复核" }));
+
+    expect(await screen.findByText("模型复核暂时不可用，请稍后再试")).toBeTruthy();
+    // 原判分保留：展示分仍是首判 61 分，没有复核分与注记。
+    expect(screen.getByText("61")).toBeTruthy();
+    expect(screen.queryByText(/复核不影响复习计划/)).toBeNull();
+    expect(screen.queryByText(/演示占位/)).toBeNull();
   });
 });

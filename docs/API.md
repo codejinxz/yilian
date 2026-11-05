@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 |---|---|
-| 版本 | v1.2（对齐文末变更记录最新行，023 批次校正头部版本号——此前头部停在 v0.1.1 而变更记录已演进到 v1.2） |
-| 日期 | 2026-11-05 |
+| 版本 | v1.4（对齐文末变更记录最新行，024 批次头部版本号随变更记录推进） |
+| 日期 | 2026-11-06 |
 | 字段来源 | `docs/DATA-MODEL.md` v0.1（唯一字段来源） |
 | 上游约束 | `AGENTS.md`、`docs/PRD.md` §4/§5/§8/§11/§12、`docs/NAMING.md` |
 | 下游 | `docs/openapi.yaml`（仅导出已实现端点）、`web/src/lib/api.ts` |
@@ -246,6 +246,7 @@
 | `/api/practice/next` | GET | `USER` | 取下一题 |
 | `/api/practice/attempts` | POST | `USER` | 提交 attempt |
 | `/api/practice/attempts/{attemptId}` | GET | `USER` | 结果详情 |
+| `/api/practice/attempts/{attemptId}/review` | POST | `USER` | 模型复核（024） |
 | `/api/practice/attempts/{attemptId}/annotations/{key}/appeal` | POST | `USER` | 我觉得也对 |
 | `/api/practice/attempts/{attemptId}/annotations/{key}/dispute` | POST | `USER` | 不认同，排除批注 |
 | `/api/practice/wrong-questions` | GET | `USER` | 错题列表 |
@@ -1321,6 +1322,43 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 
 字段回溯：派生（LLM 输出）；`disclaimer` 为服务端常量。
 
+### 6.13 `POST /api/practice/attempts/{attemptId}/review`（implemented，024）
+
+用途：模型复核（024，PRD §5.1）——对本人的已判分提交**追加**一条 `grader=MODEL` 的判分记录（append-only），不覆盖首判；回看与统计按最新 sequence 取复核分，FSRS 排程与错题队列维持首判口径不变。
+
+请求：无请求体；路径参数 `attemptId`（提交 UUID）。
+
+响应 `data`（`ModelReviewView`）：
+
+```json
+{
+  "score": 88,
+  "reason": "整体可懂，介词搭配需要调整",
+  "modelSnapshot": "zcode:glm-4.7",
+  "latencyMs": 640,
+  "createdAt": "2026-11-06T04:30:00Z",
+  "sequence": 2,
+  "originalScore": 61
+}
+```
+
+规则：
+
+- 归属与可见性复用作答详情（§6.3）口径：提交不存在 `40403`；非本人、或句子不可读（库转私且无练习史豁免，含已删/已回收——复核必须现场取原句/参考译文拼提示词，回看可容忍句子消失而复核不能）`40300`；REVEAL 提交没有判分 `40000`「该提交没有可复核的判分」。
+- 幂等（有意取舍，非 409）：同一 attempt 已有 `grader=MODEL` 复核行时直接返回既有结果，**不再调模型**（省 token 防重复计费）；并发复核撞 `uk_grading_attempt_sequence` 以数据库唯一约束为准，捕获后回读已落行的复核结果，响应与首调一致。
+- 提示词（`ModelReviewPromptBuilder`）：中文原句 + 参考译文 + 语块答案结构 + 本人提交 + 本地错误批注（复核即重新判分，与答疑「不给参考译文」口径刻意不同）；提交内容里的全角【】替换为『』（定界注入面缓解，同 §6.12 手法）。输出契约 strict JSON `{"score": 整数, "reason": "字符串"}`，非空但不可解析或空回复重试 1 次，仍败降级。
+- 钳制与截断：`score` 钳制 0–100（模型轻微越界纠偏而非整次降级）；`reason` 按 Unicode 码点截断到 200 字。
+- 落行：`sequence=首判+1`、`grader=MODEL`、`model_snapshot=providerId:model`、`latency_ms=模型调用整体墙钟毫秒`（含重试）；`normalizer_version`/`rubric_version` 沿用首判行；`prompt_version_id` 本批不落（025 prompt 版本注册表）。复核行 `result` JSON 承载首判批注结构（score 与 summary 替换为复核值），回看解析与申诉批注定位照常工作。
+- 排程与错题不变：复核不写 `review_logs`、不改复习卡；错题池/`wrongCount` 读首判行（`sequence=1`），复核分不参与错题进出池。
+- 限流：`@RateLimit(scene="model-review", ACCOUNT, 5 次/60 秒)`；`42900` 带 `Retry-After`。与答疑（`tutor-ask`）同参数不同 scene，配额互不占用。
+- 降级形态（镜像 §6.12 的 50000 模式）：无可用客户端（目录空且 legacy 未配置/目录未激活/凭证不齐）`40400` 功能不存在；调用异常、空回复或解析失败（重试 1 次后仍败）统一 `50000` 固定文案「模型复核暂时不可用，请稍后再试」——**不落任何新行**，原判分保留，主链路不阻塞。
+- 用量观测：`llm_usage` 双写 `scene='review'`（成功/空回复/异常三终态各记一行；非空但不可解析的回复 `ok=true`——token 消耗真实发生）；落库失败只记告警不阻塞复核主链路（与 §6.12 同纪律）。
+- 前端：仅登录态且有服务端判分记录（游客/本地引擎提交的 `grading.id` 为 local 占位）时显示复核入口；成功展示新分 + 理由 + 「复核不影响复习计划」注记并刷新 attempt 查询；失败 toast 保留原分。
+
+错误：`40000`（无可复核判分）、`40100`、`40300`、`40400`（模型未配置）、`40403`、`42900`、`50000`。`40900` 不适用（幂等回读而非冲突拒绝）。
+
+字段回溯：`attempt_gradings`（DATA-MODEL §5.9，`model_snapshot`/`latency_ms` 列 V8 预留本批启用）+ `llm_usage`（DATA-MODEL §5.18）。
+
 ---
 
 ## 7. Analytics（implemented）
@@ -2029,6 +2067,7 @@ provider 目录（022，CC Switch 式多 provider）：元数据 CRUD 与激活�
 | Practice | `GET /api/practice/next`（D7 四参数 2026-11-03 服务端补齐，语义见 §6.1）、`POST /api/practice/attempts`（幂等 + norm-1/rubric-1 判分 + SRS 排程）、`GET /api/practice/attempts/{attemptId}`、批注 `appeal`/`dispute`（§6.4/§6.5）、`GET /api/practice/wrong-questions`、`GET /api/practice/reviews`、`POST /api/practice/reviews/{reviewId}/reset`、`GET /api/practice/reviews/overload`、`POST /api/practice/reviews/postpone`、`GET /api/practice/today` | 练习主链路（#8 波次三）；幂等口径 §6.2；复习卡一句一卡（DATA-MODEL §5.11 Q1）；next 指定句优先（MANUAL）/errors=1 错题池（与 §6.6 同口径）/excludeIds 合并去重/tag JSON 精确匹配，非法参数静默归一 | `PracticeControllerTest`（切片：全部 10 端点——匿名 401、mode 取值 40000、分页 40004、40903/40403/40404、信封形状、限流注解、D7 四参数归一透传）；`PracticeFlowIntegrationTest`（对拍：指定句优先/找不到退回、errors=1 错题口径与 exclude/tag/bankId 过滤、next 显式 bankId 40401/空态、并发同 attemptId 双发幂等收敛零 500） |
 | Analytics | `GET /api/analytics/accuracy`（含 `daily14`/`recent` 扩展）、`GET /api/analytics/error-tags` | 用户时区日界；disputed 批注排除 | `AnalyticsControllerTest`（切片：匿名 401、§7.1/§7.2 信封、参数透传、非法日期 40000、空 items=[]）；`AnalyticsIntegrationTest`（真实 MySQL：聚合对拍、dispute 排除、from/to 闭区间上限 92 天） |
 | Practice | `POST /api/practice/{sentenceId}/ask`（017） | 题目答疑三态门（无可用客户端 40400 功能不存在 / 未开启 40304 / 开启可用；§6.12，022 起客户端由 provider 目录按激活条目装配）、可见性复用 016 口径（40402/40300）、LLM 调用超时 15s 异常降级 50000 固定文案、限流 tutor-ask 5 次/分钟（账号）、question 1–500、回答必带 disclaimer（AI 生成，可能有误）；上下文只含题目中文/考点/本人最近错批注，不含参考译文 | `AskControllerTest`（切片：匿名 401、空白/超长 40000、缺体 40001、40400/40304/50000 透传、信封形状、限流注解契约）；`TutorServiceImplTest`（mock LLM+registry：三态门、app_settings 损坏 fail-closed、上下文拼装不含参考译文、问题定界、空回复/异常降级、40300 透传、开关存取 apiKey/baseUrl/model 拒收 40000、022 补目录模式开启被拒文案与空视图形状）；三协议客户端与装配测试见 Practice/llm 行 |
+| Practice | `POST /api/practice/attempts/{attemptId}/review`（024，§6.13） | 模型复核：追加 grader=MODEL 判分行（sequence=首判+1，append-only），回看/统计取最新 sequence 而排程与错题维持首判口径（wrongCount/countWrong 限定 sequence=1）；可见性复用 §6.3 口径（40403/40300，REVEAL 无判分 40000）；幂等=已有 MODEL 行回读不再调模型（有意非 409），并发撞 uk 回读既有行；strict JSON 输出解析失败重试 1 次仍败降级 50000 不落行（镜像答疑模式），无可用客户端 40400；score 钳制 0–100、reason ≤200 字码点截断；限流 model-review 5 次/分钟（账号）；llm_usage scene='review' 三终态双写；prompt_version_id 暂不落（025 注册表） | `PracticeControllerTest`（切片：匿名 401、委托与信封形状、限流注解契约 5 次/60 秒/账号）；`PracticeModelReviewIntegrationTest`（真实 MySQL + 桩注册表/桩客户端：[AC-1] 落行 sequence+1/grader=MODEL/快照/耗时/口径版本沿用与 result 批注结构、[AC-2] 幂等读 LLM 调用数=1、[AC-3] 匿名 401/他人与不存在/REVEAL 拒绝且零模型调用、[AC-4] 异常与非法输出降级不落行+重试后成功+101 钳制 100、[AC-5] llm_usage 三终态、[AC-6] 限流脚本化 429+Retry-After 且被拒请求零业务副作用（真实 ZSET 窗口语义由 RateLimitServiceTest/RateLimitAspectTest 覆盖，CI 无 Redis 不可复现）、[AC-7] 回看/今日全对率取复核分而卡与 review_logs/错题池 lastScore 维持首判）；`ModelReviewPromptBuilderTest`（prompt 五段上下文、系统提示 strict JSON 契约、定界剥离防伪造、解析/钳制/码点截断）；前端 `PracticePage.test.tsx`（[AC-8] 入口门禁匿名与本地占位隐藏、成功新分+理由+复核不影响复习计划注记+attempt 刷新、失败 toast 保留原分、无演示占位残留） |
 | Admin | `GET/PUT /api/admin/llm/config`（017）、`GET/POST /api/admin/llm/providers`、`PUT/DELETE /api/admin/llm/providers/{id}`、`PUT /api/admin/llm/providers/{id}/activate`（022） | 答疑 LLM 配置（§8.14）与 provider 目录（§8.15）：enabled 存 `app_settings` 键 `llm.tutor`（fail-closed 解析）；目录存键 `llm.providers`/`llm.active`（激活唯一、激活中不可删、id `[a-z0-9-]+` 唯一、协议白名单 fail-closed）；GET 回 hasKey/active/credentialsComplete 不回读 apiKey（响应无 apiKey 字段，密钥走 `YILIAN_LLM_KEY_<大写ID>` env 索引）；enabled=true 无可用客户端 40000（文案按目录/legacy 分口径）；审计 LLM_CONFIG_UPDATE（GET 不标） | `AdminLlmConfigControllerTest`、`AdminLlmProviderControllerTest`（切片：匿名 401/非管理员 403、GET 形状、POST/PUT/DELETE/activate 透传与 id 校验 40000、40400 信封、审计注解口径）；service 分支另由 `LlmProviderAdminServiceImplTest`（CRUD 规则/激活幂等/hasKey env 索引）覆盖 |
 | Practice/llm | （022 支撑 §6.12 的三协议客户端与 provider 目录装配，无独立端点） | `LlmChatClient` 三协议统一接口：`OpenAiChatLlmClient`（Spring AI OpenAI 轨收编）、`AnthropicMessagesLlmClient`（021 网关轨；022 改官方 SDK 直调+手写 content 提取）、`OpenAiResponsesLlmClient`（新，手写 java.net.http）；`LlmClientRegistry` 按激活 provider 装配+目录指纹缓存+legacy 回退。V11：`llm_usage` 用量账本（DATA-MODEL §5.18）落库为内部表，无端点、不进矩阵行 | `AnthropicMessagesLlmClientTest`（JDK 桩：/v1/messages 请求形状与头、**thinking 块只拼 text 块**/max_tokens 吃尽空正文、usage 映射、429（网关非标准错误体）与 5xx 退避重试一次、4xx 不重试）；`OpenAiResponsesLlmClientTest`（JDK 桩：/v1/responses 请求形状与 Bearer 头、output 取 message/output_text、reasoning 跳过、非 2xx 不重试）；`OpenAiChatLlmClientTest`（离线装配）；`LlmClientRegistryTest`（协议装配选择、目录指纹缓存失效、legacy 回退、凭证口径按协议分、三态门）；`LlmProviderCatalogTest`（app_settings 解析 fail-closed、写入形状、env 索引连字符→下划线）；`LlmPropertiesTest`（env 绑定+legacy 映射）；V11 落库形状/失败旁路由 `TutorServiceImplTest`（[AC-V11-1]/[AC-V11-2]）与 `SentenceActiveExternalKeySchemaIntegrationTest`（真实 MySQL 全字段读回）覆盖——矩阵注：内部表无端点，无接口级测试行 |
 | Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 | `ImportBatchControllerTest`（切片：匿名 401/非管理员 403、multipart 绑定与缺参 40000、缺请求体 40001、40405/40904、PageResponse 信封）；`ImportBatchServiceIntegrationTest`（真实 MySQL：五端点语义、commit 原子性（回写失败整体回滚可恢复）、COMMITTING 残留对账收敛、重复 commit 幂等、回滚 tombstone） |
@@ -2089,6 +2128,7 @@ provider 目录（022，CC Switch 式多 provider）：元数据 CRUD 与激活�
 | 2026-11-05 | v1.2 | 022 AI 配置升级：§6.12 改写为 provider 目录 + 三协议（anthropic-messages \| openai-chat \| openai-responses，Responses 轨手写 java.net.http——spring-ai 2.0.0 无支持）与 legacy 单 provider 回退；maxTokens 三协议同源 768→2048（思考模型 thinking 计入 max_tokens，实测 32 全被吃掉），补思考模型注（anthropic 轨改官方 SDK 直调+按块类型提取，Spring AI getText() 会把 thinking 块当正文）；新增 §8.15 provider 目录五端点（元数据 CRUD+激活唯一，密钥走 YILIAN_LLM_KEY_<大写ID> env 索引不入库）；§8.14.1 视图扩 providerId/protocol/credentialsComplete；§10.1 矩阵重排 Practice/llm 与 Admin 行 | 实现工程师 |
 | 2026-11-05 | v1.2 | 020 练习选题 + AC-0 提交假失败修复：新增 §5.3.1 `GET /api/banks/{bankId}/sentences/list`（页码分页 + keyword/level/status 筛选缺省隐藏回收站 + 当前用户练过态，匿名=未学，与 §5.3 增量端点刻意不同形并登记差异）；§6.2 补记内嵌 review 为排程投影（无 sentenceId/mode，与 §6.7 队列卡不同形）——此前前端 schema 误按队列卡校验致 200 已入库被误报「提交未确认」；§2 鉴权矩阵、§10.1 矩阵同步（BankControllerTest 补 5 例切片 + PickerSentenceQueryDaoIntegrationTest） | 实现工程师 |
 | 2026-11-06 | v1.3 | V11 迁移 + 错误态语境分化：§6.12 用量观测改「结构化日志 + `llm_usage` 落库」双写（V11 建表，内部表无端点，017「落库待批」收口；落库失败只告警不阻塞答疑）；§8.15 补内部表注（llm_usage 不暴露端点、矩阵注）与 ModelsPage 错误卡 `ErrorState variant="admin"` 文案口径（「管理数据加载失败」，不带练习页离线队列文案）；§10.1 Practice/llm 行补 llm_usage 矩阵注、§10.4 017 观察项收口 | 实现工程师 |
+| 2026-11-06 | v1.4 | 024 模型复核接后端：新增 §6.13 `POST /api/practice/attempts/{attemptId}/review`（追加 grader=MODEL 判分行 sequence=首判+1，model_snapshot/latency_ms V8 预留列启用；幂等=已有 MODEL 行回读不重复计费，并发撞 uk 回读既有行故 40900 不适用；strict JSON 解析失败重试 1 次仍败降级 50000 不落行；score 钳制 0–100、reason ≤200 字；限流 model-review 5 次/分钟账号；llm_usage scene='review' 三终态双写）；错题池/wrongCount 口径明确按首判（sequence=1），复核不影响复习计划；§2 矩阵、§10.1 矩阵同步 | 实现工程师 |
 
 ---
 

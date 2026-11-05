@@ -496,8 +496,8 @@ erDiagram
 | `normalizer_version` | VARCHAR(16) | 否 | — | 归一化算法版本 |
 | `rubric_version` | VARCHAR(16) | 是 | NULL | 评分标准版本 |
 | `prompt_version_id` | BIGINT | 是 | NULL | M3 Prompt 版本 |
-| `model_snapshot` | VARCHAR(128) | 是 | NULL | M3 模型快照 |
-| `latency_ms` | INT | 是 | NULL | 判分耗时 |
+| `model_snapshot` | VARCHAR(128) | 是 | NULL | 产生本行判分的模型快照（`providerId:model`）；本地判分为 NULL，模型复核行（024 起）必填 |
+| `latency_ms` | INT | 是 | NULL | 模型调用耗时毫秒（整体墙钟，含重试）；本地判分为 NULL |
 | `created_at` | DATETIME(6) | 否 | — | UTC |
 
 索引/约束：
@@ -507,7 +507,7 @@ erDiagram
 - 普通 `idx_grading_created (created_at)`
 - 普通 `idx_grading_grader (grader)`
 
-只增不改；改判 = 新 sequence，不覆盖旧分。
+只增不改；改判 = 新 sequence，不覆盖旧分。模型复核（024，API §6.13）按 `sequence=首判+1` 追加 `grader=MODEL` 行：`model_snapshot`/`latency_ms`（V8 预留列）落值、`normalizer_version`/`rubric_version` 沿用首判行、`prompt_version_id` 暂不落（025 注册表）；复核不改排程与错题——错题池与 `wrongCount` 消费按首判行（`sequence=1`）口径。
 
 ### 5.10 `appeals`
 
@@ -755,7 +755,7 @@ append-only 用量账本：每次 LLM 调用的**终态**写一行，只记元�
 | `id` | BIGINT PK | 否 | 自增 |
 | `user_id` | BIGINT | 是 | 逻辑引用 `app_user.id`；系统级调用为 NULL |
 | `sentence_id` | CHAR(26) | 是 | 逻辑引用 `sentences.id`（ULID）；与题目无关的调用为 NULL |
-| `scene` | VARCHAR(32) | 否 | 调用场景（当前 `tutor-ask`，与结构化日志 scene 同源） |
+| `scene` | VARCHAR(32) | 否 | 调用场景（`tutor-ask` 答疑 / `review` 模型复核，与结构化日志 scene 同源） |
 | `protocol` | VARCHAR(32) | 是 | 当次生效协议快照（`anthropic-messages`/`openai-chat`/`openai-responses`） |
 | `model` | VARCHAR(128) | 是 | 当次生效模型名快照（模型可能下线，快照使历史行自解释） |
 | `prompt_tokens` | INT | 是 | 提示词 token；失败未取得为 NULL |

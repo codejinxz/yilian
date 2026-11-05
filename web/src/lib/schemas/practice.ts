@@ -208,6 +208,22 @@ export const tutorAskResponseSchema = z.object({
 
 export type TutorAskResponse = z.infer<typeof tutorAskResponseSchema>;
 
+/**
+ * 模型复核结果（API §6.13）：追加判分记录（grader=MODEL），不覆盖首判。
+ * 复核不改复习排程与错题队列（首判口径），前端据此展示「复核不影响复习计划」注记。
+ */
+export const modelReviewSchema = z.object({
+  score: z.number().int().min(0).max(100),
+  reason: z.string().min(1),
+  modelSnapshot: z.string().min(1),
+  latencyMs: z.number().int().nonnegative().nullable(),
+  createdAt: isoDateTimeSchema,
+  sequence: z.number().int().positive(),
+  originalScore: z.number().int().min(0).max(100),
+});
+
+export type ModelReview = z.infer<typeof modelReviewSchema>;
+
 export const todaySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   timezone: z.string(),

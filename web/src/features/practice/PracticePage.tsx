@@ -13,6 +13,7 @@ import {
 import { EmptyState, ErrorState, LoadingBlock, Notice } from "@/components/feedback";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { useSessionStore } from "@/features/auth/session";
 import { AskPanel } from "@/features/practice/AskPanel";
 import {
   freeModeChips,
@@ -38,6 +39,7 @@ import {
   disputeAnnotation,
   getAttempt,
   getNextPractice,
+  reviewAttempt,
   submitAttempt,
 } from "@/lib/api/practice";
 import { isTransportError } from "@/lib/api-error";
@@ -47,6 +49,7 @@ import type {
   AttemptResponse,
   GradingAnnotation,
   GradingResult,
+  ModelReview,
   PracticeMode,
   PracticeSentence,
 } from "@/lib/schemas/practice";
@@ -364,6 +367,8 @@ export function PracticePage() {
   const queryClient = useQueryClient();
   const online = useOnlineStatus();
   const pendingQueue = useOfflineQueueCount();
+  // 复核入口的登录门：游客/匿名态不显示（服务端复核要求本人归属 + 账号限流）。
+  const sessionStatus = useSessionStore((state) => state.status);
   const search = useSearch({ strict: false }) as PracticeSearch;
   const attemptId = typeof search.attemptId === "string" ? search.attemptId : undefined;
   const searchSentenceId =
@@ -399,8 +404,11 @@ export function PracticePage() {
   const [peekOpen, setPeekOpen] = useState(false);
   /** 音标展示开关；仅当句子携带 ipa 时入口才渲染，切换状态随换句重置。 */
   const [ipaVisible, setIpaVisible] = useState(false);
-  /** 模型复核占位：本地把展示分数 +10，不调用模型、不改库（M3 接入真实复核）。 */
-  const [reviewedScore, setReviewedScore] = useState<number | null>(null);
+  /**
+   * 模型复核结果（API §6.13）：服务端追加的 grader=MODEL 判分行；仅登录态且有服务端
+   * attemptId 时可发起，成功后展示新分与理由。复核不改排程与错题队列，注记常驻说明。
+   */
+  const [review, setReview] = useState<ModelReview | null>(null);
   /** 本会话内改对已确认（RETRY 成功）：豁免原 attempt 的 retryRequired，换句/重答即重置。 */
   const [retryFixed, setRetryFixed] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -540,7 +548,7 @@ export function PracticePage() {
     setRevealConfirm(false);
     setRetryText("");
     setRetryError(null);
-    setReviewedScore(null);
+    setReview(null);
     setRetryFixed(false);
     setIpaVisible(false);
   }, [sentenceId]);
@@ -635,6 +643,22 @@ export function PracticePage() {
       }
       setPendingSubmission(submission);
       setSubmitError(error.message);
+    },
+  });
+
+  // 模型复核（API §6.13）：服务端按本人归属 + 账号限流（5 次/分钟）把关；幂等（重复点击
+  // 返回既有结果）。成功后刷新 attempt 查询——回看/统计按最新 sequence 取复核分——并展示
+  // 新分与理由；失败 toast 服务端文案、保留原判分展示。
+  const reviewMutation = useMutation({
+    mutationFn: (targetAttemptId: string) => reviewAttempt(targetAttemptId),
+    onSuccess: (result, targetAttemptId) => {
+      setReview(result);
+      // 复核不改 FSRS 排程与错题队列，但今日全对率按最新判分统计，需重算。
+      void queryClient.invalidateQueries({ queryKey: queryKeys.today });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.attempt(targetAttemptId) });
+    },
+    onError: (error) => {
+      toast(error instanceof Error ? error.message : "模型复核暂时不可用，原判分保留");
     },
   });
 
@@ -913,7 +937,7 @@ export function PracticePage() {
     setHintLevel(0);
     setRetryText("");
     setRetryError(null);
-    setReviewedScore(null);
+    setReview(null);
     setRetryFixed(false);
     if (attemptId || searchSentenceId) {
       // 回跳时保留错题模式：清掉指定句/回看参数后，继续在错题池里取下一题。
@@ -942,7 +966,7 @@ export function PracticePage() {
       setSubmitError(null);
       setOfflineNotice(null);
       setRevealConfirm(false);
-      setReviewedScore(null);
+      setReview(null);
       setRetryFixed(false);
       if (attemptId) {
         // 与 advance 一致：清结果参数但保留错题模式。
@@ -976,7 +1000,7 @@ export function PracticePage() {
       setSubmitError(null);
       setOfflineNotice(null);
       setRevealConfirm(false);
-      setReviewedScore(null);
+      setReview(null);
       setRetryFixed(false);
       // 清掉 URL 里过期的深链 bankId（本页手选已接管），错题模式随回跳保留。
       void navigate({ to: "/practice", search: errorsMode ? { errors: true } : {}, replace: true });
@@ -984,14 +1008,14 @@ export function PracticePage() {
   }
 
   /**
-   * 模型复核（本地占位）：只把展示分数 +10 并给出原型复核文案，不调用模型、不改判分记录。
+   * 发起模型复核（API §6.13）：服务端追加 grader=MODEL 判分行，本页展示新分与理由；
+   * 原判分不覆盖，失败时 toast 服务端文案并保留原分。门禁见复核按钮渲染条件。
    */
   function handleModelReview() {
-    if (!attempt || attempt.score === null || reviewedScore !== null) {
+    if (!attempt || reviewMutation.isPending || review !== null) {
       return;
     }
-    setReviewedScore(Math.min(100, attempt.score + 10));
-    toast("已复核，原分保留");
+    reviewMutation.mutate(attempt.attemptId);
   }
 
   /**
@@ -1289,18 +1313,22 @@ export function PracticePage() {
   }
   const progressWidth = `${Math.min(100, Math.max(0, Math.round((progressRatio ?? 0) * 1000) / 10))}%`;
 
-  // 批改视图的展示分与文案；模型复核是本地占位，只改展示不改记录。
+  // 批改视图的展示分与文案；已复核时展示服务端复核分与理由（首判分保留在复核卡片里）。
   const firstWrong = attempt?.result.annotations.find((item) => !item.correct) ?? null;
-  const firstWrongZh =
-    firstWrong && displaySentence
-      ? (displaySentence.chunks.find((item) => item.index === firstWrong.chunkIndex)?.zh ?? null)
-      : null;
-  const displayScore = reviewedScore ?? (isReveal ? "—" : score);
+  // 复核入口门禁：登录态 + 服务端判分记录（本地引擎/游客提交的 grading.id 是 local 占位，
+  // 服务端没有这条记录，复核无从发起）；看答案提交无判分、已复核或进行中不再重复发起。
+  const canReview =
+    sessionStatus === "authenticated" &&
+    attempt !== null &&
+    !isReveal &&
+    attempt.score !== null &&
+    attempt.score < 100 &&
+    attempt.grading.id !== "local" &&
+    review === null;
+  const displayScore = review?.score ?? (isReveal ? "—" : score);
   const displayNote =
-    reviewedScore !== null
-      ? `模型复核：整体可懂，${
-          firstWrongZh ? `「${firstWrongZh}」这一处` : "部分表达"
-        }建议按参考译文调整语序或搭配。`
+    review !== null
+      ? review.reason
       : isReveal
         ? "已看答案，本题记为学习中，不计入正确率。"
         : score === 100
@@ -1878,18 +1906,28 @@ export function PracticePage() {
                 </div>
               ) : null}
 
-              {reviewedScore !== null && attempt.score !== null ? (
+              {review !== null ? (
                 <p className="mt-3.5 text-xs leading-[1.7] text-vermilion">
-                  复核 +{reviewedScore - attempt.score} 分 · 演示占位，未写入记录，不覆盖原判分。
-                  <span className="ml-1 text-ink-faint">（M3 接入真实模型后按追加记录实现）</span>
+                  复核 {review.score} 分（原判 {review.originalScore} 分 · {review.modelSnapshot}）·{" "}
+                  {review.reason}
+                  <span className="ml-1 text-ink-faint">
+                    复核不影响复习计划：排程与错题仍按首判口径。
+                  </span>
                 </p>
               ) : null}
 
               {/* 原型 .actions：上边距 36px、间距 14px，无上边框。 */}
               <div className="keyboard-safe mt-9 flex flex-wrap items-center gap-3.5">
-                {!isReveal && score !== null && score < 100 && reviewedScore === null ? (
-                  <button type="button" onClick={handleModelReview} className="linkish">
-                    让模型复核
+                {/* 模型复核（API §6.13）：仅登录态且有服务端判分记录时显示——游客/本地引擎
+                    提交没有服务端 attemptId（grading.id 为 local 占位），复核无从发起。 */}
+                {canReview ? (
+                  <button
+                    type="button"
+                    onClick={handleModelReview}
+                    disabled={reviewMutation.isPending}
+                    className="linkish"
+                  >
+                    {reviewMutation.isPending ? "复核中…" : "让模型复核"}
                   </button>
                 ) : null}
                 <button

@@ -7,6 +7,8 @@ import {
   appealResponseSchema,
   attemptRequestSchema,
   attemptResponseSchema,
+  type ModelReview,
+  modelReviewSchema,
   type NextPractice,
   nextPracticeSchema,
   type OverloadView,
@@ -29,6 +31,12 @@ import { jsonRequest, parseData, toQueryString } from "./shared";
  * 30s 重试一次 ≈ 31.5s）再留余量；默认 10s 会在服务端仍重试时先行掐断。
  */
 export const ASK_TIMEOUT_MS = 35_000;
+
+/**
+ * 模型复核请求的超时毫秒数：与答疑同口径（服务端模型调用 15s + 解析失败重试一次，
+ * 整链约 31.5s），默认 10s 会在服务端还在重试时先把用户侧掐断。
+ */
+export const REVIEW_TIMEOUT_MS = 35_000;
 
 /**
  * 取下一题；没有可练题时返回 null（HTTP 200，页面显示空状态）。
@@ -296,4 +304,22 @@ export async function askTutor(sentenceId: string, question: string): Promise<Tu
     { timeoutMs: ASK_TIMEOUT_MS },
   );
   return parseData(tutorAskResponseSchema, data);
+}
+
+/**
+ * 模型复核（API §6.13）：对本人的已判分提交追加一条 grader=MODEL 的判分记录，不覆盖首判。
+ * 同一提交幂等：重复请求返回既有复核结果，不重复计费；限流 5 次/分钟/账号（42900 + Retry-After）。
+ * 未配置模型 40400、调用/输出解析失败（重试 1 次后仍败）50000 固定文案降级——两种失败都不落行，
+ * 调用方保留原判分展示即可。超时放宽到 35s，与答疑同口径（服务端模型调用 15s + 重试一次）。
+ * @param attemptId attempt UUID
+ * @param signal 取消信号
+ * @returns 复核结果（新分 + 理由 + 模型快照与耗时 + 首判分）
+ */
+export async function reviewAttempt(attemptId: string, signal?: AbortSignal): Promise<ModelReview> {
+  const data = await apiRequest<unknown>(
+    `/practice/attempts/${encodeURIComponent(attemptId)}/review`,
+    { method: "POST", signal },
+    { timeoutMs: REVIEW_TIMEOUT_MS },
+  );
+  return parseData(modelReviewSchema, data);
 }
