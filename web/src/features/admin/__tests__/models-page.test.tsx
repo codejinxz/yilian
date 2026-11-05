@@ -225,6 +225,41 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     document.cookie = "XSRF-TOKEN=test-token; path=/";
   });
 
+  it("024 AC-1: 服务不可达（网络断）时错误卡为管理语境——「管理数据加载失败」，不带练习页离线队列文案", async () => {
+    // 后端 8080 未启动 / 断网：fetch 抛 TypeError，请求客户端归一为 status=0 的 ApiError。
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+
+    renderModelsPage();
+
+    // 网络错误重试一次（1s 退避）后才落错误态，放宽等待窗口。
+    const alert = await screen.findByRole("alert", {}, { timeout: 5000 });
+    expect(alert).toHaveTextContent("管理数据加载失败");
+    expect(alert).toHaveTextContent("请检查网络连接或确认服务端已启动");
+    expect(alert).not.toHaveTextContent("已经填写的答案会保存在本机");
+    // 重试入口在位：网络恢复后一键重拉。
+    expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
+  });
+
+  it("024 AC-1: 服务 5xx 时错误卡同为管理语境，服务端文案透出且无练习页队列文案", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ code: 50000, message: "服务响应异常，请稍后重试" }, 500)),
+    );
+
+    renderModelsPage();
+
+    // 5xx 同样触发一次重试，放宽等待窗口。
+    const alert = await screen.findByRole("alert", {}, { timeout: 5000 });
+    expect(alert).toHaveTextContent("管理数据加载失败");
+    expect(alert).toHaveTextContent("服务响应异常，请稍后重试");
+    expect(alert).not.toHaveTextContent("已经填写的答案会保存在本机");
+  });
+
   it("019 AC-1: hasKey=true 且 enabled=true 时显示已配置、当前模型与答疑「启用中」，不出环境变量指引", async () => {
     stubAdminLlmFetch(CONFIGURED_ON);
 

@@ -337,11 +337,21 @@ export function ModelsPage() {
     );
   }
   if (configQuery.isError) {
-    return <ErrorState error={configQuery.error} onRetry={() => void configQuery.refetch()} />;
+    return (
+      <ErrorState
+        error={configQuery.error}
+        onRetry={() => void configQuery.refetch()}
+        variant="admin"
+      />
+    );
   }
   if (providersQuery.isError) {
     return (
-      <ErrorState error={providersQuery.error} onRetry={() => void providersQuery.refetch()} />
+      <ErrorState
+        error={providersQuery.error}
+        onRetry={() => void providersQuery.refetch()}
+        variant="admin"
+      />
     );
   }
 

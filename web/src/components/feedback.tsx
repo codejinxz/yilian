@@ -86,25 +86,42 @@ export function EmptyState({
 
 /**
  * 错误状态：区分服务端 403、离线/网络失败与普通错误，并始终提供重试。
- * @param props error 原始错误、onRetry 重试回调、title 可覆盖标题、compact 紧凑模式
+ *
+ * <p>variant 按「页面语境」分化离线文案：练习页（默认）提示离线队列兜底——答案保存在本机、
+ * 联网后提交；管理页（admin）没有离线作答语义，只提示检查网络/服务端后重试，避免出现
+ * 「答案保存在本机」这类与语境错配的文案。403 的鉴权说明两种语境都成立，不分化。
+ *
+ * @param error 原始错误、onRetry 重试回调、title 可覆盖标题、compact 紧凑模式、variant 页面语境（默认 practice）
  */
 export function ErrorState({
   error,
   onRetry,
   title,
   compact = false,
+  variant = "practice",
   className,
 }: {
   error: unknown;
   onRetry?: () => void;
   title?: string;
   compact?: boolean;
+  variant?: "practice" | "admin";
   className?: string;
 }) {
   const denied = error instanceof ApiError && error.status === 403;
   const offline = error instanceof ApiError && error.status === 0;
+  const admin = variant === "admin";
   const heading =
-    title ?? (denied ? "服务端拒绝访问" : offline ? "网络暂时不可用" : "页面暂时打不开");
+    title ??
+    (denied
+      ? "服务端拒绝访问"
+      : offline
+        ? admin
+          ? "管理数据加载失败"
+          : "网络暂时不可用"
+        : admin
+          ? "管理数据加载失败"
+          : "页面暂时打不开");
   const message =
     error instanceof ApiError
       ? error.message
@@ -126,7 +143,9 @@ export function ErrorState({
       ) : null}
       {offline ? (
         <p className="mt-2 text-xs leading-6 text-ink-muted">
-          请检查网络连接。已经填写的答案会保存在本机，联网后再提交。
+          {admin
+            ? "请检查网络连接或确认服务端已启动，恢复后点击重试。管理数据不做本地暂存。"
+            : "请检查网络连接。已经填写的答案会保存在本机，联网后再提交。"}
         </p>
       ) : null}
       {onRetry ? (
