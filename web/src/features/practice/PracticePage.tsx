@@ -1501,7 +1501,9 @@ export function PracticePage() {
                           submittedSlots !== null && (annotation === null || annotation.correct);
                         return (
                           <Fragment key={chunk.index}>
-                            <span className="relative inline-flex items-baseline gap-px whitespace-nowrap">
+                            {/* max-w-full 把整空包裹块钉在题干行宽内（022 巡检 DEF-03：390 视口长草稿
+                                把 ch 自适应词框顶出横向溢出）；框内超长由 input 自身滚动，不再撑破容器。 */}
+                            <span className="relative inline-flex max-w-full items-baseline gap-px whitespace-nowrap">
                               <span className={BLANK_BADGE}>{blankIndex + 1}</span>
                               {expectedWords.map((word, k) => {
                                 const typed = typedWords[k] ?? "";
@@ -1544,7 +1546,9 @@ export function PracticePage() {
                                       }
                                       className={cn(
                                         // 原型 .skeleton input：只有下边线、内边距 0 4px 1px、左右 1px 外距、focus 朱红。
-                                        "mx-px border-b bg-transparent px-1 pb-px font-serif outline-none transition-[border-color] duration-150 ease-[ease]",
+                                        // min-w-0 + max-w-full：flex 内允许词框被压回包裹块宽度、上限不超过包裹块，
+                                        // ch 自适应照常生效，超长草稿由框内滚动承载（022 巡检 DEF-03）。
+                                        "mx-px min-w-0 max-w-full border-b bg-transparent px-1 pb-px font-serif outline-none transition-[border-color] duration-150 ease-[ease]",
                                         submittedSlots
                                           ? hit
                                             ? "border-moss text-moss"

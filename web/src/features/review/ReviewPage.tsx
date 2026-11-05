@@ -14,7 +14,7 @@ import {
   postponeOverdue,
 } from "@/lib/local-engine";
 import { isMockEnabled } from "@/lib/mock-flag";
-import { queryKeys } from "@/lib/query";
+import { meQueryOptions, queryKeys } from "@/lib/query";
 import { cn } from "@/lib/utils";
 
 type Filter = "all" | "due" | "learning" | "mastered";
@@ -141,6 +141,10 @@ function ReviewToast({ message, visible }: { message: string | null; visible: bo
  * size=1 的 total）+ 降载/顺延走 §3.6 的 overload/postpone 端点，中文句用题库缓存 join
  * （ensureCachedSentences，匿名可拉）；mock 模式沿用 getReviews 契约分页与引擎降载能力
  * （mock 引擎无复习数据，降载条与顺延天然不会误触发）。
+ *
+ * 冷启动会话恢复期间（me 未确认、探针未确认登录）整页数据区渲染加载态而非游客空态：
+ * 本地引擎会瞬时回空队列，先渲染「这里还是空的」与全零计数、会话确认后再跳真实数据的
+ * 闪变（022 巡检 DEF-02）由此而来。
  */
 export function ReviewPage() {
   const queryClient = useQueryClient();
@@ -284,7 +288,13 @@ export function ReviewPage() {
     ? (engineQueueQuery.data?.summary ?? { due: 0, learning: 0, mastered: 0 })
     : (summaryQuery.data ?? { due: 0, learning: 0, mastered: 0 });
 
-  const listPending = guest ? engineQueueQuery.isPending : contractPageQuery.isPending;
+  // 冷启动会话恢复竞态（022 巡检 DEF-02）：me 未确认前 isGuestSession 暂按游客语义，
+  // 本地引擎瞬时回空队列会把「这里还是空的」空态与全零计数先渲染出来，会话确认后才跳真实数据。
+  // 会话恢复期间（mock 无此竞态）数据区按加载态渲染，空态与零计数都不落屏。
+  const me = useQuery(meQueryOptions);
+  const sessionRestoring = !mock && me.isPending;
+  const listPending =
+    sessionRestoring || (guest ? engineQueueQuery.isPending : contractPageQuery.isPending);
   const listError = guest ? engineQueueQuery.error : contractPageQuery.error;
 
   const allRows = guest ? engineRows : contractRows;
@@ -363,7 +373,7 @@ export function ReviewPage() {
       <div className="flex flex-wrap gap-x-12 gap-y-4 border-y border-rule py-6 max-[760px]:gap-x-[26px]">
         <div>
           <b className="block font-serif text-[28px] font-medium leading-none text-ink">
-            {summary.due}
+            {sessionRestoring ? "…" : summary.due}
           </b>
           <span className="mt-[9px] block font-mono text-[10px] tracking-[0.14em] text-ink-faint">
             今日到期
@@ -371,7 +381,7 @@ export function ReviewPage() {
         </div>
         <div>
           <b className="block font-serif text-[28px] font-medium leading-none text-ink">
-            {summary.learning}
+            {sessionRestoring ? "…" : summary.learning}
           </b>
           <span className="mt-[9px] block font-mono text-[10px] tracking-[0.14em] text-ink-faint">
             学习中
@@ -379,7 +389,7 @@ export function ReviewPage() {
         </div>
         <div>
           <b className="block font-serif text-[28px] font-medium leading-none text-ink">
-            {summary.mastered}
+            {sessionRestoring ? "…" : summary.mastered}
           </b>
           <span className="mt-[9px] block font-mono text-[10px] tracking-[0.14em] text-ink-faint">
             已掌握
