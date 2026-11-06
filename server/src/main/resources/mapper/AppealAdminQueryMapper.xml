@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="io.github.codejinxz.yilian.practice.dao.mybatis.AppealAdminQueryMapper">
+
+    <!--
+      管理端申诉检索（API §8.16，只读）：零物理外键下按逻辑关联 JOIN 题目摘要与申诉人。
+      题目摘要在当前内容版本上（sentence_versions.zh，经 sentences.current_version_id 定位）；
+      LEFT JOIN：题目已删/用户已删时申诉行仍可见（申诉不脱离提交，摘要列回 null）。
+      decision 为 JSON 列：AI 意见的 verdict 用 JSON_UNQUOTE(JSON_EXTRACT(...)) 抽取，
+      终审不覆盖 decision（初裁「AI 意见」保留），理由/裁决者读独立列。
+      status/kind 由服务层校验合法取值后传入，SQL 侧只做等值过滤。
+    -->
+    <sql id="searchColumns">
+        a.id,
+        a.attempt_id        AS attemptId,
+        a.annotation_key    AS annotationKey,
+        a.sentence_id       AS sentenceId,
+        a.chunk_index       AS chunkIndex,
+        a.kind,
+        a.status,
+        a.proposed_answer   AS proposedAnswer,
+        a.reason,
+        JSON_UNQUOTE(JSON_EXTRACT(a.decision, '$.verdict')) AS decisionVerdict,
+        a.decision_reason   AS decisionReason,
+        a.decided_by        AS decidedBy,
+        a.decided_at        AS decidedAt,
+        a.model_snapshot    AS modelSnapshot,
+        a.prompt_version_id AS promptVersionId,
+        a.created_at        AS createdAt,
+        sv.zh               AS sentenceZh,
+        u.username          AS username
+    </sql>
+
+    <sql id="searchConditions">
+        <if test="status != null">
+            AND a.status = #{status}
+        </if>
+        <if test="kind != null">
+            AND a.kind = #{kind}
+        </if>
+    </sql>
+
+    <select id="search" resultType="io.github.codejinxz.yilian.practice.service.vo.AdminAppealView">
+        SELECT
+        <include refid="searchColumns"/>
+        FROM appeals a
+        LEFT JOIN sentences s ON s.id = a.sentence_id
+        LEFT JOIN sentence_versions sv ON sv.id = s.current_version_id
+        LEFT JOIN users u ON u.id = a.user_id
+        <where>
+            <include refid="searchConditions"/>
+        </where>
+        ORDER BY a.created_at DESC, a.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- 与 search 同条件的计数；共享 WHERE 形状，分页元数据用。 -->
+    <select id="countSearch" resultType="long">
+        SELECT COUNT(*)
+        FROM appeals a
+        <where>
+            <include refid="searchConditions"/>
+        </where>
+    </select>
+
+    <!-- 终审后回读组装响应；不存在返回 null，服务层转 40400。 -->
+    <select id="findById" resultType="io.github.codejinxz.yilian.practice.service.vo.AdminAppealView">
+        SELECT
+        <include refid="searchColumns"/>
+        FROM appeals a
+        LEFT JOIN sentences s ON s.id = a.sentence_id
+        LEFT JOIN sentence_versions sv ON sv.id = s.current_version_id
+        LEFT JOIN users u ON u.id = a.user_id
+        WHERE a.id = #{id}
+    </select>
+</mapper>

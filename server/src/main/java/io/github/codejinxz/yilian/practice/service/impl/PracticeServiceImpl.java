@@ -3,7 +3,11 @@ package io.github.codejinxz.yilian.practice.service.impl;
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.api.PageResponse;
+import io.github.codejinxz.yilian.common.ratelimit.RateLimitDecision;
+import io.github.codejinxz.yilian.common.ratelimit.RateLimitDimension;
+import io.github.codejinxz.yilian.common.ratelimit.RateLimitService;
 import io.github.codejinxz.yilian.content.service.ContentQueryService;
+import io.github.codejinxz.yilian.content.service.vo.SentenceChunk;
 import io.github.codejinxz.yilian.content.service.vo.SentenceDetail;
 import io.github.codejinxz.yilian.practice.dao.AppealDao;
 import io.github.codejinxz.yilian.practice.dao.AttemptDao;
@@ -17,12 +21,15 @@ import io.github.codejinxz.yilian.practice.entity.AttemptGrading;
 import io.github.codejinxz.yilian.practice.entity.LlmUsage;
 import io.github.codejinxz.yilian.practice.entity.Review;
 import io.github.codejinxz.yilian.practice.entity.ReviewLog;
+import io.github.codejinxz.yilian.practice.grading.AppealAdjudicationPromptBuilder;
 import io.github.codejinxz.yilian.practice.grading.Grader;
 import io.github.codejinxz.yilian.practice.grading.GradingAnnotation;
 import io.github.codejinxz.yilian.practice.grading.GradingResult;
 import io.github.codejinxz.yilian.practice.grading.ModelReviewPromptBuilder;
+import io.github.codejinxz.yilian.practice.grading.Norm1Normalizer;
 import io.github.codejinxz.yilian.practice.llm.LlmChatClient;
 import io.github.codejinxz.yilian.practice.llm.LlmClientRegistry;
+import io.github.codejinxz.yilian.practice.llm.PromptRegistry;
 import io.github.codejinxz.yilian.practice.scheduler.FsrsScheduleParams;
 import io.github.codejinxz.yilian.practice.scheduler.FsrsScheduler;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
@@ -108,6 +115,27 @@ public class PracticeServiceImpl implements PracticeService {
     /** 模型复核的 LLM 场景标识：llm_usage.scene 与结构化日志的 scene 同源。 */
     static final String MODEL_REVIEW_SCENE = "review";
 
+    /** 申诉初裁的 LLM 场景标识：llm_usage.scene 与结构化日志的 scene 同源。 */
+    static final String APPEAL_ADJUDICATION_SCENE = "appeal";
+
+    /** 申诉初裁限流场景名：与端点注解限流（practice-attempt 等）相互独立。 */
+    static final String APPEAL_ADJUDICATION_RATE_SCENE = "appeal-adjudication";
+
+    /** 申诉初裁限流阈值：5 次/分钟/账号（与复核同口径），超出跳过初裁而不是拒绝申诉。 */
+    static final int APPEAL_ADJUDICATION_RATE_LIMIT = 5;
+
+    /** 申诉初裁限流窗口（秒）。 */
+    static final int APPEAL_ADJUDICATION_RATE_WINDOW_SECONDS = 60;
+
+    /** 初裁输出解析的最大调用次数：首次 + 解析失败重试 1 次，仍败即落占位。 */
+    private static final int APPEAL_ADJUDICATION_MAX_ATTEMPTS = 2;
+
+    /** 初裁占位 decision JSON：失败/超时/限流统一落「初裁不可用」，读端按 verdict 识别。 */
+    static final String APPEAL_ADJUDICATION_UNAVAILABLE_JSON = "{\"verdict\":\"UNAVAILABLE\"}";
+
+    /** 初裁占位理由：不外抛堆栈与供应商信息，与答疑降级同款口径。 */
+    static final String APPEAL_ADJUDICATION_UNAVAILABLE_REASON = "AI 初裁暂不可用，等待人工终审";
+
     /** 模型复核输出解析的最大调用次数：首次 + 解析失败重试 1 次，仍败即降级。 */
     private static final int MODEL_REVIEW_MAX_ATTEMPTS = 2;
 
@@ -127,6 +155,10 @@ public class PracticeServiceImpl implements PracticeService {
     private final LlmClientRegistry llmClients;
 
     private final LlmUsageDao llmUsageDao;
+
+    private final PromptRegistry promptRegistry;
+
+    private final RateLimitService rateLimitService;
 
     private final FsrsScheduler fsrsScheduler;
 
@@ -148,9 +180,11 @@ public class PracticeServiceImpl implements PracticeService {
      * @param gradingDao 判分 Dao
      * @param reviewDao 复习卡 Dao
      * @param reviewLogDao 排程日志 Dao
-     * @param appealDao 申诉/不认同 Dao（disputed overlay）
-     * @param llmClients LLM 客户端注册表（模型复核用；目录 + legacy 兼容轨）
-     * @param llmUsageDao LLM 用量账本 Dao（复核调用旁路记账，失败不阻塞）
+     * @param appealDao 申诉/不认同 Dao（disputed overlay + 裁决列更新）
+     * @param llmClients LLM 客户端注册表（模型复核与申诉初裁用；目录 + legacy 兼容轨）
+     * @param llmUsageDao LLM 用量账本 Dao（复核/初裁调用旁路记账，失败不阻塞）
+     * @param promptRegistry Prompt 版本注册表（复核/初裁系统提示与 prompt_version_id 来源）
+     * @param rateLimitService 限流器（申诉初裁的账号级滑动窗口，程序化判定）
      * @param fsrsScheduler FSRS 排程参数装配（ACTIVE 权重解码）
      * @param contentQueryService 题目内容只读查询（content 模块）
      * @param userAccountService 用户设置查询（system 模块）
@@ -165,6 +199,8 @@ public class PracticeServiceImpl implements PracticeService {
             AppealDao appealDao,
             LlmClientRegistry llmClients,
             LlmUsageDao llmUsageDao,
+            PromptRegistry promptRegistry,
+            RateLimitService rateLimitService,
             FsrsScheduler fsrsScheduler,
             ContentQueryService contentQueryService,
             UserAccountService userAccountService,
@@ -177,6 +213,8 @@ public class PracticeServiceImpl implements PracticeService {
         this.appealDao = appealDao;
         this.llmClients = llmClients;
         this.llmUsageDao = llmUsageDao;
+        this.promptRegistry = promptRegistry;
+        this.rateLimitService = rateLimitService;
         this.fsrsScheduler = fsrsScheduler;
         this.contentQueryService = contentQueryService;
         this.userAccountService = userAccountService;
@@ -343,30 +381,70 @@ public class PracticeServiceImpl implements PracticeService {
     }
 
     @Override
-    @Transactional
     public AppealView submitAppeal(
             Long userId,
             String attemptId,
             String annotationKey,
             String proposedAnswer,
             String reason) {
-        return saveAppeal(
-                userId, attemptId, annotationKey, Appeal.AppealKind.APPEAL, proposedAnswer, reason);
+        // 刻意不加 @Transactional：落库（Dao 自身事务提交）之后要同步调 LLM 初裁（最长 15s 外呼），
+        // 持着写事务外呼会占死数据库连接（模型复核 reviewAttempt 同款裁决）；初裁结果的落库由
+        // Dao 定向 UPDATE 自身事务提交，两段之间崩溃只留下「无 AI 意见」的 PENDING 行，可终审。
+        Appeal appeal =
+                saveAppeal(
+                        userId,
+                        attemptId,
+                        annotationKey,
+                        Appeal.AppealKind.APPEAL,
+                        proposedAnswer,
+                        reason);
+        AdjudicationOutcome outcome =
+                adjudicateAppeal(
+                        appeal,
+                        requireAnnotationForAdjudication(attemptId, annotationKey),
+                        proposedAnswer,
+                        reason);
+        log.info(
+                "appeal_submitted userId={} attemptId={} key={} kind=APPEAL status=PENDING"
+                        + " verdict={}",
+                userId,
+                attemptId,
+                annotationKey,
+                outcome == null ? "none" : outcome.verdict());
+        return new AppealView(
+                appeal.getId(),
+                "PENDING",
+                Appeal.AppealKind.APPEAL.name(),
+                annotationKey,
+                outcome == null ? null : outcome.verdict(),
+                outcome == null ? null : outcome.decisionReason(),
+                outcome == null ? null : outcome.decidedBy(),
+                outcome == null ? null : outcome.decidedAt());
     }
 
     @Override
     @Transactional
     public AppealView submitDispute(
             Long userId, String attemptId, String annotationKey, String reason) {
-        return saveAppeal(
-                userId, attemptId, annotationKey, Appeal.AppealKind.DISPUTE, null, reason);
+        Appeal appeal =
+                saveAppeal(
+                        userId, attemptId, annotationKey, Appeal.AppealKind.DISPUTE, null, reason);
+        return new AppealView(
+                appeal.getId(),
+                "ACCEPTED",
+                Appeal.AppealKind.DISPUTE.name(),
+                annotationKey,
+                null,
+                null,
+                null,
+                null);
     }
 
     /**
      * 申诉/不认同共用落库链路：归属校验 → 批注定位 → uk 预检 → 写 appeals。
      *
      * <p>uk_appeal_annotation 为 (attempt_id, annotation_key, kind)：APPEAL 与 DISPUTE 各自 可存一条；先查后插给友好
-     * 40900，并发兜底靠数据库唯一约束。
+     * 40900，并发兜底靠数据库唯一约束。无外层事务要求：调用方在事务内或外都可， INSERT 由 Dao 自身事务提交。
      *
      * @param userId 当前用户 id
      * @param attemptId 提交 id
@@ -374,9 +452,9 @@ public class PracticeServiceImpl implements PracticeService {
      * @param kind 记录类型
      * @param proposedAnswer 建议答案，DISPUTE 恒为 null
      * @param reason 理由，可空
-     * @return 回执视图
+     * @return 已持久化的记录（含 id）
      */
-    private AppealView saveAppeal(
+    private Appeal saveAppeal(
             Long userId,
             String attemptId,
             String annotationKey,
@@ -413,17 +491,345 @@ public class PracticeServiceImpl implements PracticeService {
         }
         // 所有自动化可见：status 由 kind 决定（DISPUTE 即时 ACCEPTED，APPEAL 留 PENDING）。
         log.info(
-                "appeal_submitted userId={} attemptId={} key={} kind={} status={}",
+                "appeal_saved userId={} attemptId={} key={} kind={} status={}",
                 userId,
                 attemptId,
                 annotationKey,
                 kind.name(),
                 kind == Appeal.AppealKind.DISPUTE ? "ACCEPTED" : "PENDING");
-        return new AppealView(
-                appeal.getId(),
-                kind == Appeal.AppealKind.DISPUTE ? "ACCEPTED" : "PENDING",
-                kind.name(),
-                annotationKey);
+        return appeal;
+    }
+
+    /**
+     * 申诉初裁的批注定位：落库成功后重新解析首判批注（初裁上下文用）。
+     *
+     * <p>与 {@link #requireAnnotation(Attempt, String)} 同源但容错语义不同： appeal 已落库，此刻批注解析失败不该让已提交的申诉变成
+     * 5xx， 返回 null 由初裁按「上下文缺失」降级占位。
+     *
+     * @param attemptId 提交 id
+     * @param annotationKey 批注键
+     * @return 命中的批注；解析失败为 null
+     */
+    private GradingAnnotation requireAnnotationForAdjudication(
+            String attemptId, String annotationKey) {
+        try {
+            Attempt attempt =
+                    attemptDao
+                            .findById(attemptId)
+                            .orElseThrow(() -> new BusinessException(ApiCode.ATTEMPT_NOT_FOUND));
+            return requireAnnotation(attempt, annotationKey);
+        } catch (BusinessException | JacksonException exception) {
+            return null;
+        }
+    }
+
+    /** 一次初裁的终态：落库列与回执视图共用的投影（verdict 为 null 表示占位/失败）。 */
+    private record AdjudicationOutcome(
+            String verdict, String decisionReason, String decidedBy, Instant decidedAt) {}
+
+    /**
+     * 申诉同步 LLM 初裁（预披露裁决：同步不引队列，申诉低频，≤15s 可接受）。
+     *
+     * <p>四种终态都把申诉留在 PENDING 等人工终审，任何失败都不阻塞提交、不改判分：
+     *
+     * <ul>
+     *   <li>限流（独立 scene，5 次/分钟/账号）→ 占位 UNAVAILABLE；
+     *   <li>无可用模型客户端 → 占位 UNAVAILABLE（初裁是增强，答疑 40400 语义不适用于申诉）；
+     *   <li>调用/解析失败（重试 1 次）→ 占位 UNAVAILABLE；
+     *   <li>成功 → decision JSON + 理由 + decided_by=LLM + 快照 + prompt_version_id 落裁决列。
+     * </ul>
+     *
+     * <p>本方法自身再兜一层 catch：初裁内部的任何未预期异常都收敛为占位， 绝不把已落库的申诉变成 5xx。
+     *
+     * @param appeal 已落库的申诉行
+     * @param annotation 被申诉批注，可为 null（上下文缺失降级）
+     * @param proposedAnswer 用户主张的可接受答案，可空
+     * @param reason 申诉理由，可空
+     * @return 初裁终态；占位/失败时 verdict 为 null
+     */
+    private AdjudicationOutcome adjudicateAppeal(
+            Appeal appeal, GradingAnnotation annotation, String proposedAnswer, String reason) {
+        try {
+            // 初裁限流：程序化判定而不是端点注解——429 只跳过初裁，申诉本身不拒（预披露裁决）。
+            RateLimitDecision decision =
+                    rateLimitService.acquire(
+                            APPEAL_ADJUDICATION_RATE_SCENE,
+                            List.of(RateLimitDimension.ACCOUNT),
+                            APPEAL_ADJUDICATION_RATE_LIMIT,
+                            APPEAL_ADJUDICATION_RATE_WINDOW_SECONDS,
+                            null,
+                            String.valueOf(appeal.getUserId()));
+            if (!decision.allowed()) {
+                log.info(
+                        "appeal_adjudication_skipped reason=rate_limited appealId={} userId={}",
+                        appeal.getId(),
+                        appeal.getUserId());
+                return recordUnavailable(appeal.getId());
+            }
+            LlmClientRegistry.ChatHandle handle = llmClients.chatHandle().orElse(null);
+            if (handle == null) {
+                return recordUnavailable(appeal.getId());
+            }
+            String protocol =
+                    llmClients
+                            .effectiveConfig()
+                            .map(LlmClientRegistry.EffectiveConfig::protocol)
+                            .orElse(null);
+            PromptRegistry.Entry promptEntry =
+                    promptRegistry.load(AppealAdjudicationPromptBuilder.PROMPT_NAME);
+            String systemPrompt =
+                    promptEntry instanceof PromptRegistry.Present present
+                            ? present.content()
+                            : AppealAdjudicationPromptBuilder.systemPrompt();
+            Long promptVersionId =
+                    promptEntry instanceof PromptRegistry.Present present
+                            ? present.versionId()
+                            : null;
+            String userPrompt =
+                    AppealAdjudicationPromptBuilder.userPrompt(
+                            contentQueryService.findSentence(appeal.getSentenceId()).orElse(null),
+                            firstResultOf(appeal.getAttemptId()),
+                            annotation,
+                            proposedAnswer,
+                            reason);
+            long startNanos = System.nanoTime();
+            AppealAdjudicationPromptBuilder.AppealAdjudicationOutput output =
+                    callAdjudicationWithRetry(
+                            appeal.getUserId(),
+                            appeal.getSentenceId(),
+                            handle,
+                            protocol,
+                            systemPrompt,
+                            userPrompt);
+            long latencyMs = (System.nanoTime() - startNanos) / 1_000_000;
+            String modelSnapshot = handle.providerId() + ":" + handle.model();
+            Instant decidedAt = Instant.now();
+            // decision 列落「裁决原文」：verdict/reason 两字段的规范 JSON（模型原文可能带围栏、
+            // 多余空白或越界值，落库用解析校验后的干净值重排）。
+            String decisionJson = normalizedDecisionJson(output);
+            appealDao.updateAdjudication(
+                    appeal.getId(),
+                    decisionJson,
+                    output.reason(),
+                    "LLM",
+                    decidedAt,
+                    modelSnapshot,
+                    promptVersionId);
+            log.info(
+                    "appeal_adjudicated appealId={} userId={} sentenceId={} verdict={}"
+                            + " model={} latencyMs={}",
+                    appeal.getId(),
+                    appeal.getUserId(),
+                    appeal.getSentenceId(),
+                    output.verdict(),
+                    modelSnapshot,
+                    latencyMs);
+            return new AdjudicationOutcome(output.verdict(), output.reason(), "LLM", decidedAt);
+        } catch (RuntimeException exception) {
+            // 兜底收敛：初裁内部的任何未预期异常（含 JSON 拼装）都降级为占位，不阻塞申诉。
+            log.warn(
+                    "appeal_adjudication_failed appealId={} error={}",
+                    appeal.getId(),
+                    exception.getClass().getSimpleName());
+            return recordUnavailable(appeal.getId());
+        }
+    }
+
+    /**
+     * 规范化初裁 decision JSON：verdict/reason 两字段的固定形状（模型原文可能带围栏或多余空白， 落库用解析后的干净值重排）。
+     *
+     * @param output 已校验的初裁输出
+     * @return {"verdict":"...","reason":"..."} JSON 文本
+     */
+    private String normalizedDecisionJson(
+            AppealAdjudicationPromptBuilder.AppealAdjudicationOutput output) {
+        return "{\"verdict\":\""
+                + output.verdict()
+                + "\",\"reason\":"
+                + objectMapper.writeValueAsString(output.reason())
+                + "}";
+    }
+
+    /**
+     * 落初裁占位（限流/无模型/失败统一路径）：decision 落 UNAVAILABLE JSON + 占位理由， decided_by/decided_at/快照/版本保持
+     * NULL——「无 AI 意见」读端按 decided_by 判定。占位写失败也不外抛（申诉已在库，管理端可无 AI 意见终审）。
+     *
+     * @param appealId 申诉行 id
+     * @return 占位终态（verdict=null）
+     */
+    private AdjudicationOutcome recordUnavailable(long appealId) {
+        try {
+            appealDao.updateAdjudication(
+                    appealId,
+                    APPEAL_ADJUDICATION_UNAVAILABLE_JSON,
+                    APPEAL_ADJUDICATION_UNAVAILABLE_REASON,
+                    null,
+                    null,
+                    null,
+                    null);
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "appeal_adjudication_placeholder_failed appealId={} error={}",
+                    appealId,
+                    exception.getClass().getSimpleName());
+        }
+        return new AdjudicationOutcome(null, APPEAL_ADJUDICATION_UNAVAILABLE_REASON, null, null);
+    }
+
+    /**
+     * 带重试的初裁调用：输出解析失败或异常重试 1 次（共最多 {@link #APPEAL_ADJUDICATION_MAX_ATTEMPTS} 次）， 仍败抛出由调用方落占位。
+     *
+     * <p>每次调用的终态旁路记一条 llm_usage（scene=appeal）：成功与非空但不可解析的回复 ok=true （token 消耗真实发生），空回复与异常 ok=false。
+     *
+     * @param userId 发起用户 id
+     * @param sentenceId 题目 id
+     * @param handle 当前可用的客户端句柄
+     * @param protocol 当次生效协议（目录未命中时为 null）
+     * @param systemPrompt 系统提示（注册表版本或兜底常量）
+     * @param userPrompt 用户消息
+     * @return 解析并校验后的初裁输出
+     */
+    private AppealAdjudicationPromptBuilder.AppealAdjudicationOutput callAdjudicationWithRetry(
+            Long userId,
+            String sentenceId,
+            LlmClientRegistry.ChatHandle handle,
+            String protocol,
+            String systemPrompt,
+            String userPrompt) {
+        for (int call = 1; call <= APPEAL_ADJUDICATION_MAX_ATTEMPTS; call++) {
+            long callStartNanos = System.nanoTime();
+            try {
+                LlmChatClient.Reply reply = handle.client().ask(systemPrompt, userPrompt);
+                long durationMs = (System.nanoTime() - callStartNanos) / 1_000_000;
+                if (reply.content() == null || reply.content().isBlank()) {
+                    recordAppealUsage(
+                            userId,
+                            sentenceId,
+                            protocol,
+                            handle.model(),
+                            reply.promptTokens(),
+                            reply.completionTokens(),
+                            durationMs,
+                            false);
+                    log.warn(
+                            "LLM 空回复：scene={}, appealUserId={}, sentenceId={}, call={}/{},"
+                                    + " durationMs={}, ok=false",
+                            APPEAL_ADJUDICATION_SCENE,
+                            userId,
+                            sentenceId,
+                            call,
+                            APPEAL_ADJUDICATION_MAX_ATTEMPTS,
+                            durationMs);
+                    continue;
+                }
+                recordAppealUsage(
+                        userId,
+                        sentenceId,
+                        protocol,
+                        handle.model(),
+                        reply.promptTokens(),
+                        reply.completionTokens(),
+                        durationMs,
+                        true);
+                Optional<AppealAdjudicationPromptBuilder.AppealAdjudicationOutput> parsed =
+                        AppealAdjudicationPromptBuilder.parse(objectMapper, reply.content());
+                if (parsed.isPresent()) {
+                    return parsed.get();
+                }
+                log.warn(
+                        "LLM 输出解析失败：scene={}, appealUserId={}, sentenceId={}, call={}/{}",
+                        APPEAL_ADJUDICATION_SCENE,
+                        userId,
+                        sentenceId,
+                        call,
+                        APPEAL_ADJUDICATION_MAX_ATTEMPTS);
+            } catch (RuntimeException exception) {
+                recordAppealUsage(
+                        userId,
+                        sentenceId,
+                        protocol,
+                        handle.model(),
+                        null,
+                        null,
+                        (System.nanoTime() - callStartNanos) / 1_000_000,
+                        false);
+                log.warn(
+                        "LLM 调用失败：scene={}, appealUserId={}, sentenceId={}, call={}/{},"
+                                + " error={}",
+                        APPEAL_ADJUDICATION_SCENE,
+                        userId,
+                        sentenceId,
+                        call,
+                        APPEAL_ADJUDICATION_MAX_ATTEMPTS,
+                        exception.getClass().getSimpleName());
+            }
+        }
+        throw new BusinessException(ApiCode.INTERNAL_ERROR, APPEAL_ADJUDICATION_UNAVAILABLE_REASON);
+    }
+
+    /**
+     * 落一条初裁调用终态用量记录（llm_usage append-only）。旁路纪律与复核/答疑一致：写失败吞掉只记告警。
+     *
+     * @param userId 发起用户 id
+     * @param sentenceId 题目 id
+     * @param protocol 当次生效协议（目录未命中时为 null）
+     * @param model 当次生效模型名快照
+     * @param promptTokens 提示词 token（失败未取得时为 null）
+     * @param completionTokens 回复 token（失败未取得时为 null）
+     * @param durationMs 调用耗时毫秒
+     * @param ok 是否拿到非空回复
+     */
+    private void recordAppealUsage(
+            Long userId,
+            String sentenceId,
+            String protocol,
+            String model,
+            Integer promptTokens,
+            Integer completionTokens,
+            long durationMs,
+            boolean ok) {
+        try {
+            llmUsageDao.save(
+                    LlmUsage.of(
+                            userId,
+                            sentenceId,
+                            APPEAL_ADJUDICATION_SCENE,
+                            protocol,
+                            model,
+                            promptTokens,
+                            completionTokens,
+                            durationMs,
+                            ok,
+                            Instant.now()));
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "LLM 用量落库失败（旁路不阻塞）：scene={}, userId={}, sentenceId={}, error={}",
+                    APPEAL_ADJUDICATION_SCENE,
+                    userId,
+                    sentenceId,
+                    exception.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * 取某提交的首判结果（初裁「本地批注」上下文）；缺失或损坏返回 null，初裁按上下文缺失降级。
+     *
+     * @param attemptId 提交 id
+     * @return 首判结果；未取得为 null
+     */
+    private GradingResult firstResultOf(String attemptId) {
+        return gradingDao
+                .findFirstByAttemptId(attemptId)
+                .map(
+                        grading -> {
+                            try {
+                                return objectMapper.readValue(
+                                        grading.getResult(), GradingResult.class);
+                            } catch (JacksonException exception) {
+                                return null;
+                            }
+                        })
+                .orElse(null);
     }
 
     /**
@@ -638,6 +1044,9 @@ public class PracticeServiceImpl implements PracticeService {
     /**
      * 按提交类型分流判分：REVEAL 不计分，FREE 整句覆盖，CLOZE 逐槽。
      *
+     * <p>CLOZE 判分前装配申诉 overlay（DATA-MODEL §5.10）：本句已 ACCEPTED 的 APPEAL 把用户 主张的写法追加为该槽额外可接受答案（与
+     * answers[] 同归一化口径，经 Grader 统一命中判定）。 overlay 只在服务端判分生效，游客（本地引擎）不受影响。
+     *
      * @param detail 题目详情
      * @param command 提交命令
      * @return 判分结果
@@ -655,7 +1064,71 @@ public class PracticeServiceImpl implements PracticeService {
         for (Integer chunkIndex : blank) {
             answers.add(slotValue(command.answer(), chunkIndex));
         }
-        return Grader.gradeCloze(detail.chunks(), blank, answers);
+        return Grader.gradeCloze(withAcceptedAppealOverlay(detail), blank, answers);
+    }
+
+    /**
+     * 申诉 overlay：把本句已 ACCEPTED 的 APPEAL（kind=APPEAL）的 proposed_answer 追加为对应语块
+     * 的额外可接受答案；语块列表原样克隆、仅命中的语块替换 answers，题目内容本身不改写（D-015）。
+     *
+     * <p>DISPUTE 的 ACCEPTED 是「排除批注」语义，不进本口径；未 ACCEPTED（PENDING/REJECTED） 的申诉不参与。空 overlay
+     * 时原列表直接返回，避免无谓的逐块重建。
+     *
+     * @param detail 题目详情
+     * @return 带 overlay 的语块列表（无 overlay 时为原列表）
+     */
+    private List<SentenceChunk> withAcceptedAppealOverlay(SentenceDetail detail) {
+        List<Appeal> accepted = appealDao.findAcceptedAppeals(detail.id());
+        if (accepted.isEmpty()) {
+            return detail.chunks();
+        }
+        Map<Integer, List<String>> extraByChunk = new LinkedHashMap<>();
+        for (Appeal appeal : accepted) {
+            if (appeal.getProposedAnswer() == null
+                    || appeal.getProposedAnswer().isBlank()
+                    || appeal.getChunkIndex() < 0) {
+                continue;
+            }
+            extraByChunk
+                    .computeIfAbsent(appeal.getChunkIndex(), key -> new ArrayList<>())
+                    .add(appeal.getProposedAnswer());
+        }
+        if (extraByChunk.isEmpty()) {
+            return detail.chunks();
+        }
+        List<SentenceChunk> merged = new ArrayList<>(detail.chunks().size());
+        for (SentenceChunk chunk : detail.chunks()) {
+            List<String> extra = extraByChunk.get(chunk.index());
+            if (extra == null) {
+                merged.add(chunk);
+                continue;
+            }
+            List<String> answers =
+                    chunk.answers() == null ? new ArrayList<>() : new ArrayList<>(chunk.answers());
+            for (String candidate : extra) {
+                // 同一写法重复申诉/重复追加无意义：与既有答案归一化等值时跳过（判定在 Grader 归一口径下等价，保留原文差异无收益）。
+                String normalizedCandidate = candidate.strip();
+                boolean duplicated =
+                        answers.stream()
+                                .anyMatch(
+                                        answer ->
+                                                Norm1Normalizer.normalizeAnswer(answer)
+                                                        .equals(
+                                                                Norm1Normalizer.normalizeAnswer(
+                                                                        normalizedCandidate)));
+                if (!duplicated) {
+                    answers.add(normalizedCandidate);
+                }
+            }
+            merged.add(
+                    new SentenceChunk(
+                            chunk.index(),
+                            chunk.zh(),
+                            List.copyOf(answers),
+                            chunk.tag(),
+                            chunk.note()));
+        }
+        return List.copyOf(merged);
     }
 
     /**
@@ -1591,7 +2064,15 @@ public class PracticeServiceImpl implements PracticeService {
                         .effectiveConfig()
                         .map(LlmClientRegistry.EffectiveConfig::protocol)
                         .orElse(null);
-        String systemPrompt = ModelReviewPromptBuilder.systemPrompt();
+        // 系统提示从注册表取 ACTIVE 版本（V13）；缺行回退同文常量，复核链路不因注册表空缺中断。
+        PromptRegistry.Entry promptEntry =
+                promptRegistry.load(ModelReviewPromptBuilder.PROMPT_NAME);
+        String systemPrompt =
+                promptEntry instanceof PromptRegistry.Present present
+                        ? present.content()
+                        : ModelReviewPromptBuilder.systemPrompt();
+        Long promptVersionId =
+                promptEntry instanceof PromptRegistry.Present present ? present.versionId() : null;
         String userPrompt =
                 ModelReviewPromptBuilder.userPrompt(detail, parseAnswer(attempt), localResult);
         long startNanos = System.nanoTime();
@@ -1633,6 +2114,7 @@ public class PracticeServiceImpl implements PracticeService {
                                     (int) Math.min(latencyMs, Integer.MAX_VALUE),
                                     first.getNormalizerVersion(),
                                     first.getRubricVersion(),
+                                    promptVersionId,
                                     Instant.now()));
             log.info(
                     "model_review userId={} attemptId={} sequence={} score={} model={}"

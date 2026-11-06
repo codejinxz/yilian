@@ -296,7 +296,9 @@ class ContentBankCacheTest {
 
         assertThat(manager.getCacheNames())
                 .containsExactlyInAnyOrder(
-                        CacheConfig.CACHE_BANK_DETAIL, CacheConfig.CACHE_BANK_LIST);
+                        CacheConfig.CACHE_BANK_DETAIL,
+                        CacheConfig.CACHE_BANK_LIST,
+                        CacheConfig.CACHE_PROMPT_VERSION);
     }
 
     private void stubSearchVisibleEmpty() {

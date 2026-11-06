@@ -27,6 +27,7 @@ import io.github.codejinxz.yilian.practice.grading.GradingResult;
 import io.github.codejinxz.yilian.practice.llm.LlmChatClient;
 import io.github.codejinxz.yilian.practice.llm.LlmClientRegistry;
 import io.github.codejinxz.yilian.practice.llm.LlmProperties;
+import io.github.codejinxz.yilian.practice.llm.PromptRegistry;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
 import io.github.codejinxz.yilian.practice.service.dto.LlmConfigUpdateRequest;
 import io.github.codejinxz.yilian.practice.service.vo.LlmConfigView;
@@ -97,6 +98,8 @@ class TutorServiceImplTest {
 
     @Mock private LlmUsageDao llmUsageDao;
 
+    @Mock private PromptRegistry promptRegistry;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private TutorServiceImpl tutorService;
@@ -115,6 +118,8 @@ class TutorServiceImplTest {
         lenient()
                 .when(appSettingService.findValue(TutorServiceImpl.SETTING_KEY))
                 .thenReturn(Optional.of("{\"schemaVersion\":1,\"enabled\":true}"));
+        // 注册表缺行：systemPrompt 走同文兜底常量（V13 缺行降级路径）。
+        lenient().when(promptRegistry.load("ask")).thenReturn(new PromptRegistry.Absent());
         lenient()
                 .when(practiceService.requirePracticeableSentence(USER_ID, SENTENCE_ID))
                 .thenReturn(detail());
@@ -127,6 +132,7 @@ class TutorServiceImplTest {
                         attemptDao,
                         gradingDao,
                         llmUsageDao,
+                        promptRegistry,
                         objectMapper);
     }
 
@@ -504,6 +510,7 @@ class TutorServiceImplTest {
                         attemptDao,
                         gradingDao,
                         llmUsageDao,
+                        promptRegistry,
                         objectMapper);
 
         LlmConfigView view =

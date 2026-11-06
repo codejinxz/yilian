@@ -21,6 +21,9 @@ import java.util.Optional;
  */
 public final class ModelReviewPromptBuilder {
 
+    /** 注册表场景名：prompt_versions.name 取此值（V13 种子）。 */
+    public static final String PROMPT_NAME = "review";
+
     /** 复核理由的展示上限（字）：批注栏一行能读完的量级，超出截断。 */
     public static final int REASON_MAX_CHARS = 200;
 
@@ -30,7 +33,8 @@ public final class ModelReviewPromptBuilder {
     private ModelReviewPromptBuilder() {}
 
     /**
-     * 系统提示：角色锁定 + 输出契约。改动需同步 API.md §6.13 的 prompt 说明。
+     * 系统提示兜底常量：与 V13 种子（name=review, version=1）逐字同文， 注册表缺行/读取失败时由调用方回退使用，保证复核链路降级不中断。改动需同步 V13 种子与
+     * API.md §6.13 的 prompt 说明。
      *
      * @return 系统提示文本
      */

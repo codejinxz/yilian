@@ -9,12 +9,17 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import java.time.Instant;
 
 /**
  * 申诉/不认同记录（appeals 表）；同一 (attempt, annotation_key, kind) 唯一。
  *
- * <p>DISPUTE 立即生效（status=ACCEPTED），错题与统计按 overlay 排除；APPEAL 留 PENDING 待裁决。
+ * <p>DISPUTE 立即生效（status=ACCEPTED），错题与统计按 overlay 排除；APPEAL 留 PENDING 待裁决。 APPEAL 的裁决分两级：LLM 初裁只落
+ * decision/decision_reason（+快照与 prompt 版本）等「AI 意见」列， status 不动；人工终审才落
+ * status（ACCEPTED/REJECTED）与终审理由。 裁决列的 UPDATE 只经 Dao 的定向 UPDATE 语句（只碰裁决列，不触碰判分/提交数据）。
  */
 @Entity
 @Table(name = "appeals")
@@ -60,6 +65,30 @@ public class Appeal {
     /** 理由；契约（API §6.4/§6.5）未强制必填，库里可空，故不标 nullable=false。 */
     @Column(length = 500)
     private String reason;
+
+    /** LLM 初裁原文 JSON（{"verdict":...,"reason":...} 或占位 {"verdict":"UNAVAILABLE"}）；人工终审不改写本列。 */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "decision")
+    private String decision;
+
+    /** 可展示的裁决理由：初裁=AI 理由/占位文案；终审=管理员填写的终审理由（覆盖语义，读端按 decidedBy 区分来源）。 */
+    @Column(name = "decision_reason", length = 500)
+    private String decisionReason;
+
+    /** 裁决者：LLM（初裁成功）/ ADMIN（人工终审）；初裁失败与占位路径为 NULL（无 AI 意见）。 */
+    @Column(name = "decided_by", length = 16)
+    private String decidedBy;
+
+    @Column(name = "decided_at")
+    private Instant decidedAt;
+
+    /** 产生初裁的模型快照（providerId:model）；初裁成功才落值。 */
+    @Column(name = "model_snapshot", length = 128)
+    private String modelSnapshot;
+
+    /** 产生初裁的 prompt 注册表版本 id（prompt_versions.id）；初裁成功才落值。 */
+    @Column(name = "prompt_version_id")
+    private Long promptVersionId;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -158,5 +187,95 @@ public class Appeal {
      */
     public AppealKind getKind() {
         return kind;
+    }
+
+    /**
+     * 申诉人 id。
+     *
+     * @return 用户 id
+     */
+    public Long getUserId() {
+        return userId;
+    }
+
+    /**
+     * 状态。
+     *
+     * @return PENDING / ACCEPTED / REJECTED
+     */
+    public String getStatus() {
+        return status;
+    }
+
+    /**
+     * 用户主张的可接受答案。
+     *
+     * @return 建议答案；DISPUTE 与未提供时为 null
+     */
+    public String getProposedAnswer() {
+        return proposedAnswer;
+    }
+
+    /**
+     * 申诉理由。
+     *
+     * @return 理由；未提供时为 null
+     */
+    public String getReason() {
+        return reason;
+    }
+
+    /**
+     * LLM 初裁原文 JSON。
+     *
+     * @return {"verdict":...} 或占位 {"verdict":"UNAVAILABLE"}；未初裁为 null
+     */
+    public String getDecision() {
+        return decision;
+    }
+
+    /**
+     * 可展示的裁决理由。
+     *
+     * @return 初裁理由或终审理由；未裁决为 null
+     */
+    public String getDecisionReason() {
+        return decisionReason;
+    }
+
+    /**
+     * 裁决者。
+     *
+     * @return LLM / ADMIN；初裁失败与占位为 null
+     */
+    public String getDecidedBy() {
+        return decidedBy;
+    }
+
+    /**
+     * 裁决时间。
+     *
+     * @return UTC；未裁决为 null
+     */
+    public Instant getDecidedAt() {
+        return decidedAt;
+    }
+
+    /**
+     * 产生初裁的模型快照。
+     *
+     * @return providerId:model；初裁成功才落值
+     */
+    public String getModelSnapshot() {
+        return modelSnapshot;
+    }
+
+    /**
+     * 产生初裁的 prompt 注册表版本 id。
+     *
+     * @return prompt_versions.id；初裁成功才落值
+     */
+    public Long getPromptVersionId() {
+        return promptVersionId;
     }
 }

@@ -59,6 +59,10 @@ public class AttemptGrading {
     @Column(name = "latency_ms")
     private Integer latencyMs;
 
+    /** 产生本行判分的 prompt 注册表版本 id（prompt_versions.id）；MODEL 复核行落值，本地判分为 null。 */
+    @Column(name = "prompt_version_id")
+    private Long promptVersionId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -94,8 +98,8 @@ public class AttemptGrading {
     /**
      * 创建模型复核记录（grader=MODEL，append-only 追加行，不覆盖既有判分）。
      *
-     * <p>归一化/评分口径版本沿用首判行：复核行的 result JSON 承载的是首判批注结构（分数被复核分替换）， 版本元数据与该 JSON 的产出口径保持一致；prompt
-     * 版本注册表落地前 prompt_version_id 恒为 null。
+     * <p>归一化/评分口径版本沿用首判行：复核行的 result JSON 承载的是首判批注结构（分数被复核分替换）， 版本元数据与该 JSON
+     * 的产出口径保持一致；prompt_version_id 落 PromptRegistry 取到的 review 版本（注册表缺行时为 null，判分行自解释性降级但不缺行）。
      *
      * @param attemptId 提交 id
      * @param sequence 复核序号（首判 sequence+1）
@@ -105,6 +109,7 @@ public class AttemptGrading {
      * @param latencyMs 模型调用耗时毫秒
      * @param normalizerVersion 首判行的归一化版本
      * @param rubricVersion 首判行的评分口径版本，可为 null
+     * @param promptVersionId prompt 注册表版本 id，可为 null
      * @param now 服务端时钟
      * @return 未持久化的复核记录
      */
@@ -117,6 +122,7 @@ public class AttemptGrading {
             Integer latencyMs,
             String normalizerVersion,
             String rubricVersion,
+            Long promptVersionId,
             Instant now) {
         AttemptGrading grading = new AttemptGrading();
         grading.attemptId = attemptId;
@@ -129,6 +135,7 @@ public class AttemptGrading {
         grading.rubricVersion = rubricVersion;
         grading.modelSnapshot = modelSnapshot;
         grading.latencyMs = latencyMs;
+        grading.promptVersionId = promptVersionId;
         grading.createdAt = now;
         return grading;
     }
@@ -221,6 +228,15 @@ public class AttemptGrading {
      */
     public Integer getLatencyMs() {
         return latencyMs;
+    }
+
+    /**
+     * 产生本行判分的 prompt 注册表版本 id。
+     *
+     * @return prompt_versions.id；本地判分与注册表缺行为 null
+     */
+    public Long getPromptVersionId() {
+        return promptVersionId;
     }
 
     /**

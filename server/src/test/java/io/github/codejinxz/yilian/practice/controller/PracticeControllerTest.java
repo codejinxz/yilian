@@ -178,7 +178,9 @@ class PracticeControllerTest {
     @Test
     void submitDisputeReturnsReceipt() throws Exception {
         when(practiceService.submitDispute(eq(7L), eq("a1"), eq("slot:0"), eq("我认为也对")))
-                .thenReturn(new AppealView(21L, "ACCEPTED", "DISPUTE", "slot:0"));
+                .thenReturn(
+                        new AppealView(
+                                21L, "ACCEPTED", "DISPUTE", "slot:0", null, null, null, null));
         mockMvc.perform(
                         post("/api/practice/attempts/a1/annotations/slot:0/dispute")
                                 .with(
@@ -203,7 +205,8 @@ class PracticeControllerTest {
     @Test
     void submitAppealAllowsMissingBody() throws Exception {
         when(practiceService.submitAppeal(eq(7L), eq("a1"), eq("free:0"), isNull(), isNull()))
-                .thenReturn(new AppealView(20L, "PENDING", "APPEAL", "free:0"));
+                .thenReturn(
+                        new AppealView(20L, "PENDING", "APPEAL", "free:0", null, null, null, null));
         mockMvc.perform(
                         post("/api/practice/attempts/a1/annotations/free:0/appeal")
                                 .with(

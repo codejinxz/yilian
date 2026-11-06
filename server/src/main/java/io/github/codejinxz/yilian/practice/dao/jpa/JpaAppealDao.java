@@ -5,7 +5,9 @@ import io.github.codejinxz.yilian.practice.entity.Appeal;
 import io.github.codejinxz.yilian.practice.entity.Appeal.AppealKind;
 
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -41,7 +43,33 @@ public class JpaAppealDao implements AppealDao {
     }
 
     @Override
+    public List<Appeal> findAcceptedAppeals(String sentenceId) {
+        return appeals.findBySentenceIdAndKindAndStatus(sentenceId, AppealKind.APPEAL, "ACCEPTED");
+    }
+
+    @Override
     public Optional<Appeal> findById(Long id) {
         return appeals.findById(id);
+    }
+
+    @Override
+    @Transactional
+    public int updateAdjudication(
+            long id,
+            String decision,
+            String decisionReason,
+            String decidedBy,
+            Instant decidedAt,
+            String modelSnapshot,
+            Long promptVersionId) {
+        return appeals.updateAdjudication(
+                id, decision, decisionReason, decidedBy, decidedAt, modelSnapshot, promptVersionId);
+    }
+
+    @Override
+    @Transactional
+    public int updateFinalDecision(
+            long id, String status, String decisionReason, Instant decidedAt) {
+        return appeals.updateFinalDecision(id, status, decisionReason, "ADMIN", decidedAt);
     }
 }

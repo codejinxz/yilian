@@ -28,6 +28,9 @@ public class CacheConfig {
     /** 题库列表缓存（匿名公开读）；末段 v1 为键结构版本（键 = 筛选参数指纹，见 BankMetadataCache#listCacheKey）。 */
     public static final String CACHE_BANK_LIST = "content:bank:list:v1";
 
+    /** Prompt 版本缓存（DATA-MODEL §5.19）；键 = 场景名（ask/review/appeal），写路径 evictAll 整体失效。 */
+    public static final String CACHE_PROMPT_VERSION = "practice:prompt:v1";
+
     /** 元数据基准 TTL：写后失效负责主动清，TTL 只是自愈兜底（元数据基准 5–15 分钟）。 */
     private static final Duration BASE_TTL = Duration.ofMinutes(10);
 
@@ -45,7 +48,8 @@ public class CacheConfig {
     @Bean
     public CacheManager cacheManager() {
         // 构造器传入显式清单后 CaffeineCacheManager 即关闭动态建缓存（dynamic=false）。
-        CaffeineCacheManager manager = new CaffeineCacheManager(CACHE_BANK_DETAIL, CACHE_BANK_LIST);
+        CaffeineCacheManager manager =
+                new CaffeineCacheManager(CACHE_BANK_DETAIL, CACHE_BANK_LIST, CACHE_PROMPT_VERSION);
         manager.setCaffeine(
                 Caffeine.newBuilder()
                         .maximumSize(1_000)
