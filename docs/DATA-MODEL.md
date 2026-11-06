@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 |---|---|
-| 版本 | v0.1.1（讨论稿，待确认） |
-| 日期 | 2026-10-24 |
+| 版本 | v0.2（025 申诉裁决与 prompt_versions 注册表） |
+| 日期 | 2026-11-06 |
 | 状态 | 待产品/技术负责人确认后冻结 |
 | 上游 | `AGENTS.md`、`docs/PRD.md` §5/§8/§11/§16/§17/§18、`docs/NAMING.md`、`docs/GAP-ANALYSIS.md` |
 | 下游 | `docs/API.md`（未开始）、`docs/openapi.yaml`（M1/M2 实现后导出） |
@@ -172,7 +172,7 @@ erDiagram
 - `admin_audit_log`（UPDATE 禁止；保留期通过月分区 DROP 清理，不按行 DELETE）
 - `error_log`（同上）
 
-`reviews`、`appeals`、`import_batches`、`import_batch_rows`、`users`、`sentences`、`sentence_banks` 是可变投影/状态表，允许受控 UPDATE；变更必须写 `admin_audit_log` 或 `review_logs`。
+`reviews`、`appeals`、`import_batches`、`import_batch_rows`、`users`、`sentences`、`sentence_banks`、`prompt_versions`（label 流转；行内容 name/version/content 不改写）是可变投影/状态表，允许受控 UPDATE；变更必须写 `admin_audit_log` 或 `review_logs`。
 
 ### 4.4 时区与日界
 
@@ -507,7 +507,7 @@ erDiagram
 - 普通 `idx_grading_created (created_at)`
 - 普通 `idx_grading_grader (grader)`
 
-只增不改；改判 = 新 sequence，不覆盖旧分。模型复核（024，API §6.13）按 `sequence=首判+1` 追加 `grader=MODEL` 行：`model_snapshot`/`latency_ms`（V8 预留列）落值、`normalizer_version`/`rubric_version` 沿用首判行、`prompt_version_id` 暂不落（025 注册表）；复核不改排程与错题——错题池与 `wrongCount` 消费按首判行（`sequence=1`）口径。
+只增不改；改判 = 新 sequence，不覆盖旧分。模型复核（024，API §6.13）按 `sequence=首判+1` 追加 `grader=MODEL` 行：`model_snapshot`/`latency_ms`（V8 预留列）落值、`normalizer_version`/`rubric_version` 沿用首判行、`prompt_version_id` 暂不落（025 注册表）；复核不改排程与错题——错题池与 `wrongCount` 消费按首判行（`sequence=1`）口径。025 起 MODEL 行的 `prompt_version_id` 落 PromptRegistry 的 review 版本 id（`prompt_versions` V13 注册表；注册表缺行时 NULL 降级），本地判分行为 NULL。
 
 ### 5.10 `appeals`
 
@@ -539,7 +539,12 @@ erDiagram
 - 普通 `idx_appeal_overlay (sentence_id, status, chunk_index)`
 - 普通 `idx_appeal_user_status (user_id, status)`
 
-`DISPUTE` 由用户即时生效（`status='ACCEPTED'`, `decided_by='USER'`），只影响错题/统计的批注排除，不改题目内容。`APPEAL` 在 M2 只记录，M3 接 LLM；通过后作为 overlay 参与判分，不物理追加 `sentence_versions.chunks[].answers`。
+`DISPUTE` 由用户即时生效（`status='ACCEPTED'`），只影响错题/统计的批注排除，不改题目内容。`APPEAL` 的裁决两级流转（025 落地）：
+
+- **LLM 初裁（提交时同步）**：落 `decision`（JSON 原文 `{"verdict":"SUPPORT|OPPOSE|UNCERTAIN","reason":...}`）、`decision_reason`（AI 理由）、`decided_by='LLM'`、`decided_at`、`model_snapshot`、`prompt_version_id`；**`status` 保持 `PENDING`**。失败/超时/非法输出（重试 1 次）与限流（独立 scene `appeal-adjudication`，5 次/分钟/账号）→ `decision` 落 `{"verdict":"UNAVAILABLE"}` + 占位理由，`decided_by`/`decided_at`/快照/版本保持 NULL（「无 AI 意见」读端按 `decided_by` 判定），不阻塞申诉提交。
+- **人工终审（管理端 §8.16）**：仅 `PENDING` 可裁决，落 `status`（`ACCEPTED`/`REJECTED`）+ `decision_reason`（终审理由，覆盖语义）+ `decided_by='ADMIN'` + `decided_at`；初裁 `decision` JSON 保留不覆盖。status 流转仅 `PENDING→(ACCEPTED|REJECTED)`，无 `WITHDRAWN` 入口（登记 backlog）。
+
+通过后作为 overlay 参与判分：本句（`sentence_id`）后续服务端判分把 `chunk_index` 槽的 `proposed_answer` 追加为额外可接受答案（与 `chunks[].answers[]` 同 norm-1 归一化口径），**不物理追加 `sentence_versions.chunks[].answers`**（D-015）；`PENDING`/`REJECTED` 不参与；`DISPUTE` 的 ACCEPTED 是排除语义，不进判分 overlay。裁决列的 UPDATE 只允许定向更新裁决列（判分/提交数据 append-only 纪律不变）。
 
 ### 5.11 `reviews`（FSRS 当前投影）
 
@@ -771,6 +776,35 @@ append-only 用量账本：每次 LLM 调用的**终态**写一行，只记元�
 > 全量模型配置域（`llm_providers`/`llm_models`/`prompt_templates`/`prompt_versions`）仍 M3 预留，
 > 届时如需成本核算可加列或另建映射，不回改本表已有行。
 
+### 5.19 `prompt_versions`（V13 已建）
+
+Prompt 版本注册表（025）：三条 LLM 链路的系统提示登记为版本快照，判分/裁决经
+`prompt_version_id` 可追溯到产生它的提示词版本。行内容（`name`/`version`/`content`）一经
+登记不改写（原地改写等于伪造历史快照）；新版本追加更高 `version`，启用态由 `label` 流转
+表达。运行时经 `PromptRegistry` 按 `name` 取 `label='ACTIVE'` 版本（L1 Caffeine 缓存，
+写后失效；缺行时调用方回退同文代码常量，主链路降级不中断）。内容是版本快照非密钥，
+无敏感数据；内部表，本批不暴露端点（管理端改版属 backlog）。
+
+| 字段 | 类型 | 可空 | 默认 | 说明 |
+|---|---|---|---|---|
+| `id` | BIGINT | 否 | AUTO | 主键 |
+| `name` | VARCHAR(64) | 否 | — | 场景名：`ask`（答疑）/ `review`（模型复核）/ `appeal`（申诉初裁） |
+| `version` | INT | 否 | — | 同 name 内递增，1 起始 |
+| `content` | TEXT | 否 | — | 系统提示全文（版本快照） |
+| `label` | VARCHAR(16) | 否 | — | `ACTIVE`（当前取用）/ `CANDIDATE`（候选待启用） |
+| `created_at` | DATETIME(6) | 否 | UTC | 默认 CURRENT_TIMESTAMP(6) |
+
+索引/约束：
+
+- 主键 `(id)`
+- 唯一 `uk_prompt_name_version (name, version)`
+- CHECK `chk_prompt_label (label IN ('ACTIVE','CANDIDATE'))`
+
+种子（V13，`INSERT ... SELECT ... WHERE NOT EXISTS` 幂等）：ask/review/appeal 各一条
+`version=1`、`label='ACTIVE'`，内容与代码兜底常量逐字同文。消费：`attempt_gradings`
+（MODEL 行）与 `appeals`（初裁行）的 `prompt_version_id` 指向本表；`llm_usage` 无
+`prompt_version_id` 列（保持元数据最小口径，025 不扩列）。
+
 #### M3 预留表（只登记，不建）
 
 #### `llm_providers`
@@ -787,7 +821,7 @@ append-only 用量账本：每次 LLM 调用的**终态**写一行，只记元�
 
 #### `prompt_versions`
 
-`id BIGINT PK`、`template_id BIGINT`、`version_no INT`、`content TEXT`、`variables JSON`、`status VARCHAR(16)`（`DRAFT`/`CANDIDATE`/`PRODUCTION`/`RETIRED`）、`created_by BIGINT`、`created_at DATETIME(6)`；唯一 `(template_id, version_no)`；不可变。
+（M3 预留形状已作废）025 的最小注册表已按 §5.19 建表（`name`/`version` 直挂、`label` 启用态）；`prompt_templates`/`variables`/`status` 四态模板体系仍 M3 预留，届时在本表上加列或另建映射，不回改已有行。
 
 ---
 
@@ -1059,7 +1093,7 @@ append-only 用量账本：每次 LLM 调用的**终态**写一行，只记元�
 | `ImportFormat` | `JSON` / `CSV` | `import_batches.format` | 大小上限 5MB |
 | `AuditOutcome` | `SUCCESS` / `FAILURE` | `admin_audit_log.outcome` | — |
 | `ErrorModule` | `account` / `content` / `practice` / `ai` / `admin` / `analytics` / `system` | `error_log.module` | 与日志 module 同源 |
-| `PromptStatus` | `DRAFT` / `CANDIDATE` / `PRODUCTION` / `RETIRED` | `prompt_versions.status` | M3 |
+| `PromptLabel` | `ACTIVE` / `CANDIDATE` | `prompt_versions.label` | 025 V13 注册表：同 name 约定至多一个 ACTIVE（应用层纪律，多 ACTIVE 时取最高 version）；原 M3 `PromptStatus` 四态形状随 §5.19 作废 |
 | `ModelStatus` | `ONLINE` / `OFFLINE` | `llm_models.status` | M3 |
 | `LlmPurpose` | `GRADE` / `APPEAL` / `TEST` | 原 `llm_usage.purpose`（V11 建表未收录；scene 字段承载场景维度，GRADE/APPEAL 等 purpose 随 M3 申诉/深度批改落地再评估加列） | M3 |
 
@@ -1078,6 +1112,7 @@ append-only 用量账本：每次 LLM 调用的**终态**写一行，只记元�
 | `fsrs_parameter_versions` | `owner_type IN ('GLOBAL','USER')`；`status IN ('CANDIDATE','ACTIVE','RETIRED')`；`owner_type='USER' OR user_id IS NULL` |
 | `import_batches` | `format IN ('JSON','CSV')`；`status` 见 §7 |
 | `import_batch_rows` | `status IN ('VALID','INVALID','IMPORTED','SKIPPED')` |
+| `prompt_versions` | `label IN ('ACTIVE','CANDIDATE')` |
 | `admin_audit_log` | `module IN ('account','content','practice','ai','admin','analytics','system')`；`outcome IN ('SUCCESS','FAILURE')` |
 | `error_log` | `module IN ('account','content','practice','ai','admin','analytics','system')` |
 
@@ -1177,6 +1212,7 @@ RELEARNING --rating>=GOOD--> REVIEW
 | `attempts` | `(user_id, created_at)`、`(user_id, sentence_id, mode, created_at)`、`(sentence_version_id)` | 统计、错题、回放 |
 | `attempt_gradings` | `(attempt_id, sequence)`、`(created_at)` | 最新判分、审计 |
 | `appeals` | `(attempt_id, annotation_key, kind)`、`(sentence_id, status, chunk_index)`、`(user_id, status)` | 申诉、overlay |
+| `prompt_versions` | 唯一 `(name, version)` | 注册表取用（name + label=ACTIVE） |
 | `reviews` | `(user_id, due_at)`、`(user_id, state, due_at)`、`(user_id,sentence_id,mode)` | 到期队列、筛选、卡片 |
 | `review_logs` | `(user_id, review_at)`、`(review_id, review_at)`、`(attempt_id)` | FSRS 优化、回放 |
 | `fsrs_parameter_versions` | `(owner_type,user_id,status,created_at)`、`active_owner_key` | 取 ACTIVE、版本历史 |
@@ -1236,6 +1272,7 @@ RELEARNING --rating>=GOOD--> REVIEW
 | `V8__practice_core.sql` | `attempts`、`attempt_gradings`、`appeals`、`reviews`、`review_logs`、`fsrs_parameter_versions` | M2 |
 | `V9__review_card_single.sql` | 复习卡唯一键收敛 `(user_id, sentence_id)`；GLOBAL FSRS 权重种子 | Q1「一句一卡」 |
 | `V10__drop_fks_index_tuning.sql` | 三处索引调整 + 全部物理外键改逻辑外键（§4.5） | schema 合理化 |
+| `V13__prompt_versions.sql` | `prompt_versions`（ask/review/appeal 首版种子） | 025 申诉裁决：prompt 版本注册与 prompt_version_id 落值 |
 | 未来版本（M3） | `user_daily_stats`、`llm_*` 五表 | 暂不建，版本号顺延 |
 
 规则：
@@ -1355,3 +1392,4 @@ RELEARNING --rating>=GOOD--> REVIEW
 |---|---|---|---|
 | 2026-10-24 | v0.1 | 初稿：实体边界、FSRS、表结构、迁移规划 | 技术负责人 |
 | 2026-10-24 | v0.1.1 | 补 `admin_audit_log.module`，满足后台按模块筛选 | 技术负责人 |
+| 2026-11-06 | v0.2 | 025 申诉 LLM 裁决：§5.10 补两级裁决口径（LLM 初裁产 AI 意见 status 保持 PENDING → 人工终审 ACCEPTED/REJECTED；UNAVAILABLE 占位语义；ACCEPTED 经判分 overlay 参与判分，DISPUTE 排除语义不变）；新增 §5.19 `prompt_versions` 注册表（V13，ask/review/appeal 首版种子幂等，行内容不改写、label 流转表达启用态）；§6 枚举 `PromptStatus`→`PromptLabel`（M3 四态模板形状作废）；§5.9 MODEL 行 prompt_version_id 落值；V13 进迁移清单；可变投影表清单补 prompt_versions | 实现工程师 |

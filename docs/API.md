@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 版本 | v1.4（对齐文末变更记录最新行，024 批次头部版本号随变更记录推进） |
+| 版本 | v1.5（对齐文末变更记录最新行，025 批次头部版本号随变更记录推进） |
 | 日期 | 2026-11-06 |
 | 字段来源 | `docs/DATA-MODEL.md` v0.1（唯一字段来源） |
 | 上游约束 | `AGENTS.md`、`docs/PRD.md` §4/§5/§8/§11/§12、`docs/NAMING.md` |
@@ -1080,9 +1080,9 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 
 字段回溯：同上。
 
-### 6.4 `POST /api/practice/attempts/{attemptId}/annotations/{key}/appeal`（implemented，M2 记录 PENDING；LLM 裁决 M3）
+### 6.4 `POST /api/practice/attempts/{attemptId}/annotations/{key}/appeal`（implemented；025 起提交即同步 LLM 初裁）
 
-用途：提交“我觉得也对”；M2 记录 `PENDING`，M3 接 LLM 裁决。
+用途：提交“我觉得也对”。025 起：落库后**同步**调用 LLM 初裁，产出「AI 意见」（decision JSON）落 `appeals` 裁决列，**status 保持 PENDING**，人工终审才改 ACCEPTED/REJECTED（§8.16）。
 
 请求：
 
@@ -1090,22 +1090,30 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 { "proposedAnswer": "attach importance to", "reason": "更书面" }
 ```
 
-实现口径（M2 已落地）：`key` 必须存在于该提交最新判分结果的批注列表（`slot:N` / `free:0`），未命中按 40000；归属校验（只能对自己提交）40300；同 `(attemptId, key, kind)` 重复提交 40900（预检 + `uk_appeal_annotation` 唯一约束兜底）；申诉不改判分、不影响统计。
+实现口径：`key` 必须存在于该提交最新判分结果的批注列表（`slot:N` / `free:0`），未命中按 40000；归属校验（只能对自己提交）40300；同 `(attemptId, key, kind)` 重复提交 40900（预检 + `uk_appeal_annotation` 唯一约束兜底）；申诉不改判分、不影响统计。
 
-响应：
+初裁口径（025）：同步调用（复用答疑/复核护栏：超时 15s、maxTokens 2048、重试 1 次），提示词只含题目中文/语块与参考答案结构/本人该槽提交/本地批注理由/用户主张（`proposedAnswer`+`reason`），不喂其他用户数据；输出 strict JSON `{"verdict":"SUPPORT|OPPOSE|UNCERTAIN","reason"(≤300 字)}`。成功 → `decision`/`decision_reason`/`decided_by='LLM'`/`decided_at`/`model_snapshot`/`prompt_version_id` 落列；失败/超时/非法输出/限流 → `decision` 落 `{"verdict":"UNAVAILABLE"}` + 占位理由（`decided_by` 保持 NULL=无 AI 意见）。任何初裁失败都**不阻塞提交**（响应仍 200、status 仍 PENDING）；初裁限流为独立 scene `appeal-adjudication`（5 次/分钟/账号，程序化判定，429 只跳过初裁不拒申诉）。llm_usage `scene='appeal'` 三终态双写。
+
+响应（025 扩展）：
 
 ```json
 {
   "appealId": "20",
   "status": "PENDING",
   "kind": "APPEAL",
-  "annotationKey": "slot:2"
+  "annotationKey": "slot:2",
+  "verdict": "SUPPORT",
+  "decisionReason": "与规范答案语义等价，可以接受",
+  "decidedBy": "LLM",
+  "decidedAt": "2026-11-06T04:01:00Z"
 }
 ```
 
+`verdict/decisionReason/decidedBy/decidedAt` 四字段在初裁未生成（失败/限流/未配置模型）或 DISPUTE 回执时为 `null`（`verdict` 另有 `UNAVAILABLE` 占位形态）。
+
 错误：`40000`、`40100`、`40300`、`40403`、`40900`、`50000`。
 
-字段回溯：`appeals.*`；`sentence_id/chunk_index` 从 result 批注解析。
+字段回溯：`appeals.*`；`sentence_id/chunk_index` 从 result 批注解析；`decision/decision_reason/decided_by/decided_at/model_snapshot/prompt_version_id` 为 V8 裁决列（025 启用）；`prompt_version_id` → `prompt_versions.id`（V13）。
 
 ### 6.5 `POST /api/practice/attempts/{attemptId}/annotations/{key}/dispute`（implemented）
 
@@ -1932,6 +1940,28 @@ provider 目录（022，CC Switch 式多 provider）：元数据 CRUD 与激活�
 
 **内部表注（V11）**：`llm_usage`（DATA-MODEL §5.18）随本域建表——append-only 记录每次 LLM 调用的元数据（scene/protocol/model/token/耗时/成败），由答疑链路服务端落库（§6.12 用量观测双写）。**不暴露任何端点**，管理页用量视图为 M3 占位；§10.1 覆盖矩阵按「无端点」注记，不设接口级测试行。错误态文案：ModelsPage 错误卡用 `ErrorState variant="admin"`（「管理数据加载失败」语境），与练习页离线队列文案分化。
 
+### 8.16 `/api/admin/appeals`（implemented，025）
+
+申诉终审两端口：LLM 初裁（§6.4）之后的必经人工关口。管理员权限由 `/api/admin/**` 路径矩阵（SecurityConfig `hasRole("ADMIN")`）服务端保证。
+
+#### 8.16.1 `GET /api/admin/appeals`
+
+查询参数：`page`（从 1 起）、`size`（缺省 20，上限 100 越界归 100，011 分页口径）、`status`（`PENDING`/`ACCEPTED`/`REJECTED`/`WITHDRAWN`，非法值 40000）、`kind`（`APPEAL`/`DISPUTE`，非法值 40000）；均缺省=不过滤。
+
+响应 `PageResponse<AdminAppealView>`，行按 `created_at` 倒序（同刻按 id 倒序稳定），每行含：定位（`id/attemptId/annotationKey/sentenceId/chunkIndex/kind/status`）、用户主张（`proposedAnswer/reason`）、AI 意见（`decisionVerdict`——从 `decision` JSON 抽取 `$.verdict`，`decisionReason`、`decidedBy`、`decidedAt`、`modelSnapshot`、`promptVersionId`）、上下文（`createdAt`、`sentenceZh`——LEFT JOIN 当前内容版本，题目已删为 null、`username`）。判分数据不回显（原文默认不可见红线：看原文走 §8.7 查看作答流程）。
+
+#### 8.16.2 `POST /api/admin/appeals/{id}/decision`
+
+请求：`{ "status": "ACCEPTED" | "REJECTED", "reason": "必填 ≤500 字" }`（Bean Validation：`@NotBlank` + 枚举 pattern）。
+
+语义：仅 `PENDING` 可裁决，否则 `40900`（「该申诉已裁决，请刷新后查看」）；不存在 `40400`。落 `status` + `decision_reason`（终审理由，覆盖语义，读端按 `decidedBy` 区分初裁/终审来源）+ `decided_by='ADMIN'` + `decided_at`；初裁 `decision` JSON（AI 意见）保留不覆盖。`ACCEPTED` 的 APPEAL 经判分 overlay（`sentence_id+chunk_index` 维度，`proposed_answer` 作为该槽额外可接受答案，与 `answers[]` 同 norm-1 归一化）参与后续服务端判分，不物理改题目（D-015）；`REJECTED` 不回写任何题目数据。`status` 流转仅 `PENDING→(ACCEPTED|REJECTED)`，无 `WITHDRAWN` 入口（登记 backlog）。审计：`@OperationLog(module=admin, action=APPEAL_DECIDE, targetType=appeal)`，对象 id 与终审理由经 `OperationLogContext` 落库。
+
+错误：`40000`（status 枚举/参数不合法）、`40001`（缺请求体/终审理由缺失）、`40100`、`40300`（非管理员）、`40400`、`40900`、`50000`。
+
+字段回溯：`appeals.*`；`sentenceZh` → `sentence_versions.zh`（经 `sentences.current_version_id`）；`username` → `users.username`；`decisionVerdict` → `JSON_EXTRACT(appeals.decision,'$.verdict')`。
+
+前端消费（025）：管理端第十页签「申诉」（`?tab=appeals`）：状态筛选 + 行内状态 pill + AI 意见摘要（tooltip 展开全文）/初裁不可用占位/终审理由、题目、槽位、用户提议、理由、相对时间；行操作「通过/驳回」走必填理由弹窗（`ReasonDialog` 预设 + 自定义）；概览待办「N 条答案申诉待裁决」跳转本页签。
+
 ## 9. 字段回溯对照
 
 > 规则：每个字段必须能落到 `DATA-MODEL.md` 的表列；找不到的标“派生”，并写来源。嵌套对象按 `parent.child` 列。
@@ -2067,7 +2097,9 @@ provider 目录（022，CC Switch 式多 provider）：元数据 CRUD 与激活�
 | Practice | `GET /api/practice/next`（D7 四参数 2026-11-03 服务端补齐，语义见 §6.1）、`POST /api/practice/attempts`（幂等 + norm-1/rubric-1 判分 + SRS 排程）、`GET /api/practice/attempts/{attemptId}`、批注 `appeal`/`dispute`（§6.4/§6.5）、`GET /api/practice/wrong-questions`、`GET /api/practice/reviews`、`POST /api/practice/reviews/{reviewId}/reset`、`GET /api/practice/reviews/overload`、`POST /api/practice/reviews/postpone`、`GET /api/practice/today` | 练习主链路（#8 波次三）；幂等口径 §6.2；复习卡一句一卡（DATA-MODEL §5.11 Q1）；next 指定句优先（MANUAL）/errors=1 错题池（与 §6.6 同口径）/excludeIds 合并去重/tag JSON 精确匹配，非法参数静默归一 | `PracticeControllerTest`（切片：全部 10 端点——匿名 401、mode 取值 40000、分页 40004、40903/40403/40404、信封形状、限流注解、D7 四参数归一透传）；`PracticeFlowIntegrationTest`（对拍：指定句优先/找不到退回、errors=1 错题口径与 exclude/tag/bankId 过滤、next 显式 bankId 40401/空态、并发同 attemptId 双发幂等收敛零 500） |
 | Analytics | `GET /api/analytics/accuracy`（含 `daily14`/`recent` 扩展）、`GET /api/analytics/error-tags` | 用户时区日界；disputed 批注排除 | `AnalyticsControllerTest`（切片：匿名 401、§7.1/§7.2 信封、参数透传、非法日期 40000、空 items=[]）；`AnalyticsIntegrationTest`（真实 MySQL：聚合对拍、dispute 排除、from/to 闭区间上限 92 天） |
 | Practice | `POST /api/practice/{sentenceId}/ask`（017） | 题目答疑三态门（无可用客户端 40400 功能不存在 / 未开启 40304 / 开启可用；§6.12，022 起客户端由 provider 目录按激活条目装配）、可见性复用 016 口径（40402/40300）、LLM 调用超时 15s 异常降级 50000 固定文案、限流 tutor-ask 5 次/分钟（账号）、question 1–500、回答必带 disclaimer（AI 生成，可能有误）；上下文只含题目中文/考点/本人最近错批注，不含参考译文 | `AskControllerTest`（切片：匿名 401、空白/超长 40000、缺体 40001、40400/40304/50000 透传、信封形状、限流注解契约）；`TutorServiceImplTest`（mock LLM+registry：三态门、app_settings 损坏 fail-closed、上下文拼装不含参考译文、问题定界、空回复/异常降级、40300 透传、开关存取 apiKey/baseUrl/model 拒收 40000、022 补目录模式开启被拒文案与空视图形状）；三协议客户端与装配测试见 Practice/llm 行 |
-| Practice | `POST /api/practice/attempts/{attemptId}/review`（024，§6.13） | 模型复核：追加 grader=MODEL 判分行（sequence=首判+1，append-only），回看/统计取最新 sequence 而排程与错题维持首判口径（wrongCount/countWrong 限定 sequence=1）；可见性复用 §6.3 口径（40403/40300，REVEAL 无判分 40000）；幂等=已有 MODEL 行回读不再调模型（有意非 409），并发撞 uk 回读既有行；strict JSON 输出解析失败重试 1 次仍败降级 50000 不落行（镜像答疑模式），无可用客户端 40400；score 钳制 0–100、reason ≤200 字码点截断；限流 model-review 5 次/分钟（账号）；llm_usage scene='review' 三终态双写；prompt_version_id 暂不落（025 注册表） | `PracticeControllerTest`（切片：匿名 401、委托与信封形状、限流注解契约 5 次/60 秒/账号）；`PracticeModelReviewIntegrationTest`（真实 MySQL + 桩注册表/桩客户端：[AC-1] 落行 sequence+1/grader=MODEL/快照/耗时/口径版本沿用与 result 批注结构、[AC-2] 幂等读 LLM 调用数=1、[AC-3] 匿名 401/他人与不存在/REVEAL 拒绝且零模型调用、[AC-4] 异常与非法输出降级不落行+重试后成功+101 钳制 100、[AC-5] llm_usage 三终态、[AC-6] 限流脚本化 429+Retry-After 且被拒请求零业务副作用（真实 ZSET 窗口语义由 RateLimitServiceTest/RateLimitAspectTest 覆盖，CI 无 Redis 不可复现）、[AC-7] 回看/今日全对率取复核分而卡与 review_logs/错题池 lastScore 维持首判）；`ModelReviewPromptBuilderTest`（prompt 五段上下文、系统提示 strict JSON 契约、定界剥离防伪造、解析/钳制/码点截断）；前端 `PracticePage.test.tsx`（[AC-8] 入口门禁匿名与本地占位隐藏、成功新分+理由+复核不影响复习计划注记+attempt 刷新、失败 toast 保留原分、无演示占位残留） |
+| Practice | `POST /api/practice/attempts/{attemptId}/review`（024，§6.13） | 模型复核：追加 grader=MODEL 判分行（sequence=首判+1，append-only），回看/统计取最新 sequence 而排程与错题维持首判口径（wrongCount/countWrong 限定 sequence=1）；可见性复用 §6.3 口径（40403/40300，REVEAL 无判分 40000）；幂等=已有 MODEL 行回读不再调模型（有意非 409），并发撞 uk 回读既有行；strict JSON 输出解析失败重试 1 次仍败降级 50000 不落行（镜像答疑模式），无可用客户端 40400；score 钳制 0–100、reason ≤200 字码点截断；限流 model-review 5 次/分钟（账号）；llm_usage scene='review' 三终态双写；prompt_version_id 落 PromptRegistry 的 review 版本 id（025 V13 注册表，缺行时 NULL 降级） | `PracticeControllerTest`（切片：匿名 401、委托与信封形状、限流注解契约 5 次/60 秒/账号）；`PracticeModelReviewIntegrationTest`（真实 MySQL + 桩注册表/桩客户端：[AC-1] 落行 sequence+1/grader=MODEL/快照/耗时/口径版本沿用与 result 批注结构、[AC-2] 幂等读 LLM 调用数=1、[AC-3] 匿名 401/他人与不存在/REVEAL 拒绝且零模型调用、[AC-4] 异常与非法输出降级不落行+重试后成功+101 钳制 100、[AC-5] llm_usage 三终态、[AC-6] 限流脚本化 429+Retry-After 且被拒请求零业务副作用（真实 ZSET 窗口语义由 RateLimitServiceTest/RateLimitAspectTest 覆盖，CI 无 Redis 不可复现）、[AC-7] 回看/今日全对率取复核分而卡与 review_logs/错题池 lastScore 维持首判）；`ModelReviewPromptBuilderTest`（prompt 五段上下文、系统提示 strict JSON 契约、定界剥离防伪造、解析/钳制/码点截断）；前端 `PracticePage.test.tsx`（[AC-8] 入口门禁匿名与本地占位隐藏、成功新分+理由+复核不影响复习计划注记+attempt 刷新、失败 toast 保留原分、无演示占位残留） |
+| Practice | `POST /api/practice/attempts/{attemptId}/annotations/{key}/appeal`（025 扩展，§6.4） | 申诉同步 LLM 初裁：落库（status 保持 PENDING）后同步调模型，成功落 decision/decision_reason/decided_by=LLM/decided_at/model_snapshot/prompt_version_id（V8 裁决列启用）；失败/超时/非法输出（重试 1 次）与限流（独立 scene `appeal-adjudication` 5 次/分钟账号、程序化判定）落 `{"verdict":"UNAVAILABLE"}` 占位，**不阻塞提交**（响应 200、status PENDING）；llm_usage scene='appeal' 三终态双写；提示词只含被申诉批注上下文与本人主张（系统提示走 PromptRegistry ask/review/appeal 三链路注册表，V13）；`dispute`（§6.5）语义不变 | `PracticeControllerTest`（切片：appeal/dispute 200 信封与缺体、40000/40300/40403/40900 映射）；`PracticeAppealAdjudicationIntegrationTest`（真实 MySQL + 桩注册表/桩限流：[AC-2] 初裁成功落裁决六列且 status=PENDING/失败与非法输出占位 decided_by=NULL/限流跳过且申诉不拒/重试恢复/DISPUTE 零模型调用、[AC-5] ACCEPTED 进 overlay 后 proposed_answer 判对而 PENDING/REJECTED 不影响、DISPUTE 不进 overlay、[AC-6] 初裁行与 MODEL 复核行 prompt_version_id 落注册表 id）；prompt 契约另由 `AppealAdjudicationPromptBuilderTest`（五段上下文不含整句参考译文/strict JSON/verdict 枚举/300 字截断/围栏容错）、V13 形状由 `V13PromptVersionsSchemaIntegrationTest` 锁定；前端 `PracticePage-appeal-opinion.test.tsx`（[AC-7] 批注行 AI 意见/初裁不可用/终审通过/驳回/无意见原文案/DISPUTE 已排除回归） |
+| Admin | `GET /api/admin/appeals`、`POST /api/admin/appeals/{id}/decision`（025，§8.16） | 申诉分页检索（status/kind 精确过滤、011 分页口径 size 上限 100、非法筛选 40000、行内含 AI 意见/题目摘要/用户主张；复杂查询走 MyBatis 只读 JOIN）与人工终审（仅 PENDING 可裁决否则 40900、status/decision_reason/decided_by=ADMIN/decided_at 定向 UPDATE、decision JSON 保留初裁意见；ACCEPTED 进判分 overlay 不改题目、REJECTED 不回写；审计 `@OperationLog(action=APPEAL_DECIDE)` + OperationLogContext 落对象与理由） | `AdminAppealControllerTest`（切片：匿名 401/非管理员 403、筛选透传与非法筛选 40000、PageResponse+AdminAppealView 形状、终审 200/绑定校验 400/40900 透传、审计注解口径 [AC-3]）；终审落库与 overlay 消费另由 `PracticeAppealAdjudicationIntegrationTest`（真实 MySQL）覆盖 |
 | Admin | `GET/PUT /api/admin/llm/config`（017）、`GET/POST /api/admin/llm/providers`、`PUT/DELETE /api/admin/llm/providers/{id}`、`PUT /api/admin/llm/providers/{id}/activate`（022） | 答疑 LLM 配置（§8.14）与 provider 目录（§8.15）：enabled 存 `app_settings` 键 `llm.tutor`（fail-closed 解析）；目录存键 `llm.providers`/`llm.active`（激活唯一、激活中不可删、id `[a-z0-9-]+` 唯一、协议白名单 fail-closed）；GET 回 hasKey/active/credentialsComplete 不回读 apiKey（响应无 apiKey 字段，密钥走 `YILIAN_LLM_KEY_<大写ID>` env 索引）；enabled=true 无可用客户端 40000（文案按目录/legacy 分口径）；审计 LLM_CONFIG_UPDATE（GET 不标） | `AdminLlmConfigControllerTest`、`AdminLlmProviderControllerTest`（切片：匿名 401/非管理员 403、GET 形状、POST/PUT/DELETE/activate 透传与 id 校验 40000、40400 信封、审计注解口径）；service 分支另由 `LlmProviderAdminServiceImplTest`（CRUD 规则/激活幂等/hasKey env 索引）覆盖 |
 | Practice/llm | （022 支撑 §6.12 的三协议客户端与 provider 目录装配，无独立端点） | `LlmChatClient` 三协议统一接口：`OpenAiChatLlmClient`（Spring AI OpenAI 轨收编）、`AnthropicMessagesLlmClient`（021 网关轨；022 改官方 SDK 直调+手写 content 提取）、`OpenAiResponsesLlmClient`（新，手写 java.net.http）；`LlmClientRegistry` 按激活 provider 装配+目录指纹缓存+legacy 回退。V11：`llm_usage` 用量账本（DATA-MODEL §5.18）落库为内部表，无端点、不进矩阵行 | `AnthropicMessagesLlmClientTest`（JDK 桩：/v1/messages 请求形状与头、**thinking 块只拼 text 块**/max_tokens 吃尽空正文、usage 映射、429（网关非标准错误体）与 5xx 退避重试一次、4xx 不重试）；`OpenAiResponsesLlmClientTest`（JDK 桩：/v1/responses 请求形状与 Bearer 头、output 取 message/output_text、reasoning 跳过、非 2xx 不重试）；`OpenAiChatLlmClientTest`（离线装配）；`LlmClientRegistryTest`（协议装配选择、目录指纹缓存失效、legacy 回退、凭证口径按协议分、三态门）；`LlmProviderCatalogTest`（app_settings 解析 fail-closed、写入形状、env 索引连字符→下划线）；`LlmPropertiesTest`（env 绑定+legacy 映射）；V11 落库形状/失败旁路由 `TutorServiceImplTest`（[AC-V11-1]/[AC-V11-2]）与 `SentenceActiveExternalKeySchemaIntegrationTest`（真实 MySQL 全字段读回）覆盖——矩阵注：内部表无端点，无接口级测试行 |
 | Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 | `ImportBatchControllerTest`（切片：匿名 401/非管理员 403、multipart 绑定与缺参 40000、缺请求体 40001、40405/40904、PageResponse 信封）；`ImportBatchServiceIntegrationTest`（真实 MySQL：五端点语义、commit 原子性（回写失败整体回滚可恢复）、COMMITTING 残留对账收敛、重复 commit 幂等、回滚 tombstone） |
@@ -2128,6 +2160,7 @@ provider 目录（022，CC Switch 式多 provider）：元数据 CRUD 与激活�
 | 2026-11-05 | v1.2 | 022 AI 配置升级：§6.12 改写为 provider 目录 + 三协议（anthropic-messages \| openai-chat \| openai-responses，Responses 轨手写 java.net.http——spring-ai 2.0.0 无支持）与 legacy 单 provider 回退；maxTokens 三协议同源 768→2048（思考模型 thinking 计入 max_tokens，实测 32 全被吃掉），补思考模型注（anthropic 轨改官方 SDK 直调+按块类型提取，Spring AI getText() 会把 thinking 块当正文）；新增 §8.15 provider 目录五端点（元数据 CRUD+激活唯一，密钥走 YILIAN_LLM_KEY_<大写ID> env 索引不入库）；§8.14.1 视图扩 providerId/protocol/credentialsComplete；§10.1 矩阵重排 Practice/llm 与 Admin 行 | 实现工程师 |
 | 2026-11-05 | v1.2 | 020 练习选题 + AC-0 提交假失败修复：新增 §5.3.1 `GET /api/banks/{bankId}/sentences/list`（页码分页 + keyword/level/status 筛选缺省隐藏回收站 + 当前用户练过态，匿名=未学，与 §5.3 增量端点刻意不同形并登记差异）；§6.2 补记内嵌 review 为排程投影（无 sentenceId/mode，与 §6.7 队列卡不同形）——此前前端 schema 误按队列卡校验致 200 已入库被误报「提交未确认」；§2 鉴权矩阵、§10.1 矩阵同步（BankControllerTest 补 5 例切片 + PickerSentenceQueryDaoIntegrationTest） | 实现工程师 |
 | 2026-11-06 | v1.3 | V11 迁移 + 错误态语境分化：§6.12 用量观测改「结构化日志 + `llm_usage` 落库」双写（V11 建表，内部表无端点，017「落库待批」收口；落库失败只告警不阻塞答疑）；§8.15 补内部表注（llm_usage 不暴露端点、矩阵注）与 ModelsPage 错误卡 `ErrorState variant="admin"` 文案口径（「管理数据加载失败」，不带练习页离线队列文案）；§10.1 Practice/llm 行补 llm_usage 矩阵注、§10.4 017 观察项收口 | 实现工程师 |
+| 2026-11-06 | v1.5 | 025 申诉 LLM 裁决：§6.4 扩展（提交即同步 LLM 初裁，回执新增 verdict/decisionReason/decidedBy/decidedAt 四字段，初裁失败/限流落 `{"verdict":"UNAVAILABLE"}` 占位不阻塞提交，status 恒 PENDING 待人工终审）；新增 §8.16 `GET /api/admin/appeals` + `POST /api/admin/appeals/{id}/decision`（011 分页口径、仅 PENDING 可裁决 40900、审计 APPEAL_DECIDE；ACCEPTED 进判分 overlay 不改题目、REJECTED 不回写）；判分 overlay：本句 ACCEPTED APPEAL 的 (chunk_index, proposed_answer) 作为该槽额外可接受答案（norm-1 同口径，DISPUTE 排除语义不变）；V13 建 `prompt_versions` 注册表（ask/review/appeal 首版种子），ask/review/appeal 三链路系统提示改经 PromptRegistry 取 ACTIVE 版本（缺行回退同文常量），attempt_gradings MODEL 行与 appeals 落 prompt_version_id（llm_usage 无该列、本批不扩列——计划 AC-6 原文含 llm_usage 系笔误，PR 披露）；§2 矩阵、§10.1 矩阵两行同步 | 实现工程师 |
 | 2026-11-06 | v1.4 | 024 模型复核接后端：新增 §6.13 `POST /api/practice/attempts/{attemptId}/review`（追加 grader=MODEL 判分行 sequence=首判+1，model_snapshot/latency_ms V8 预留列启用；幂等=已有 MODEL 行回读不重复计费，并发撞 uk 回读既有行故 40900 不适用；strict JSON 解析失败重试 1 次仍败降级 50000 不落行；score 钳制 0–100、reason ≤200 字；限流 model-review 5 次/分钟账号；llm_usage scene='review' 三终态双写）；错题池/wrongCount 口径明确按首判（sequence=1），复核不影响复习计划；§2 矩阵、§10.1 矩阵同步 | 实现工程师 |
 
 ---
