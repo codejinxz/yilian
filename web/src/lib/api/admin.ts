@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { apiRequest } from "@/lib/api";
 import {
+  type AdminAppeal,
   type AdminPasswordReset,
   type AdminUser,
+  adminAppealPageSchema,
+  adminAppealSchema,
   adminPasswordResetSchema,
   adminUserPageSchema,
   adminUserSchema,
@@ -765,3 +768,35 @@ export async function activateLlmProvider(id: string): Promise<LlmProvider> {
 
 // 九页签页面直接从客户端取用户类型；schemas 保持既有导出面，不额外扩散。
 export type { AdminUser };
+
+/**
+ * 申诉分页检索（API §8.16）：行内含 AI 初裁意见、题目摘要与用户主张。
+ * @param params 分页、状态与类型过滤
+ * @param signal 取消信号
+ * @returns 分页申诉行
+ */
+export async function getAdminAppeals(
+  params: { page?: number; size?: number; status?: string; kind?: string } = {},
+  signal?: AbortSignal,
+): Promise<PageResponse<AdminAppeal>> {
+  const data = await apiRequest<unknown>(`/admin/appeals${toQueryString(params)}`, { signal });
+  return parseData(adminAppealPageSchema, data);
+}
+
+/**
+ * 申诉终审（API §8.16）：仅 PENDING 可裁决；ACCEPTED 进判分 overlay，REJECTED 不改题目。
+ * @param appealId 申诉行 id（AdminAppeal.id 经 idSchema 归一为字符串）
+ * @param input 终审结论与必填理由
+ * @returns 终审后的申诉行
+ */
+export async function decideAdminAppeal(
+  appealId: string,
+  input: { status: "ACCEPTED" | "REJECTED"; reason: string },
+): Promise<AdminAppeal> {
+  const data = await jsonRequest<unknown>(
+    `/admin/appeals/${encodeURIComponent(appealId)}/decision`,
+    "POST",
+    input,
+  );
+  return parseData(adminAppealSchema, data);
+}

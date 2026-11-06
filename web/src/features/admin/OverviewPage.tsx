@@ -19,7 +19,7 @@ const PERMISSION_ROWS: Array<{ role: string; scope: string }> = [
 const TODO_TARGETS = {
   imports: "generation",
   disabled: "users",
-  appeals: "users",
+  appeals: "appeals",
 } as const;
 
 /**

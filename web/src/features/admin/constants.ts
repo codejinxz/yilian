@@ -1,10 +1,11 @@
 /**
- * 管理端九页签共用的演示常量：难度目录、考点目录与动作码中文名。
+ * 管理端页签共用的演示常量：难度目录、考点目录与动作码中文名。
  * 难度/考点目录目前没有服务端配置端点，属于前端演示态；服务端配置端点就绪后迁到系统配置。
  */
 
 /**
- * 管理端九页签：id 与原型 adminTabs 的 data-tab 一致，顺序即页头导航顺序。
+ * 管理端页签：id 与原型 adminTabs 的 data-tab 一致，顺序即页头导航顺序。
+ * 025 增补第十页签「申诉」（LLM 初裁后的人工终审入口）。
  * 管理端是单页（#/admin）：页签不产生独立路由，由 AdminLayout 按 tab 条件渲染。
  */
 export const ADMIN_TABS = [
@@ -14,6 +15,7 @@ export const ADMIN_TABS = [
   { id: "banks", label: "题库" },
   { id: "generation", label: "出题" },
   { id: "models", label: "模型" },
+  { id: "appeals", label: "申诉" },
   { id: "audit", label: "操作日志" },
   { id: "errors", label: "异常" },
   { id: "ops", label: "运维" },
@@ -32,6 +34,7 @@ export const ADMIN_URL_TABS = [
   "banks",
   "generation",
   "models",
+  "appeals",
   "audit",
   "errors",
   "ops",
@@ -129,6 +132,7 @@ export const ACTION_LABELS: Record<string, string> = {
   MODEL_TOGGLE: "启停模型",
   PROMPT_UPDATE: "更新 Prompt",
   SESSION_REVOKE: "吊销会话",
+  APPEAL_DECIDE: "申诉终审",
 };
 
 /**

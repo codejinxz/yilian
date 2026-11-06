@@ -1,4 +1,5 @@
 import { Link, useSearch } from "@tanstack/react-router";
+import { AppealsPage } from "./AppealsPage";
 import { AuditPage } from "./AuditPage";
 import { BanksPage } from "./BanksPage";
 import { ADMIN_TABS, type AdminTabId, type AdminTabParam, adminTabSearch } from "./constants";
@@ -12,9 +13,9 @@ import { UsersPage } from "./UsersPage";
 
 /**
  * 管理端布局：渲染于 AppShell 内容区（.page/.view 壳层几何由壳层提供，本组件不再自带框架），
- * 只负责页头（衬线标题 + ADMIN mono 徽标）与九页签导航。
+ * 只负责页头（衬线标题 + ADMIN mono 徽标）与十页签导航。
  * #/admin 单页机制：页签不产生独立路由，而是切换本路由的 ?tab= 参数；
- * 内容区按当前页签条件渲染九个页签组件，缺省渲染概览。
+ * 内容区按当前页签条件渲染十个页签组件，缺省渲染概览。
  * 服务端仍会独立鉴权，这里只负责导航与预期说明。
  */
 export function AdminLayout() {
@@ -62,6 +63,7 @@ export function AdminLayout() {
         {activeTab === "banks" && <BanksPage />}
         {activeTab === "generation" && <GenerationPage />}
         {activeTab === "models" && <ModelsPage />}
+        {activeTab === "appeals" && <AppealsPage />}
         {activeTab === "audit" && <AuditPage />}
         {activeTab === "errors" && <ErrorsPage />}
         {activeTab === "ops" && <OpsPage />}

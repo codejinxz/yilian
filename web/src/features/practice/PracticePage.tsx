@@ -250,7 +250,16 @@ function AnnotationActions({
   const [open, setOpen] = useState<"appeal" | "dispute" | null>(null);
   const [reason, setReason] = useState("");
   const [proposedAnswer, setProposedAnswer] = useState("");
-  const [status, setStatus] = useState<"PENDING" | "ACCEPTED" | null>(null);
+  /**
+   * 已提交动作的终态：status/verdict 来自接口回执（025 起申诉回执带 AI 初裁意见）。
+   * 只存本会话态——刷新后回到未提交视图（与原实现一致，不做按批注的回查）。
+   */
+  const [outcome, setOutcome] = useState<{
+    kind: "appeal" | "dispute";
+    status: string;
+    verdict: string | null;
+    decisionReason: string | null;
+  } | null>(null);
 
   const appeal = useMutation({
     mutationFn: () =>
@@ -259,7 +268,12 @@ function AnnotationActions({
         reason: reason.trim() || undefined,
       }),
     onSuccess: (result) => {
-      setStatus(result.status === "PENDING" ? "PENDING" : "ACCEPTED");
+      setOutcome({
+        kind: "appeal",
+        status: result.status,
+        verdict: result.verdict ?? null,
+        decisionReason: result.decisionReason ?? null,
+      });
       setOpen(null);
       void queryClient.invalidateQueries({ queryKey: ["practice", "wrong-questions"] });
       void queryClient.invalidateQueries({ queryKey: ["analytics"] });
@@ -272,21 +286,66 @@ function AnnotationActions({
         reason: reason.trim() || undefined,
       }),
     onSuccess: (result) => {
-      setStatus(result.status === "ACCEPTED" ? "ACCEPTED" : "PENDING");
+      setOutcome({
+        kind: "dispute",
+        status: result.status,
+        verdict: null,
+        decisionReason: null,
+      });
       setOpen(null);
       void queryClient.invalidateQueries({ queryKey: ["practice", "wrong-questions"] });
       void queryClient.invalidateQueries({ queryKey: ["analytics"] });
     },
   });
 
-  if (status === "ACCEPTED") {
-    return (
-      <p className="mt-2 font-mono text-[10px] tracking-[0.06em] text-moss">
-        已排除：不计入错题与统计
-      </p>
-    );
-  }
-  if (status === "PENDING") {
+  if (outcome) {
+    // DISPUTE 立即生效：文案保持「已排除」（语义未变）。
+    if (outcome.kind === "dispute" && outcome.status === "ACCEPTED") {
+      return (
+        <p className="mt-2 font-mono text-[10px] tracking-[0.06em] text-moss">
+          已排除：不计入错题与统计
+        </p>
+      );
+    }
+    // 申诉被人工终审：通过 → 已加入可接受答案；驳回 → 维持原批注。
+    if (outcome.status === "ACCEPTED") {
+      return (
+        <p className="mt-2 font-mono text-[10px] tracking-[0.06em] text-moss">
+          申诉已通过，该写法已加入可接受答案
+        </p>
+      );
+    }
+    if (outcome.status === "REJECTED") {
+      return (
+        <p className="mt-2 font-mono text-[10px] tracking-[0.06em] text-ink-faint">申诉未通过</p>
+      );
+    }
+    // PENDING：AI 意见已生成时展示摘要，否则保持原记录文案；AI 只是意见，等待人工终审。
+    if (
+      outcome.verdict === "SUPPORT" ||
+      outcome.verdict === "OPPOSE" ||
+      outcome.verdict === "UNCERTAIN"
+    ) {
+      const verdictLabel =
+        outcome.verdict === "SUPPORT" ? "支持" : outcome.verdict === "OPPOSE" ? "反对" : "不确定";
+      const summary =
+        outcome.decisionReason && outcome.decisionReason.length > 60
+          ? `${outcome.decisionReason.slice(0, 60)}…`
+          : outcome.decisionReason;
+      return (
+        <p className="mt-2 font-mono text-[10px] leading-[1.7] tracking-[0.06em] text-ink-faint">
+          AI 意见：{verdictLabel}
+          {summary ? ` · ${summary}` : ""} · 等待人工终审
+        </p>
+      );
+    }
+    if (outcome.verdict === "UNAVAILABLE") {
+      return (
+        <p className="mt-2 font-mono text-[10px] tracking-[0.06em] text-ink-faint">
+          AI 初裁暂不可用 · 等待人工终审
+        </p>
+      );
+    }
     return (
       <p className="mt-2 font-mono text-[10px] tracking-[0.06em] text-ink-faint">
         申诉已记录，等待复核；当前分数不变

@@ -46,6 +46,8 @@ export const queryKeys = {
     importBatch: (batchId: string, params: Record<string, unknown>) =>
       ["admin", "imports", batchId, params] as const,
     llmConfig: ["admin", "llm-config"] as const,
+    /** 申诉分页（025 终审页签）；终审后按 key 失效。 */
+    appeals: (params: Record<string, unknown>) => ["admin", "appeals", params] as const,
     /** provider 目录（022）：列表 + 每项 hasKey/active；激活切换后连带失效 llmConfig。 */
     llmProviders: ["admin", "llm-providers"] as const,
   },

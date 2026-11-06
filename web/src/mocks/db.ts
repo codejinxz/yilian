@@ -52,6 +52,16 @@ export interface MockAppeal {
   status: "PENDING" | "ACCEPTED" | "REJECTED" | "WITHDRAWN";
   proposedAnswer: string | null;
   reason: string | null;
+  /** 冗余定位（025 管理端列表用）：题目、语块下标、申诉人与时间。 */
+  sentenceId: string | null;
+  chunkIndex: number;
+  userId: string | null;
+  createdAt: string;
+  /** AI 初裁意见（025）：decidedBy=LLM 时 verdict/decisionReason 有值；终审后改写为 ADMIN。 */
+  decidedBy: "LLM" | "ADMIN" | null;
+  decisionVerdict: "SUPPORT" | "OPPOSE" | "UNCERTAIN" | "UNAVAILABLE" | null;
+  decisionReason: string | null;
+  decidedAt: string | null;
 }
 
 /** mock 导入批次：行级明细留在内存以便预览→提交两段式演示，API 响应只暴露汇总字段。 */
@@ -1100,6 +1110,14 @@ export function createSeedDb(): MockDb {
               status: "ACCEPTED",
               proposedAnswer: null,
               reason: "我认为这个搭配也可以接受",
+              sentenceId: partialAttempt.request.sentenceId,
+              chunkIndex: 0,
+              userId: null,
+              createdAt: partialAttempt.createdAt,
+              decidedBy: null,
+              decisionVerdict: null,
+              decisionReason: null,
+              decidedAt: null,
             },
           ]
         : [],

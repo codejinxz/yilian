@@ -136,3 +136,34 @@ export const createdInviteSchema = z.object({
 
 /** 新生成的邀请码类型。 */
 export type CreatedInvite = z.infer<typeof createdInviteSchema>;
+
+/**
+ * 管理端申诉行（API §8.16）：终审上下文含 AI 初裁意见、题目摘要与用户主张。
+ * decisionVerdict 从 appeals.decision JSON 抽取，UNAVAILABLE/null 表示无有效 AI 意见。
+ */
+export const adminAppealSchema = z.object({
+  id: idSchema,
+  attemptId: z.string().min(1),
+  annotationKey: z.string().min(1),
+  sentenceId: z.string().min(1),
+  chunkIndex: z.number().int().nonnegative(),
+  kind: z.enum(["APPEAL", "DISPUTE"]),
+  status: z.enum(["PENDING", "ACCEPTED", "REJECTED", "WITHDRAWN"]),
+  proposedAnswer: z.string().nullable(),
+  reason: z.string().nullable(),
+  decisionVerdict: z.string().nullable(),
+  decisionReason: z.string().nullable(),
+  decidedBy: z.string().nullable(),
+  decidedAt: isoDateTimeSchema.nullable(),
+  modelSnapshot: z.string().nullable(),
+  promptVersionId: idSchema.nullable(),
+  createdAt: isoDateTimeSchema,
+  sentenceZh: z.string().nullable(),
+  username: z.string().nullable(),
+});
+
+/** 管理端申诉行类型。 */
+export type AdminAppeal = z.infer<typeof adminAppealSchema>;
+
+/** 管理端申诉分页。 */
+export const adminAppealPageSchema = pageResponseSchema(adminAppealSchema);

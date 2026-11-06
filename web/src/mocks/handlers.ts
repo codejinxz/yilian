@@ -1284,6 +1284,9 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
       fail(409, 40900, "请求正在处理或已处理，请勿重复提交");
     }
     const input = asObject(body);
+    // 025：申诉提交同步「AI 初裁」（真实后端调 LLM，演示层给固定意见），status 保持 PENDING
+    // 等人工终审；DISPUTE 即时生效且无裁决链路。
+    const createdAt = new Date().toISOString();
     const appeal = {
       id: nextMockId(),
       attemptId,
@@ -1292,10 +1295,27 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
       status: kind === "DISPUTE" ? ("ACCEPTED" as const) : ("PENDING" as const),
       proposedAnswer: typeof input.proposedAnswer === "string" ? input.proposedAnswer : null,
       reason: typeof input.reason === "string" ? input.reason : null,
+      sentenceId: attempt.request.sentenceId,
+      chunkIndex: annotation.chunkIndex,
+      userId: user.id,
+      createdAt,
+      decidedBy: kind === "APPEAL" ? ("LLM" as const) : null,
+      decisionVerdict: kind === "APPEAL" ? ("SUPPORT" as const) : null,
+      decisionReason: kind === "APPEAL" ? "与规范答案语义等价，可以接受（演示数据）" : null,
+      decidedAt: kind === "APPEAL" ? createdAt : null,
     };
     db.appeals.push(appeal);
     persistMockDb();
-    return { appealId: appeal.id, status: appeal.status, kind, annotationKey };
+    return {
+      appealId: appeal.id,
+      status: appeal.status,
+      kind,
+      annotationKey,
+      verdict: appeal.decisionVerdict,
+      decisionReason: appeal.decisionReason,
+      decidedBy: appeal.decidedBy,
+      decidedAt: appeal.decidedAt,
+    };
   }
 
   if (pathname === "/practice/attempts" && method === "POST") {
@@ -1644,6 +1664,101 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     appendAudit(db, admin, "ROLE_CHANGE", "USER", target.id, String(input.reason ?? "") || null);
     persistMockDb();
     return toAdminUser(target);
+  }
+
+  // ---- 管理端申诉终审（025）：列表与人工裁决 ----
+  if (pathname === "/admin/appeals" && method === "GET") {
+    requireAdmin(db);
+    const status = params.get("status");
+    const kind = params.get("kind");
+    const filtered = db.appeals.filter((appeal) => {
+      if (status && appeal.status !== status) {
+        return false;
+      }
+      if (kind && appeal.kind !== kind) {
+        return false;
+      }
+      return true;
+    });
+    const rows = [...filtered]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((appeal) => {
+        const sentence = db.sentences.find((item) => item.id === appeal.sentenceId);
+        const owner = db.users.find((user) => user.id === appeal.userId);
+        return {
+          id: Number(appeal.id),
+          attemptId: appeal.attemptId,
+          annotationKey: appeal.annotationKey,
+          sentenceId: appeal.sentenceId ?? "",
+          chunkIndex: appeal.chunkIndex,
+          kind: appeal.kind,
+          status: appeal.status,
+          proposedAnswer: appeal.proposedAnswer,
+          reason: appeal.reason,
+          decisionVerdict: appeal.decisionVerdict,
+          decisionReason: appeal.decisionReason,
+          decidedBy: appeal.decidedBy,
+          decidedAt: appeal.decidedAt,
+          modelSnapshot: appeal.decisionVerdict ? "mock:demo-model" : null,
+          promptVersionId: appeal.decisionVerdict ? 3 : null,
+          createdAt: appeal.createdAt,
+          sentenceZh: sentence?.zh ?? null,
+          username: owner?.username ?? null,
+        };
+      });
+    const { page, size } = pagination(params);
+    return paginate(rows, page, size);
+  }
+
+  const appealDecisionMatch = pathname.match(/^\/admin\/appeals\/([^/]+)\/decision$/);
+  if (appealDecisionMatch && method === "POST") {
+    const admin = requireAdmin(db);
+    const appealId = decodeURIComponent(appealDecisionMatch[1]!);
+    const appeal = db.appeals.find((item) => item.id === appealId);
+    if (!appeal) {
+      fail(404, 40400, "申诉不存在");
+    }
+    if (appeal.status !== "PENDING") {
+      fail(409, 40900, "该申诉已裁决，请刷新后查看");
+    }
+    const input = asObject(body);
+    const nextStatus = input.status;
+    const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+    if (nextStatus !== "ACCEPTED" && nextStatus !== "REJECTED") {
+      fail(400, 40000, "status 只能为 ACCEPTED 或 REJECTED");
+    }
+    if (reason === "") {
+      fail(400, 40000, "终审理由必填");
+    }
+    const decidedAt = new Date().toISOString();
+    appeal.status = nextStatus;
+    appeal.decisionReason = reason;
+    appeal.decidedBy = "ADMIN";
+    appeal.decidedAt = decidedAt;
+    appendAudit(db, admin, "APPEAL_DECIDE", "APPEAL", appeal.id, reason);
+    persistMockDb();
+    const sentence = db.sentences.find((item) => item.id === appeal.sentenceId);
+    const owner = db.users.find((user) => user.id === appeal.userId);
+    return {
+      id: Number(appeal.id),
+      attemptId: appeal.attemptId,
+      annotationKey: appeal.annotationKey,
+      sentenceId: appeal.sentenceId ?? "",
+      chunkIndex: appeal.chunkIndex,
+      kind: appeal.kind,
+      status: appeal.status,
+      proposedAnswer: appeal.proposedAnswer,
+      reason: appeal.reason,
+      decisionVerdict: appeal.decisionVerdict,
+      decisionReason: appeal.decisionReason,
+      decidedBy: appeal.decidedBy,
+      decidedAt: appeal.decidedAt,
+      modelSnapshot: appeal.decisionVerdict ? "mock:demo-model" : null,
+      promptVersionId: appeal.decisionVerdict ? 3 : null,
+      createdAt: appeal.createdAt,
+      sentenceZh: sentence?.zh ?? null,
+      username: owner?.username ?? null,
+    };
   }
 
   if (pathname === "/admin/audit-logs" && method === "GET") {
@@ -2201,8 +2316,8 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
       todos.push({
         id: "appeals",
         title: `${pendingAppeals.length} 条答案申诉待裁决`,
-        meta: "在用户抽屉查看原文，填写原因后裁决",
-        href: "/admin/users",
+        meta: "AI 意见已记录 · 在申诉页签填写理由后终审",
+        href: "/admin?tab=appeals",
       });
     }
     const userName = (id: string) =>
