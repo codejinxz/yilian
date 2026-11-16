@@ -197,7 +197,8 @@ export const appealResponseSchema = z.object({
   kind: z.enum(["APPEAL", "DISPUTE"]),
   annotationKey: z.string(),
   // 025 起：申诉提交同步 LLM 初裁，成功时回执带 AI 意见（verdict/理由/裁决者/时间）；
-  // 初裁失败、限流或未配置模型时四字段为 null/缺省（不阻塞提交），DISPUTE 恒为 null。
+  // 初裁失败、限流或未配置模型时回执 verdict="UNAVAILABLE"（029 起服务端如实发送，与存储的
+  // decision JSON 同源）、decidedBy/decidedAt 为 null/缺省（不阻塞提交）；DISPUTE 恒为 null。
   verdict: z.enum(["SUPPORT", "OPPOSE", "UNCERTAIN", "UNAVAILABLE"]).nullable().optional(),
   decisionReason: z.string().nullable().optional(),
   decidedBy: z.string().nullable().optional(),

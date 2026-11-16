@@ -46,7 +46,8 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 申诉初裁与 overlay 判分集成测试（真实 MySQL）[AC-2]/[AC-5]/[AC-6]。
+ * 申诉初裁与 overlay 判分集成测试（真实 MySQL）[AC-2]/[AC-4]/[AC-5]/[AC-6]（[AC-4] 为 029 补：占位回执 verdict=UNAVAILABLE
+ * 可达）。
  *
  * <p>初裁（[AC-2]）：APPEAL 落库后同步调 LLM，成功落 decision/decision_reason/decided_by=LLM/
  * decided_at/model_snapshot/prompt_version_id 而 status 保持 PENDING；失败/非法输出（重试 1 次）与限流（429 语义）落
@@ -181,7 +182,8 @@ class PracticeAppealAdjudicationIntegrationTest {
                         USER_ID, submitted.attemptId(), "slot:0", PROPOSED, null);
 
         assertThat(appeal.status()).isEqualTo("PENDING");
-        assertThat(appeal.verdict()).isNull();
+        // 029 [AC-4]：回执 verdict 对齐存储真相——decision 落 UNAVAILABLE JSON，回执也发 UNAVAILABLE。
+        assertThat(appeal.verdict()).isEqualTo("UNAVAILABLE");
         assertThat(appeal.decidedBy()).isNull();
 
         Map<String, Object> row =
@@ -216,7 +218,7 @@ class PracticeAppealAdjudicationIntegrationTest {
                 practiceService.submitAppeal(
                         USER_ID, submitted.attemptId(), "slot:0", PROPOSED, null);
 
-        assertThat(appeal.verdict()).isNull();
+        assertThat(appeal.verdict()).isEqualTo("UNAVAILABLE");
         Map<String, Object> row =
                 jdbcTemplate.queryForMap(
                         "SELECT decision, decided_by FROM appeals WHERE id = ?", appeal.appealId());
@@ -259,7 +261,7 @@ class PracticeAppealAdjudicationIntegrationTest {
 
         // 申诉本体成功落库（不因限流被拒），初裁占位。
         assertThat(appeal.status()).isEqualTo("PENDING");
-        assertThat(appeal.verdict()).isNull();
+        assertThat(appeal.verdict()).isEqualTo("UNAVAILABLE");
         Map<String, Object> row =
                 jdbcTemplate.queryForMap(
                         "SELECT decision, decision_reason, decided_by FROM appeals WHERE id = ?",
@@ -282,6 +284,38 @@ class PracticeAppealAdjudicationIntegrationTest {
         assertThat(dispute.verdict()).isNull();
         assertThat(dispute.decidedBy()).isNull();
         assertThat(stubChatClient().calls.get()).isZero();
+    }
+
+    /**
+     * [AC-4] 「初裁不可用」回执态真实可达（029 F-01 修复）：占位路径回执 verdict=UNAVAILABLE 且与 decision 列的
+     * {"verdict":"UNAVAILABLE"} 同源——前端「AI 初裁暂不可用」分支对真实服务端有效， 用户端不再退化为兜底文案「申诉已记录」。
+     */
+    @Test
+    @DisplayName("[AC-4] 占位回执 verdict=UNAVAILABLE 与存储 decision JSON 同源")
+    void ac4_unavailableVerdictIsExpressedInReceipt_ac4() {
+        AttemptView submitted = submitWrongAttempt();
+        stubChatClient().failure();
+        stubChatClient().failure();
+
+        AppealView appeal =
+                practiceService.submitAppeal(
+                        USER_ID, submitted.attemptId(), "slot:0", PROPOSED, null);
+
+        // 回执四元组：verdict=UNAVAILABLE、占位理由、无裁决者与时间（无 AI 意见的判据保持 decided_by=null）。
+        assertThat(appeal.status()).isEqualTo("PENDING");
+        assertThat(appeal.verdict()).isEqualTo("UNAVAILABLE");
+        assertThat(appeal.decisionReason()).isEqualTo("AI 初裁暂不可用，等待人工终审");
+        assertThat(appeal.decidedBy()).isNull();
+        assertThat(appeal.decidedAt()).isNull();
+        Map<String, Object> row =
+                jdbcTemplate.queryForMap(
+                        "SELECT decision, decision_reason, decided_by FROM appeals WHERE id = ?",
+                        appeal.appealId());
+        // decision 是 MySQL JSON 列（读回带归一化空格），按 JSON 语义断言 verdict 字段而不是字面串。
+        assertThat(objectMapper.readTree((String) row.get("decision")).get("verdict").asString())
+                .isEqualTo("UNAVAILABLE");
+        assertThat((String) row.get("decision_reason")).isEqualTo("AI 初裁暂不可用，等待人工终审");
+        assertThat(row.get("decided_by")).isNull();
     }
 
     // ---------- [AC-5] overlay 判分 ----------

@@ -532,7 +532,7 @@ public class PracticeServiceImpl implements PracticeService {
         }
     }
 
-    /** 一次初裁的终态：落库列与回执视图共用的投影（verdict 为 null 表示占位/失败）。 */
+    /** 一次初裁的终态：落库列与回执视图共用的投影（verdict=UNAVAILABLE 表示初裁不可用占位，DISPUTE/未生成场景回执 verdict 为 null）。 */
     private record AdjudicationOutcome(
             String verdict, String decisionReason, String decidedBy, Instant decidedAt) {}
 
@@ -554,7 +554,7 @@ public class PracticeServiceImpl implements PracticeService {
      * @param annotation 被申诉批注，可为 null（上下文缺失降级）
      * @param proposedAnswer 用户主张的可接受答案，可空
      * @param reason 申诉理由，可空
-     * @return 初裁终态；占位/失败时 verdict 为 null
+     * @return 初裁终态；占位/失败时 verdict 为 UNAVAILABLE
      */
     private AdjudicationOutcome adjudicateAppeal(
             Appeal appeal, GradingAnnotation annotation, String proposedAnswer, String reason) {
@@ -661,10 +661,14 @@ public class PracticeServiceImpl implements PracticeService {
 
     /**
      * 落初裁占位（限流/无模型/失败统一路径）：decision 落 UNAVAILABLE JSON + 占位理由， decided_by/decided_at/快照/版本保持
-     * NULL——「无 AI 意见」读端按 decided_by 判定。占位写失败也不外抛（申诉已在库，管理端可无 AI 意见终审）。
+     * NULL。占位写失败也不外抛（申诉已在库，管理端可无 AI 意见终审）。
+     *
+     * <p>029（F-01 修复）：回执 verdict 对齐存储真相——decision 列落的是 UNAVAILABLE JSON，回执也发
+     * verdict="UNAVAILABLE"，让「初裁不可用」回执态真实可达（GAP 025 声明的回执四态分化成立， 前端对应分支不再是对真实服务的死代码）；
+     * decided_by=null 仍是无 AI 意见的判据。
      *
      * @param appealId 申诉行 id
-     * @return 占位终态（verdict=null）
+     * @return 占位终态（verdict=UNAVAILABLE，decidedBy=null）
      */
     private AdjudicationOutcome recordUnavailable(long appealId) {
         try {
@@ -682,7 +686,8 @@ public class PracticeServiceImpl implements PracticeService {
                     appealId,
                     exception.getClass().getSimpleName());
         }
-        return new AdjudicationOutcome(null, APPEAL_ADJUDICATION_UNAVAILABLE_REASON, null, null);
+        return new AdjudicationOutcome(
+                "UNAVAILABLE", APPEAL_ADJUDICATION_UNAVAILABLE_REASON, null, null);
     }
 
     /**

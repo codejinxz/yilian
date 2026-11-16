@@ -251,7 +251,8 @@ function AnnotationActions({
   const [reason, setReason] = useState("");
   const [proposedAnswer, setProposedAnswer] = useState("");
   /**
-   * 已提交动作的终态：status/verdict 来自接口回执（025 起申诉回执带 AI 初裁意见）。
+   * 已提交动作的终态：status/verdict 来自接口回执（025 起申诉回执带 AI 初裁意见；
+   * 初裁不可用时 verdict="UNAVAILABLE"，DISPUTE/未生成为 null）。
    * 只存本会话态——刷新后回到未提交视图（与原实现一致，不做按批注的回查）。
    */
   const [outcome, setOutcome] = useState<{
@@ -320,7 +321,7 @@ function AnnotationActions({
         <p className="mt-2 font-mono text-[10px] tracking-[0.06em] text-ink-faint">申诉未通过</p>
       );
     }
-    // PENDING：AI 意见已生成时展示摘要，否则保持原记录文案；AI 只是意见，等待人工终审。
+    // PENDING：AI 意见已生成时展示摘要；AI 只是意见，等待人工终审。
     if (
       outcome.verdict === "SUPPORT" ||
       outcome.verdict === "OPPOSE" ||
@@ -339,6 +340,7 @@ function AnnotationActions({
         </p>
       );
     }
+    // 初裁不可用（029 起服务端占位回执如实发 verdict="UNAVAILABLE"，与存储 decision JSON 同源）。
     if (outcome.verdict === "UNAVAILABLE") {
       return (
         <p className="mt-2 font-mono text-[10px] tracking-[0.06em] text-ink-faint">

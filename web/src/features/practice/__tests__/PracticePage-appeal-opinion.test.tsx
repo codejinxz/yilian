@@ -22,7 +22,9 @@ import type {
  * 终审 ACCEPTED → 「申诉已通过，该写法已加入可接受答案」；REJECTED → 「申诉未通过」；
  * DISPUTE 的「已排除」语义不变。
  *
- * mock 策略与 PracticePage-graded-views 同构：router 最小桩 + API 模块整体替换。
+ * mock 策略与 PracticePage-graded-views 同构：router 最小桩 + API 模块整体替换；回执夹具
+ * 以服务端集成测试的真实断言为基准（029 AC-4 修正 mock 漂移），mock 只替换传输层、
+ * 响应形状锁定为真实契约。
  */
 
 /** @/lib/api/practice 的桩。 */
@@ -237,10 +239,21 @@ describe("PracticePage 申诉透明度（025）", () => {
     view.unmount();
   });
 
-  /** [AC-7] 初裁不可用（UNAVAILABLE 占位）：提示暂不可用，仍等待人工终审。 */
+  /**
+   * [AC-7] 初裁不可用（UNAVAILABLE 占位）：提示暂不可用，仍等待人工终审。
+   * 夹具与真实服务端契约同形（029 AC-4 修复 mock 漂移）：verdict="UNAVAILABLE" +
+   * 占位理由 + decidedBy/decidedAt=null，逐字段对照服务端集成测试
+   * PracticeAppealAdjudicationIntegrationTest.ac4_unavailableVerdictIsExpressedInReceipt_ac4
+   * 的真实回执断言，不再 mock 真实服务端不存在的响应形状。
+   */
   it("showsUnavailableWhenAdjudicationSkipped_ac7: 初裁不可用文案", async () => {
     practiceApi.appealAnnotation.mockResolvedValue(
-      appealResponse({ verdict: "UNAVAILABLE", decisionReason: "AI 初裁暂不可用，等待人工终审" }),
+      appealResponse({
+        verdict: "UNAVAILABLE",
+        decisionReason: "AI 初裁暂不可用，等待人工终审",
+        decidedBy: null,
+        decidedAt: null,
+      }),
     );
     const view = await openAppealForm();
 
