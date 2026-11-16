@@ -661,6 +661,43 @@ class TutorServiceImplTest {
                                         .contains("YILIAN_LLM_API_KEY"));
     }
 
+    /** [AC-2] PUT enabled=true 被拒的定向文案：model-only 覆盖且 tutor 密钥已录 → 只说缺端点，不再误指密钥通道。 */
+    @Test
+    void updateEnableBlockedMessagePointsToEndpointInModelOnlyOverride_ac2() {
+        when(llmClients.chatHandle()).thenReturn(Optional.empty());
+        when(llmClients.directoryMode()).thenReturn(false);
+        when(appSettingService.findValue(TutorServiceImpl.SETTING_KEY))
+                .thenReturn(
+                        Optional.of(
+                                "{\"schemaVersion\":1,\"enabled\":false,"
+                                        + "\"baseUrl\":null,\"model\":\"glm-override-model\"}"));
+        // 覆盖轨视图：端点空（env 端点也未配置）、密钥已录（tutor 预留行）——缺的只是端点。
+        when(llmClients.effectiveConfig())
+                .thenReturn(
+                        Optional.of(
+                                new LlmClientRegistry.EffectiveConfig(
+                                        LlmClientRegistry.LEGACY_PROVIDER_ID,
+                                        "openai-chat",
+                                        "",
+                                        "glm-override-model",
+                                        true,
+                                        false)));
+
+        assertThatThrownBy(
+                        () ->
+                                tutorService.updateAdminConfig(
+                                        new LlmConfigUpdateRequest(true, null, null, null, null),
+                                        1L))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> {
+                            assertThat(exception.getMessage())
+                                    .contains("缺少生效端点")
+                                    .contains("YILIAN_LLM_BASE_URL");
+                            assertThat(exception.getMessage()).doesNotContain("YILIAN_LLM_API_KEY");
+                        });
+    }
+
     /** [AC-3] PUT enabled=true 被拒的定向文案：目录模式缺 env key → 指向 YILIAN_LLM_KEY_&lt;大写ID&gt;（连字符→下划线）。 */
     @Test
     void updateEnableBlockedMessagePointsToEnvKeyInDirectoryMode_ac3() {

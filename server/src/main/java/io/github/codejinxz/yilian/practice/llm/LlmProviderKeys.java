@@ -28,7 +28,7 @@ public class LlmProviderKeys {
     /**
      * llm_provider_keys 的预留 id（028）：答疑 LLM 自身的密钥行——不属于任何目录条目，目录增删/激活切换 不会触碰本行；它只在 legacy 形态（目录空）的
      * tutor 覆盖轨里生效（见 {@code LlmClientRegistryImpl} 的覆盖轨装配：本行密文解密 &gt; {@code YILIAN_LLM_API_KEY}
-     * env）。复用本表而非新建表是 028 预披露 裁决：加密基建（{@link ProviderKeyCrypto}）、last4 投影与状态指纹全部同源。
+     * env）。复用本表与既有加密面：加解密（{@link ProviderKeyCrypto}）、last4 投影与状态指纹全部同源，无需为答疑密钥另建存储。
      */
     public static final String TUTOR_PROVIDER_ID = "tutor";
 

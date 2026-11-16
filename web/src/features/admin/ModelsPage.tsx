@@ -276,7 +276,7 @@ export function ModelsPage() {
   // 期间服务端状态变化不回填（防后台 refetch 抹掉输入），保存/重置/开关成功后统一对齐并清 dirty。
   const [legacyForm, setLegacyForm] = useState<LegacyFormState | null>(null);
   const [legacyFormDirty, setLegacyFormDirty] = useState(false);
-  // 「重置为环境默认」的确认弹窗（清覆盖 + 清 tutor 密钥，预披露裁决口径）。
+  // 「重置为环境默认」的确认弹窗：清端点/模型覆盖 + 删 tutor 密钥行，生效值回退环境变量。
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
   // 非编辑态下表单与服务端保持一致：config 首次到位时以生效值回填；目录删除/激活等外部变更
@@ -488,7 +488,7 @@ export function ModelsPage() {
         </div>
 
         {activeProvider ? (
-          // 目录激活态（022/027A 语义）：字段只读展示，编辑走 provider 抽屉（预披露裁决，本批不改）。
+          // 目录激活态（022/027A 语义）：字段只读展示，字段编辑走 provider 抽屉。
           <div className="mt-[18px] flex flex-wrap gap-x-12 gap-y-5">
             <div>
               <p className={configCellLabelClassName()}>凭证状态</p>
@@ -1021,7 +1021,7 @@ export function ModelsPage() {
         onCancel={() => setDeleting(null)}
       />
 
-      {/* 重置为环境默认（028 预披露裁决）：清端点/模型覆盖 + 删 tutor 密钥行，生效值回退环境变量；开关状态不变。 */}
+      {/* 重置为环境默认：清端点/模型覆盖 + 删 tutor 密钥行，生效值回退环境变量；答疑开关保持不变。 */}
       <ConfirmDialog
         open={resetConfirmOpen}
         title="重置为环境默认"

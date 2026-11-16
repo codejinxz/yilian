@@ -265,6 +265,63 @@ class LlmClientRegistryTest {
                         });
     }
 
+    /** [AC-2] model-only 覆盖（只存模型名）同样进覆盖轨：端点回退 env 端点，模型覆盖生效于句柄。 */
+    @Test
+    void tutorOverrideModelOnlyEntersRailWithEnvEndpointFallback_ac2() {
+        legacyProperties =
+                new LlmProperties(
+                        "https://env.example.com/v4",
+                        "sk-env-legacy",
+                        "glm-4.7",
+                        null,
+                        LlmProperties.LlmProvider.OPENAI);
+        registry = newRegistry();
+        when(appSettingService.findValue(TutorOverrides.SETTING_KEY))
+                .thenReturn(
+                        Optional.of(
+                                "{\"schemaVersion\":1,\"enabled\":true,"
+                                        + "\"baseUrl\":null,\"model\":\"glm-override-model\"}"));
+
+        // 视图与句柄同源：端点=env 值、模型=覆盖值（若走纯 env 轨会静默忽略模型覆盖）。
+        assertThat(registry.chatHandle())
+                .hasValueSatisfying(
+                        handle -> assertThat(handle.model()).isEqualTo("glm-override-model"));
+        assertThat(registry.effectiveConfig())
+                .hasValueSatisfying(
+                        config -> {
+                            assertThat(config.baseUrl()).isEqualTo("https://env.example.com/v4");
+                            assertThat(config.model()).isEqualTo("glm-override-model");
+                            assertThat(config.hasKey()).isTrue();
+                            assertThat(config.credentialsComplete()).isTrue();
+                        });
+    }
+
+    /** [AC-2] model-only 覆盖且 env 端点为空：覆盖轨视图在（端点空、凭证不齐）、句柄缺，不谎报可用。 */
+    @Test
+    void tutorOverrideModelOnlyWithoutEnvEndpointYieldsViewWithoutHandle_ac2() {
+        // env 端点为空（YILIAN_LLM_BASE_URL 未配置），密钥已录（tutor 预留行）。
+        legacyProperties =
+                new LlmProperties("", "", "glm-4.7", null, LlmProperties.LlmProvider.OPENAI);
+        registry = newRegistry();
+        when(appSettingService.findValue(TutorOverrides.SETTING_KEY))
+                .thenReturn(
+                        Optional.of(
+                                "{\"schemaVersion\":1,\"enabled\":true,"
+                                        + "\"baseUrl\":null,\"model\":\"glm-override-model\"}"));
+        when(providerKeys.resolveDecrypted(LlmProviderKeys.TUTOR_PROVIDER_ID))
+                .thenReturn(Optional.of("sk-tutor-db"));
+
+        assertThat(registry.chatHandle()).isEmpty();
+        assertThat(registry.effectiveConfig())
+                .hasValueSatisfying(
+                        config -> {
+                            assertThat(config.baseUrl()).isEmpty();
+                            assertThat(config.model()).isEqualTo("glm-override-model");
+                            assertThat(config.hasKey()).isTrue();
+                            assertThat(config.credentialsComplete()).isFalse();
+                        });
+    }
+
     /** [AC-2] 覆盖轨缺密钥（openai 轨）：视图在、句柄缺（三态门不谎报可用）。 */
     @Test
     void tutorOverrideRailWithoutKeyYieldsViewWithoutHandle_ac2() {

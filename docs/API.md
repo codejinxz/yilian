@@ -1884,7 +1884,7 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 ```
 
 - `baseUrl`/`model`：**生效值**——目录激活时为激活条目端点/模型（022）；legacy 形态（目录空或未激活）逐字段按「覆盖 > env」投影（覆盖值非空取覆盖，否则取 `YILIAN_LLM_BASE_URL`/`YILIAN_LLM_MODEL`，模型缺省回落 `glm-4.7`）。
-- `source`（028 新增）：legacy 形态取值来源——`custom`=存在 tutor 覆盖（`baseUrl`/`model` 任一非空）；`env`=纯环境变量。目录激活态恒为 `env`（覆盖休眠，前端以目录徽标优先）。
+- `source`（028 新增）：legacy 形态取值来源——`custom`=存在 tutor 覆盖（`baseUrl`/`model` 任一非空）；`env`=纯环境变量。目录激活态恒为 `env`（覆盖休眠，前端以目录徽标优先）。存在任一覆盖即进入 tutor 覆盖轨：端点/模型逐字段「覆盖 > env」（端点缺省回退 `YILIAN_LLM_BASE_URL`，env 端点也为空则凭证不齐、轨不可用），投影与轨道恒同源——不存在「视图报 custom 而轨道忽略覆盖」的形态。
 - `hasKey`：生效轨是否有可用密钥——目录激活按 027B 条目解析链（入库密钥可解密或 `YILIAN_LLM_KEY_<大写ID>` env 任一）；legacy 覆盖轨为 tutor 预留行可解密或 `YILIAN_LLM_API_KEY` env；纯 env 轨为 `YILIAN_LLM_API_KEY`。
 - `keyLast4`（028 新增）：tutor 密钥行（`llm_provider_keys` 预留 id=`tutor`）的尾 4 位辨识号——仅在覆盖轨生效（覆盖轨视图存在）且有入库行时给值；env 态密钥与目录激活态为 `null`（明文永不回读）。
 - `providerId`：生效 provider id；legacy 形态（覆盖轨与环境变量轨）为 `"legacy"`（覆盖/env 的来源差异由 `source` 表达），未配置（目录未激活且 legacy 未配）时为 `null`。`protocol`：生效协议 wire 值（`anthropic-messages` | `openai-chat` | `openai-responses`），未配置时为 `null`。
@@ -1901,7 +1901,7 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 ```
 
 - `enabled` 必填，语义不变：`true` 且无可用客户端（激活 provider 凭证不齐 / 目录未激活且覆盖轨与 legacy 均不可用）→ `40000` 拒绝，**本次全部变更（覆盖/密钥/开关）同事务回滚**；文案按配置形态分口径（目录缺密钥→条目录入/env 索引；覆盖轨缺密钥→卡内录入或 `YILIAN_LLM_API_KEY`；纯 env→两件套文案，anthropic 轨提示「无需 API Key」）。
-- `baseUrl`/`model` 为**状态型字段**（028）：非空白（trim 后）=落 tutor 覆盖（存 `app_settings` 键 `llm.tutor`，即时生效——`baseUrl` 需 `http(s)://` 前缀且无空白、≤500 字符；`model` ≤2048 字符，违规 `40000`）；**空串/缺省=清除该项覆盖**（生效值回退 env）。只传 `enabled` 的调用会同时清除既有覆盖——客户端应总是携带表单当前值。
+- `baseUrl`/`model` 为**状态型字段**（028）：非空白（trim 后）=落 tutor 覆盖（存 `app_settings` 键 `llm.tutor`，即时生效——`baseUrl` 需 `http(s)://` 前缀且无空白、≤500 字符；`model` ≤2048 字符，违规 `40000`）；**空串/缺省=清除该项覆盖**（生效值回退 env）。只传 `enabled` 的调用会同时清除既有覆盖——客户端应总是携带表单当前值。存在任一覆盖（含 model-only）即进覆盖轨：端点缺省回退 `YILIAN_LLM_BASE_URL`，模型覆盖在 env 端点上真实生效。
 - `apiKey` 写-only（028）：非空白（trim 后 ≤2048 字符）=AES-256-GCM 加密 upsert 到 `llm_provider_keys` 预留 id=`tutor`（明文只在加密前内存短暂存在，不入库明文列、不入日志/审计/响应）；空/缺省=不变更；清除密钥用 `clearKey=true`（删该行，无行幂等）。
 - 校验失败（形状/长度）先于任何写路径 `40000`；覆盖写（`app_settings`）与密钥写（`llm_provider_keys`）同事务，任何失败一并回滚。
 - 审计：`@OperationLog(module="llm", action="LLM_CONFIG_UPDATE")`；GET 不标（§3.6）。

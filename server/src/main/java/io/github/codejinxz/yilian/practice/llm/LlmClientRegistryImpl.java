@@ -97,55 +97,61 @@ public class LlmClientRegistryImpl implements LlmClientRegistry {
             cached.set(new CachedResolution(fingerprint, resolution));
             return resolution;
         }
-        return resolveLegacyFamily();
+        // 已读的目录快照作参数传入：同一次解析对 app_settings 只读一次，消除两次读取间
+        // 目录被并发写导致「判空用旧快照、指纹用新快照」的微秒竞态窗口。
+        return resolveLegacyFamily(catalog);
     }
 
     /**
-     * legacy 族解析（028，目录空时）：tutor 覆盖轨 &gt; legacy env 轨。覆盖状态指纹含 baseUrl/model （只翻转 enabled
-     * 不产生新指纹——轨道不变无需换轨），与密钥行状态共同参与缓存失效，覆盖保存/清除 下一次调用即换轨。
+     * legacy 族解析（028，目录空时）：tutor 覆盖轨 &gt; legacy env 轨——存在任一覆盖（端点或模型）即进覆盖轨， 端点缺省回退 env 端点。覆盖状态指纹含
+     * baseUrl/model（只翻转 enabled 不产生新指纹——轨道不变无需换轨）， 与密钥行状态共同参与缓存失效，覆盖保存/清除 下一次调用即换轨。
      *
+     * @param catalog 调用方已读取的目录快照（与判空同源，避免同解析二次读取的竞态）
      * @return 解析结果
      */
-    private Resolution resolveLegacyFamily() {
+    private Resolution resolveLegacyFamily(LlmProviderCatalog.Catalog catalog) {
         TutorOverrides.Stored stored = tutorOverrides.read();
         Fingerprint fingerprint =
-                new Fingerprint(
-                        providerCatalog.read(),
-                        providerKeys.stateFingerprint(),
-                        stored.overrideStamp());
+                new Fingerprint(catalog, providerKeys.stateFingerprint(), stored.overrideStamp());
         CachedResolution cachedEntry = cached.get();
         if (cachedEntry != null && cachedEntry.fingerprint().equals(fingerprint)) {
             return cachedEntry.resolution();
         }
+        // 进入覆盖轨的条件是「存在任一覆盖」（端点或模型）：model-only 覆盖同样要生效——
+        // 端点缺省回退 env 端点（见 resolveTutorOverride），否则视图按覆盖投影、轨道走纯 env
+        // 会出现「UI 报已生效、实际模型被静默忽略」的矛盾。
         Resolution resolution =
-                stored.hasBaseUrl() ? resolveTutorOverride(stored) : resolveLegacy();
+                stored.hasOverride() ? resolveTutorOverride(stored) : resolveLegacy();
         cached.set(new CachedResolution(fingerprint, resolution));
         return resolution;
     }
 
     /**
-     * tutor 覆盖轨（028）：端点/模型取 {@code llm.tutor} 覆盖（模型缺省回退 env 缺省值），协议与超时仍随 legacy env （028
-     * 只开放端点/模型/密钥三个编辑面）；密钥链为 llm_provider_keys 预留 id=tutor 密文解密 &gt; {@code YILIAN_LLM_API_KEY} env
-     * &gt; 空。凭证口径与目录条目一致（anthropic 轨 key 可空）。providerId 归 {@code legacy} 族——前端 legacy
-     * 卡形态判断依赖它，覆盖/env 的来源差异由配置视图 source 表达。
+     * tutor 覆盖轨（028）：端点/模型逐字段取 {@code llm.tutor} 覆盖、缺省回退 env（端点回退 {@code YILIAN_LLM_BASE_URL}，模型回退
+     * env 模型/缺省值；env 端点也为空则凭证不齐、轨不可用），协议与超时仍随 legacy env （028 只开放端点/模型/密钥三个编辑面）；密钥链为
+     * llm_provider_keys 预留 id=tutor 密文解密 &gt; {@code YILIAN_LLM_API_KEY} env &gt;
+     * 空。凭证口径与目录条目一致（anthropic 轨 key 可空）。providerId 归 {@code legacy} 族——前端 legacy 卡形态判断依赖它，覆盖/env
+     * 的来源差异由配置视图 source 表达。
      *
-     * @param stored 覆盖配置（调用方保证 hasBaseUrl）
+     * @param stored 覆盖配置（调用方保证 hasOverride）
      * @return 解析结果
      */
     private Resolution resolveTutorOverride(TutorOverrides.Stored stored) {
         LlmProtocol protocol = legacyProperties.legacyProtocol();
+        String baseUrl = stored.hasBaseUrl() ? stored.baseUrl().trim() : legacyProperties.baseUrl();
         String model = stored.hasModel() ? stored.model().trim() : legacyProperties.model();
         String resolvedKey =
                 providerKeys
                         .resolveDecrypted(LlmProviderKeys.TUTOR_PROVIDER_ID)
                         .orElse(legacyProperties.apiKey());
         boolean credentialsComplete =
-                protocol == LlmProtocol.ANTHROPIC_MESSAGES || !resolvedKey.isEmpty();
+                !baseUrl.isEmpty()
+                        && (protocol == LlmProtocol.ANTHROPIC_MESSAGES || !resolvedKey.isEmpty());
         EffectiveConfig config =
                 new EffectiveConfig(
                         LEGACY_PROVIDER_ID,
                         protocol.wire(),
-                        stored.baseUrl().trim(),
+                        baseUrl,
                         model,
                         !resolvedKey.isEmpty(),
                         credentialsComplete);
@@ -155,11 +161,7 @@ public class LlmClientRegistryImpl implements LlmClientRegistry {
         LlmChatClient client =
                 createSafely(
                         protocol,
-                        new LlmEndpoint(
-                                stored.baseUrl().trim(),
-                                resolvedKey,
-                                model,
-                                legacyProperties.timeout()));
+                        new LlmEndpoint(baseUrl, resolvedKey, model, legacyProperties.timeout()));
         if (client == null) {
             return new Resolution(Optional.empty(), Optional.of(config));
         }

@@ -194,6 +194,44 @@ class TutorConfigRailIntegrationTest {
                                         .isEqualTo("https://env-rail.example.test/v4"));
     }
 
+    /**
+     * [AC-2] model-only 覆盖（清端点保留模型）：覆盖轨仍生效——端点回退 env 端点、模型用覆盖值， 句柄与 GET
+     * 投影同源（source=custom、model=覆盖值、baseUrl=env 回退值），不出现「视图报 custom 而轨道走纯 env」的矛盾。
+     */
+    @Test
+    @DisplayName("[AC-2] model-only 覆盖生效且视图与轨道一致")
+    void ac2_modelOnlyOverrideConsistentWithRail() {
+        // 清端点覆盖 + 保留模型覆盖 → 存储 {baseUrl:null, model:"glm-override"}。
+        LlmConfigView view =
+                tutorService.updateAdminConfig(
+                        new LlmConfigUpdateRequest(false, "", "glm-override", null, null), 1L);
+
+        // 视图：source=custom（任一覆盖存在）、模型=覆盖值、端点=env 回退值。
+        assertThat(view.source()).isEqualTo(LlmConfigView.SOURCE_CUSTOM);
+        assertThat(view.model()).isEqualTo("glm-override");
+        assertThat(view.baseUrl()).isEqualTo("https://env-rail.example.test/v4");
+        assertThat(view.hasKey()).isTrue();
+
+        // 轨道：句柄模型=覆盖值（模型覆盖真实生效），视图端点/模型与轨道逐字段一致。
+        assertThat(llmClients.chatHandle())
+                .hasValueSatisfying(handle -> assertThat(handle.model()).isEqualTo("glm-override"));
+        assertThat(llmClients.effectiveConfig())
+                .hasValueSatisfying(
+                        config -> {
+                            assertThat(config.baseUrl())
+                                    .isEqualTo("https://env-rail.example.test/v4");
+                            assertThat(config.model()).isEqualTo("glm-override");
+                            assertThat(config.hasKey()).isTrue();
+                            assertThat(config.credentialsComplete()).isTrue();
+                        });
+
+        // GET 再次回读：投影与轨道仍同源（覆盖轨缓存不掩盖一致性）。
+        LlmConfigView reRead = tutorService.getAdminConfig();
+        assertThat(reRead.source()).isEqualTo(LlmConfigView.SOURCE_CUSTOM);
+        assertThat(reRead.model()).isEqualTo("glm-override");
+        assertThat(reRead.baseUrl()).isEqualTo("https://env-rail.example.test/v4");
+    }
+
     /** [AC-3]/[AC-1] tutor 密钥：PUT apiKey 加密入库（密文列无明文、last4 投影）、clearKey 删行后回落 env。 */
     @Test
     @DisplayName("[AC-3] tutor 密钥加密入库/last4 投影/清除删行")

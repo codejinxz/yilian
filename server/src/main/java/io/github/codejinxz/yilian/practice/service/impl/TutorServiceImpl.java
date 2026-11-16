@@ -301,12 +301,13 @@ public class TutorServiceImpl implements TutorService {
                     LlmConfigView.SOURCE_ENV,
                     null);
         }
-        // legacy 形态（目录空或存在未激活）：baseUrl/model 逐字段按「覆盖 > env」投影生效值，
-        // 供卡片编辑输入框回显；轨道真相（协议/凭证齐备性/hasKey）以注册表解析为准——覆盖存而目录
-        // 未激活时轨道仍 fail-closed（022 语义），投影值只说明「legacy 形态会用什么」。
+        // legacy 形态（目录空或存在未激活）：baseUrl/model 逐字段按「覆盖 > env」投影生效值——与注册表
+        // 覆盖轨的逐字段口径一致（存在任一覆盖即进覆盖轨，端点缺省回退 env 端点），视图与轨道恒同源；
+        // 轨道真相（协议/凭证齐备性/hasKey）以注册表解析为准，覆盖存而目录未激活时轨道仍 fail-closed
+        // （022 语义），此时 effectiveConfig 为空、投影值只说明「legacy 形态会用什么」。
         String baseUrl = stored.hasBaseUrl() ? stored.baseUrl().trim() : legacyProperties.baseUrl();
         String model = stored.hasModel() ? stored.model().trim() : legacyProperties.model();
-        boolean tutorRail = stored.hasBaseUrl() && effective.isPresent();
+        boolean tutorRail = stored.hasOverride() && effective.isPresent();
         return new LlmConfigView(
                 stored.enabled(),
                 baseUrl,
@@ -391,8 +392,8 @@ public class TutorServiceImpl implements TutorService {
     }
 
     /**
-     * 开启答疑被拒（无可用客户端）的定向文案：目录模式指向激活 provider 的密钥录入/激活入口；legacy 族按轨道 分口径——覆盖轨缺密钥指向卡片录入（即时生效），env 轨沿用
-     * YILIAN_LLM_* 两件套文案（anthropic 轨 key 可空、只差端点）。
+     * 开启答疑被拒（无可用客户端）的定向文案：目录模式指向激活 provider 的密钥录入/激活入口；legacy 族按轨道
+     * 分口径——覆盖轨按实际缺什么逐项定向（缺端点说端点、缺密钥说密钥），env 轨沿用 YILIAN_LLM_* 两件套文案 （anthropic 轨 key 可空、只差端点）。
      *
      * @return 提示文案
      */
@@ -422,14 +423,28 @@ public class TutorServiceImpl implements TutorService {
                     + "或设置环境变量 YILIAN_LLM_KEY_"
                     + config.providerId().replace('-', '_').toUpperCase(java.util.Locale.ROOT);
         }
-        // legacy 族（目录空）：覆盖轨在尝试中 → 按轨缺什么定向（028 卡内编辑即时生效）。
+        // legacy 族（目录空）：存在任一覆盖即按覆盖轨逐项说明缺什么（028 卡内编辑即时生效）——
+        // 缺端点说端点、缺密钥说密钥、都已备妥而仍开不了才泛指配置装配失败，不误指已录入的密钥。
         TutorOverrides.Stored stored = storedSettings();
-        if (stored.hasBaseUrl()) {
+        if (stored.hasOverride()) {
             Optional<LlmClientRegistry.EffectiveConfig> rail = llmClients.effectiveConfig();
+            boolean endpointMissing =
+                    rail.isEmpty()
+                            || rail.get().baseUrl() == null
+                            || rail.get().baseUrl().isBlank();
             boolean keyMissing =
                     rail.isPresent() && !rail.get().credentialsComplete() && !rail.get().hasKey();
+            if (endpointMissing && keyMissing) {
+                return "答疑凭证不齐，缺少生效端点与 API 密钥：请在管理端模型页「答疑 LLM」卡补齐"
+                        + "（保存即时生效），或设置环境变量 YILIAN_LLM_BASE_URL / YILIAN_LLM_API_KEY";
+            }
+            if (endpointMissing) {
+                return "答疑凭证不齐，缺少生效端点：请在管理端模型页「答疑 LLM」卡填写端点"
+                        + "（保存即时生效），或设置环境变量 YILIAN_LLM_BASE_URL";
+            }
             if (keyMissing) {
-                return "答疑凭证不齐：请在管理端模型页「答疑 LLM」卡录入 API 密钥（保存即时生效），" + "或设置环境变量 YILIAN_LLM_API_KEY";
+                return "答疑凭证不齐，缺少 API 密钥：请在管理端模型页「答疑 LLM」卡录入 API 密钥"
+                        + "（保存即时生效），或设置环境变量 YILIAN_LLM_API_KEY";
             }
             return "答疑无法启用：请检查「答疑 LLM」卡的端点与模型配置（保存即时生效，无需重启）";
         }

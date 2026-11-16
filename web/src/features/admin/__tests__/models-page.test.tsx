@@ -984,4 +984,26 @@ describe("ModelsPage 答疑 LLM 卡 legacy 态编辑（028 AC-4）", () => {
     await waitFor(() => expect(screen.getByLabelText("当前模型")).toHaveValue("glm-5.3-flash"));
     expect(observed.getCalls).toBeGreaterThanOrEqual(0);
   });
+
+  it("028 AC-4: model-only 覆盖（清端点保留模型）保存后徽标为「自定义」——与覆盖轨实际生效一致，不误报回退环境变量", async () => {
+    const observed = stubAdminLlmFetch(CONFIGURED_ON);
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    await screen.findByLabelText("当前模型");
+    // 清空端点、保留模型 → 保存后存储为 model-only 覆盖（服务端 source=custom）。
+    await user.clear(screen.getByLabelText("生效端点"));
+    await user.click(screen.getByRole("button", { name: "保存答疑配置" }));
+
+    await waitFor(() => expect(observed.putBodies).toHaveLength(1));
+    expect(observed.putBodies[0]).toEqual({
+      enabled: true,
+      baseUrl: "",
+      model: "glm-4.7",
+    });
+    // 徽标与实际轨一致：任一覆盖存在即「自定义」（模型覆盖经 env 端点真实生效）。
+    expect(await screen.findByRole("status")).toHaveTextContent(/答疑配置已保存并即时生效/);
+    await waitFor(() => expect(screen.getAllByText("自定义")).toHaveLength(1));
+  });
 });
