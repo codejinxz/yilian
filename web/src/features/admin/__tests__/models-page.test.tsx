@@ -23,7 +23,7 @@ interface LlmConfigFixture {
   credentialsComplete: boolean;
 }
 
-/** 服务端 LlmProviderView 的合法形状（API §8.15.1）。 */
+/** 服务端 LlmProviderView 的合法形状（API §8.15.1；027B 增 keyLast4）。 */
 interface LlmProviderFixture {
   id: string;
   name: string;
@@ -31,6 +31,7 @@ interface LlmProviderFixture {
   baseUrl: string;
   model: string;
   hasKey: boolean;
+  keyLast4: string | null;
   active: boolean;
 }
 
@@ -53,6 +54,7 @@ const ZCODE_GATEWAY: LlmProviderFixture = {
   baseUrl: "http://127.0.0.1:47860/gateway/zcode",
   model: "glm-5.3",
   hasKey: false,
+  keyLast4: null,
   active: true,
 };
 
@@ -64,6 +66,7 @@ const ZHIPU: LlmProviderFixture = {
   baseUrl: "https://open.bigmodel.cn/api/paas/v4",
   model: "glm-4.7",
   hasKey: true,
+  keyLast4: null,
   active: false,
 };
 
@@ -146,13 +149,16 @@ function stubAdminLlmFetch(
     if (url.endsWith("/api/admin/llm/providers") && method === "POST") {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       observed.providerPosts.push(body);
+      // 027B：带 apiKey（写-only）时服务端加密入库，投影只回 hasKey + 尾 4 位。
+      const hasKey = typeof body.apiKey === "string" && body.apiKey !== "";
       const created: LlmProviderFixture = {
         id: String(body.id),
         name: String(body.name),
         protocol: String(body.protocol),
         baseUrl: String(body.baseUrl),
         model: String(body.model),
-        hasKey: false,
+        hasKey,
+        keyLast4: hasKey ? String(body.apiKey).slice(-4) : null,
         active: false,
       };
       providers.push(created);
@@ -173,6 +179,8 @@ function stubAdminLlmFetch(
         const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
         observed.providerPuts.push({ path: `/admin/llm/providers/${id}`, body });
         const target = providers.find((provider) => provider.id === id);
+        // 027B：apiKey 非空白=加密覆盖（投影换新尾号）；空/缺省=不变更（保留旧尾号）。
+        const apiKeyGiven = typeof body.apiKey === "string" && body.apiKey !== "";
         const updated = target
           ? {
               ...target,
@@ -180,8 +188,14 @@ function stubAdminLlmFetch(
               protocol: String(body.protocol),
               baseUrl: String(body.baseUrl),
               model: String(body.model),
+              hasKey: apiKeyGiven || target.hasKey,
+              keyLast4: apiKeyGiven ? String(body.apiKey).slice(-4) : target.keyLast4,
             }
           : target;
+        if (updated) {
+          const index = providers.findIndex((provider) => provider.id === id);
+          providers[index] = updated;
+        }
         return jsonResponse(successEnvelope(updated));
       }
       if (method === "DELETE") {
@@ -509,8 +523,8 @@ describe("ModelsPage provider 目录管理（022 AC-3）", () => {
 
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "删除 provider zcode-gateway" }));
-    // 确认框讲清后果（只删元数据、密钥不动），确认后才发 DELETE。
-    expect(await screen.findByRole("dialog")).toHaveTextContent(/只删目录元数据/);
+    // 确认框讲清后果（入库密钥一并删除、env 密钥不动），确认后才发 DELETE。
+    expect(await screen.findByRole("dialog")).toHaveTextContent(/其入库密钥一并删除/);
     await user.click(screen.getByRole("button", { name: "删除" }));
     await waitFor(() => expect(observed.providerDeletes).toEqual(["zcode-gateway"]));
     expect(await screen.findByRole("status")).toHaveTextContent(/激活中的 provider 不能删除/);
@@ -677,5 +691,111 @@ describe("ModelsPage provider 表单去预设与全字段动态编辑", () => {
     expect(screen.queryByText(/填入.*模板/)).not.toBeInTheDocument();
     // 条目密钥变量名按现状动态给出：指引块随激活条目计算，顶部说明不再越俎代庖。
     expect(screen.getByText(/YILIAN_LLM_KEY_ZHIPU/)).toBeInTheDocument();
+  });
+});
+
+describe("ModelsPage provider 密钥管理（027B 写-only 与投影）", () => {
+  beforeEach(() => {
+    resetApiState();
+    // biome-ignore lint/suspicious/noDocumentCookie: 测试需要写入可读的 CSRF cookie
+    document.cookie = "XSRF-TOKEN=test-token; path=/";
+  });
+
+  /** 入库密钥条目夹具（openai 轨、DB 态：hasKey + 尾 4 位）。 */
+  const STORED_KEY: LlmProviderFixture = {
+    id: "stored-prov",
+    name: "入库密钥条目",
+    protocol: "openai-chat",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    model: "glm-4.7",
+    hasKey: true,
+    keyLast4: "8811",
+    active: true,
+  };
+
+  it("027B AC-4: 列表卡展示 last4（入库态）且 env 态不显示 last4，hasKey 徽标口径不受影响", async () => {
+    stubAdminLlmFetch(
+      { ...CONFIGURED_ON, providerId: "stored-prov", protocol: "openai-chat" },
+      { providers: [STORED_KEY, ZHIPU] },
+    );
+
+    renderModelsPage();
+
+    await screen.findByText("入库密钥条目");
+    // 入库态：有 Key 徽标 + 尾号 ••••8811。
+    const storedCard = screen.getByLabelText("provider stored-prov");
+    expect(storedCard.textContent).toContain("尾号 ••••8811");
+    // env 态：有 Key 徽标但无尾号（keyLast4=null 不显示）。
+    const envCard = screen.getByLabelText("provider zhipu");
+    expect(envCard.textContent).toContain("有 Key");
+    expect(envCard.textContent).not.toContain("尾号");
+  });
+
+  it("027B AC-4: 编辑抽屉密钥字段写-only——留空提交不携带 apiKey，填入提交携带明文且输入框为 password 掩码", async () => {
+    const observed = stubAdminLlmFetch(
+      { ...CONFIGURED_ON, providerId: "stored-prov", protocol: "openai-chat" },
+      { providers: [STORED_KEY] },
+    );
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "编辑 provider stored-prov" }));
+
+    // 写-only：输入框为 password 掩码、初始空白（已存密钥不回填），提示尾号。
+    const keyInput = screen.getByLabelText("API 密钥") as HTMLInputElement;
+    expect(keyInput).toHaveAttribute("type", "password");
+    expect(keyInput.value).toBe("");
+    expect(screen.getByText(/已存密钥尾号 ••••8811/)).toBeInTheDocument();
+
+    // 留空提交：PUT body 不携带 apiKey（=不变更）。
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(observed.providerPuts).toHaveLength(1));
+    expect(observed.providerPuts[0].body).not.toHaveProperty("apiKey");
+
+    // 再次打开：填入新密钥提交，body 携带明文（写-only 请求侧允许），响应只投影尾号。
+    await user.click(await screen.findByRole("button", { name: "编辑 provider stored-prov" }));
+    const keyInput2 = screen.getByLabelText("API 密钥") as HTMLInputElement;
+    await user.type(keyInput2, "sk-rotated-plaintext-99ab");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(observed.providerPuts).toHaveLength(2));
+    expect((observed.providerPuts[1].body as Record<string, unknown>).apiKey).toBe(
+      "sk-rotated-plaintext-99ab",
+    );
+
+    // 保存成功后抽屉关闭：明文不留在 DOM（无明文回显红线）。
+    await waitFor(() => expect(screen.queryByLabelText("API 密钥")).not.toBeInTheDocument());
+    expect(screen.getByLabelText("provider stored-prov").textContent).toContain("尾号 ••••99ab");
+    expect(screen.queryByText("sk-rotated-plaintext-99ab")).not.toBeInTheDocument();
+  });
+
+  it("027B AC-4: 新增 provider 携带 apiKey 时 POST 写-only 字段，成功后卡片按 hasKey+尾号投影", async () => {
+    const observed = stubAdminLlmFetch(
+      { ...CONFIGURED_ON, providerId: "legacy", protocol: "openai-chat" },
+      { providers: [] },
+    );
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "新增 provider" }));
+    await user.type(screen.getByLabelText("ID"), "new-prov");
+    await user.type(screen.getByLabelText("名称"), "新条目");
+    await user.selectOptions(screen.getByLabelText("协议"), "openai-chat");
+    await user.type(screen.getByLabelText("端点 Base URL"), "https://x");
+    await user.type(screen.getByLabelText("模型名"), "glm-4.7");
+    // 新增态密钥为可选：占位提示讲清「填入=加密入库；留空走环境变量」。
+    expect(screen.getByText(/可选：填入=加密入库/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("API 密钥"), "sk-new-plaintext-cd34");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(observed.providerPosts).toHaveLength(1));
+    expect((observed.providerPosts[0] as Record<string, unknown>).apiKey).toBe(
+      "sk-new-plaintext-cd34",
+    );
+    // 响应投影：hasKey=true + 尾号，明文不回显。
+    expect(await screen.findByText("新条目")).toBeInTheDocument();
+    expect(screen.getByLabelText("provider new-prov").textContent).toContain("尾号 ••••cd34");
+    expect(screen.queryByText("sk-new-plaintext-cd34")).not.toBeInTheDocument();
   });
 });

@@ -29,18 +29,7 @@ import {
   useToastMessage,
 } from "./ui";
 
-/**
- * 模型页签（provider 目录管理）。
- *
- * <p>架构口径：模型凭据只走环境变量（密钥不入库）。provider 目录
- * （app_settings 键 llm.providers/llm.active）管理多协议多 provider（CC Switch 式）：
- * 本页做元数据 CRUD 与激活切换，密钥按 id 经 YILIAN_LLM_KEY_&lt;大写ID&gt; 注入（UI 只显
- * hasKey 徽标）；目录为空时回退 legacy 单 provider（YILIAN_LLM_* 环境变量直配，只读展示）。
- * 激活的 provider 即答疑等 AI 功能的数据源；llm.tutor 开关独立沿用。
- * 表单一律空白手填，不内置任何 provider 预设模板；页面说明只描述当前实际行为，
- * 不把未落地的能力写成既有能力、也不把现状渠道承诺为唯一通道。
- * mock 口径：本页直连真实端点，mock 层不新增演示路径。
- */
+/** 模型页签（provider 目录管理）。 */
 
 /** 任务路由原型占位值（与原型 index.html 一致）；M3 任务路由域落地前仅作展示参考。 */
 const M3_ROUTES = [
@@ -108,8 +97,8 @@ const PROTOCOL_LABELS: Record<LlmProtocol, string> = {
 
 /** 页面顶部的现状说明：只描述本页与密钥的当前解析方式，不对密钥通道做唯一性承诺。 */
 const PAGE_NOTE =
-  "本页管理 provider 目录、激活切换与答疑开关；条目密钥按条目 ID 对应的环境变量解析，" +
-  "不入库、不回显，密钥管理通道的动态化在后续批次；开关改动写入操作日志。";
+  "本页管理 provider 目录、激活切换与答疑开关；条目密钥可在抽屉录入（加密入库，" +
+  "不回显）或按条目 ID 走环境变量；目录为空时回退 legacy 环境变量直配；开关改动写入操作日志。";
 
 /** 新增/编辑表单的字段状态；protocol 允许空串表达「未选择」，新增时不预填默认协议。 */
 interface ProviderFormState {
@@ -118,6 +107,10 @@ interface ProviderFormState {
   protocol: LlmProtocol | "";
   baseUrl: string;
   model: string;
+  /** 写-only 密钥输入：永远空白起步（已存密钥不回填），提交时非空白才发送。 */
+  apiKey: string;
+  /** 编辑态下已入库密钥的尾 4 位（仅展示辨识，不含明文）；新增态恒 null。 */
+  existingLast4: string | null;
 }
 
 /** 统一配置卡里一个「标签 + 值」小格的原型样式。 */
@@ -149,6 +142,8 @@ function formStateFor(provider?: LlmProvider): ProviderFormState {
     protocol: provider?.protocol ?? "",
     baseUrl: provider?.baseUrl ?? "",
     model: provider?.model ?? "",
+    apiKey: "",
+    existingLast4: provider?.keyLast4 ?? null,
   };
 }
 
@@ -189,6 +184,12 @@ function ProviderCard({
           ) : (
             <StatePill tone="warn">缺 Key</StatePill>
           )}
+          {provider.hasKey && provider.keyLast4 ? (
+            // 尾 4 位辨识号只在入库态显示（env 态无此值）；仅作辨识，不算明文泄露。
+            <span className="font-mono text-[10px] text-ink-faint">
+              尾号 ••••{provider.keyLast4}
+            </span>
+          ) : null}
           {provider.active ? <LiveMark on>激活中</LiveMark> : null}
         </span>
       </div>
@@ -291,7 +292,13 @@ export function ModelsPage() {
   const updateMutation = useMutation({
     mutationFn: (input: {
       id: string;
-      body: { name: string; protocol: LlmProtocol; baseUrl: string; model: string };
+      body: {
+        name: string;
+        protocol: LlmProtocol;
+        baseUrl: string;
+        model: string;
+        apiKey?: string;
+      };
     }) => updateLlmProvider(input.id, input.body),
     onSuccess: (provider) => {
       invalidateLlmQueries();
@@ -315,7 +322,7 @@ export function ModelsPage() {
     onSuccess: () => {
       invalidateLlmQueries();
       setDeleting(null);
-      toast("provider 已从目录移除（环境变量密钥未改动）");
+      toast("provider 已从目录移除，其入库密钥一并删除（环境变量密钥未改动）");
     },
     onError: (error: unknown) => {
       // 激活中不可删等业务文案原样透出；确认框保持打开便于改选其他激活条目。
@@ -417,7 +424,8 @@ export function ModelsPage() {
         {!config.credentialsComplete && config.providerId && config.providerId !== "legacy" ? (
           <div className="mt-[18px] rounded-[2px] border border-vermilion/30 bg-vermilion/5 p-3.5">
             <p className="text-[13px] text-ink">
-              激活的 provider「{config.providerId}」凭证不齐：设置对应环境变量后重启服务端。
+              激活的 provider「{config.providerId}」凭证不齐：编辑该条目录入 API
+              密钥（加密入库、即时生效无需重启），或设置对应环境变量。
             </p>
             <p className="mt-2.5 font-mono text-[11px] leading-[1.9] text-ink-muted">
               {config.protocol === "anthropic-messages"
@@ -425,7 +433,7 @@ export function ModelsPage() {
                 : `YILIAN_LLM_KEY_${config.providerId.replaceAll("-", "_").toUpperCase()}（模型服务密钥）`}
             </p>
             <p className="mt-2.5 font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
-              API Key 当前经环境变量注入，不入库、不进配置文件、不回显。
+              API Key 经加密入库或环境变量注入，明文不回显、不进日志。
             </p>
           </div>
         ) : null}
@@ -490,7 +498,8 @@ export function ModelsPage() {
       >
         <p className="mb-3 font-mono text-[11px] leading-[1.7] tracking-[0.06em] text-ink-faint">
           多协议多 provider 目录：激活的 provider 是答疑等 AI
-          功能的数据源，切换即时生效；条目密钥按条目 ID 对应的环境变量解析，不入库、不回显。
+          功能的数据源，切换即时生效；条目密钥可在抽屉录入（加密入库、不回显）或按条目 ID
+          走环境变量，删除条目时入库密钥一并删除。
         </p>
         {providers.length === 0 ? (
           // legacy 单 provider 形态：目录为空时沿用环境变量直配，只读展示生效值。
@@ -623,7 +632,7 @@ export function ModelsPage() {
         onClose={() => setForm(null)}
         kicker="Provider 目录"
         title={form?.mode === "edit" ? "编辑 provider" : "新增 provider"}
-        meta="只存元数据；条目密钥按 ID 对应的环境变量解析，不入库、不回显。"
+        meta="元数据即时生效；API 密钥为写-only——填入=加密入库（不回显），留空=不变更。"
       >
         {form ? (
           <form
@@ -649,6 +658,8 @@ export function ModelsPage() {
                 toast("请选择协议");
                 return;
               }
+              // 写-only 密钥：非空白才随请求发送（trim 归一）；空/缺省=不变更。
+              const apiKey = state.apiKey.trim() || undefined;
               if (form.mode === "create") {
                 createMutation.mutate({
                   id: state.id.trim(),
@@ -656,6 +667,7 @@ export function ModelsPage() {
                   protocol: state.protocol,
                   baseUrl: state.baseUrl.trim(),
                   model: state.model.trim(),
+                  apiKey,
                 });
               } else {
                 updateMutation.mutate({
@@ -665,6 +677,7 @@ export function ModelsPage() {
                     protocol: state.protocol,
                     baseUrl: state.baseUrl.trim(),
                     model: state.model.trim(),
+                    apiKey,
                   },
                 });
               }
@@ -743,6 +756,27 @@ export function ModelsPage() {
                 }
               />
             </AdminField>
+            <AdminField
+              label="API 密钥"
+              hint={
+                form.mode === "edit"
+                  ? form.state.existingLast4
+                    ? `已存密钥尾号 ••••${form.state.existingLast4}（不回显）；留空=不变更，填入=加密覆盖。`
+                    : "留空=不变更；填入=加密入库覆盖（env 密钥不受影响）。"
+                  : "可选：填入=加密入库（不回显）；留空则按条目 ID 走环境变量 / legacy。"
+              }
+            >
+              <input
+                aria-label="API 密钥"
+                type="password"
+                autoComplete="new-password"
+                className="w-full border-b border-rule bg-transparent py-2 font-mono text-[12px] text-ink outline-none transition focus:border-vermilion"
+                value={form.state.apiKey}
+                onChange={(event) =>
+                  setForm({ ...form, state: { ...form.state, apiKey: event.target.value } })
+                }
+              />
+            </AdminField>
             <div className="mt-8 flex items-center gap-4">
               <button type="submit" className="btn primary" disabled={busy}>
                 保存
@@ -760,7 +794,7 @@ export function ModelsPage() {
         title="删除 provider"
         description={
           deleting
-            ? `从目录移除「${deleting.name}」（${deleting.id}）？只删目录元数据，环境变量密钥不改动；激活中的 provider 不能删除。`
+            ? `从目录移除「${deleting.name}」（${deleting.id}）？其入库密钥一并删除（环境变量密钥不改动）；激活中的 provider 不能删除。`
             : ""
         }
         confirmLabel="删除"

@@ -7,16 +7,18 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
- * 管理端新增 provider 请求体（API §8.15.2）：只收元数据，<strong>不含 apiKey</strong>——密钥按 id 走环境变量 {@code
- * YILIAN_LLM_KEY_<大写ID>} 索引（密钥不入库）。
+ * 管理端新增 provider 请求体（API §8.15.2）：元数据 + 可选 apiKey。apiKey 是 <strong>写-only 字段</strong>（027B）： 非空白 =
+ * AES-GCM 加密入库（llm_provider_keys，明文永不入库/入日志/入审计）；空或缺省 = 不录密钥（解析链回退 env {@code
+ * YILIAN_LLM_KEY_<大写ID>} / legacy）。响应侧永不回显明文，只回 hasKey 与 keyLast4。
  *
  * @param id 目录内唯一标识；小写字母/数字/连字符（env 变量名按连字符→下划线大写映射），创建后不可改
  * @param name 展示名
  * @param protocol 对话协议 wire 值：anthropic-messages | openai-chat | openai-responses
  * @param baseUrl 协议端点前缀（各协议拼接口径见 API §6.12）
  * @param model 模型名
+ * @param apiKey 可选 API 密钥（写-only）：空白/缺省不录，非空白加密入库
  */
-@Schema(description = "新增 LLM provider：只收元数据，apiKey 走 YILIAN_LLM_KEY_<大写ID> 环境变量")
+@Schema(description = "新增 LLM provider：元数据 + 可选 apiKey（写-only，加密入库不回显）")
 public record LlmProviderCreateRequest(
         @Schema(
                         description = "目录内唯一 id（小写字母/数字/连字符），创建后不可改",
@@ -41,4 +43,17 @@ public record LlmProviderCreateRequest(
         @Schema(description = "模型名", requiredMode = Schema.RequiredMode.REQUIRED)
                 @NotBlank(message = "model 不能为空")
                 @Size(max = 128, message = "model 最长 128 字符")
-                String model) {}
+                String model,
+        @Schema(description = "可选 API 密钥（写-only）：空白/缺省=不录，非空白=加密入库；不回显", nullable = true)
+                @Size(max = 2048, message = "apiKey 最长 2048 字符")
+                String apiKey) {
+
+    /**
+     * apiKey 是否要录入（写-only 口径：非空白才算提交了密钥；空白与缺省等价于「不录」）。
+     *
+     * @return 提交了非空白密钥返回 true
+     */
+    public boolean hasApiKey() {
+        return apiKey != null && !apiKey.isBlank();
+    }
+}

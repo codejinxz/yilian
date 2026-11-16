@@ -680,20 +680,24 @@ export async function updateLlmConfig(input: { enabled: boolean }): Promise<LlmC
 }
 
 // ---------------------------------------------------------------------------
-// provider 目录（022，API §8.15）：CC Switch 式多 provider 元数据 CRUD 与激活
-// 切换。apiKey 不入库不回读——每条目只回 hasKey（YILIAN_LLM_KEY_<大写ID> env
-// 索引）；激活中的 provider 服务端拒绝删除；激活条目即答疑等 AI 功能的数据源。
+// provider 目录（022，API §8.15；027B 扩密钥入库）：CC Switch 式多 provider 元数据
+// CRUD 与激活切换。027B 起 apiKey 为写-only 字段：请求可带（非空白=服务端 AES-GCM
+// 加密入库，空/缺省=不变更），响应永不回显明文——条目只回 hasKey（入库或 env 任一）
+// 与 keyLast4（仅入库态有值，env 态 null）；激活中的 provider 服务端拒绝删除；
+// 激活条目即答疑等 AI 功能的数据源。
 // ---------------------------------------------------------------------------
 
-/** provider 目录条目（API §8.15.1）。 */
+/** provider 目录条目（API §8.15.1；027B 增 keyLast4）。 */
 export const llmProviderSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   protocol: z.enum(llmProtocols),
   baseUrl: z.string(),
   model: z.string(),
-  /** 该 provider 的 env 密钥是否已配置；anthropic-messages 轨无 key 也可用。 */
+  /** 是否有可用密钥（入库密钥或 YILIAN_LLM_KEY_<大写ID> env 任一）。 */
   hasKey: z.boolean(),
+  /** 入库密钥尾 4 位辨识号；env 态/未配置为 null（明文永不回读）。 */
+  keyLast4: z.string().nullable(),
   /** 是否为当前激活 provider（激活唯一）。 */
   active: z.boolean(),
 });
@@ -711,9 +715,19 @@ export async function getLlmProviders(signal?: AbortSignal): Promise<LlmProvider
   return parseData(z.object({ items: z.array(llmProviderSchema) }), data).items;
 }
 
+/** 新增 provider 的请求体：元数据 + 可选 apiKey（写-only；空/缺省不发送）。 */
+interface CreateLlmProviderBody {
+  id: string;
+  name: string;
+  protocol: LlmProtocol;
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+}
+
 /**
  * 新增 provider（追加目录末尾，默认未激活；答疑数据源切换需显式激活）。
- * @param input id/name/protocol/baseUrl/model 元数据（不含 apiKey）
+ * @param input id/name/protocol/baseUrl/model 元数据；apiKey 可选（写-only，非空白才发送）
  * @returns 新增后的条目
  */
 export async function createLlmProvider(input: {
@@ -722,25 +736,56 @@ export async function createLlmProvider(input: {
   protocol: LlmProtocol;
   baseUrl: string;
   model: string;
+  apiKey?: string;
 }): Promise<LlmProvider> {
-  const data = await jsonRequest<unknown>("/admin/llm/providers", "POST", input);
+  const body: CreateLlmProviderBody = {
+    id: input.id,
+    name: input.name,
+    protocol: input.protocol,
+    baseUrl: input.baseUrl,
+    model: input.model,
+  };
+  // 写-only 口径：只有非空白才携带 apiKey（JSON.stringify 丢弃 undefined 字段）。
+  if (input.apiKey && input.apiKey.trim() !== "") {
+    body.apiKey = input.apiKey.trim();
+  }
+  const data = await jsonRequest<unknown>("/admin/llm/providers", "POST", body);
   return parseData(llmProviderSchema, data);
+}
+
+/** 更新 provider 的请求体：元数据 + 可选 apiKey（写-only；空/缺省=不变更不发送）。 */
+interface UpdateLlmProviderBody {
+  name: string;
+  protocol: LlmProtocol;
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
 }
 
 /**
  * 更新 provider 元数据（id 走路径不可改）。
  * @param id 目标 provider id
- * @param input name/protocol/baseUrl/model
+ * @param input name/protocol/baseUrl/model；apiKey 可选（写-only，非空白=加密覆盖）
  * @returns 更新后的条目
  */
 export async function updateLlmProvider(
   id: string,
-  input: { name: string; protocol: LlmProtocol; baseUrl: string; model: string },
+  input: { name: string; protocol: LlmProtocol; baseUrl: string; model: string; apiKey?: string },
 ): Promise<LlmProvider> {
+  const body: UpdateLlmProviderBody = {
+    name: input.name,
+    protocol: input.protocol,
+    baseUrl: input.baseUrl,
+    model: input.model,
+  };
+  // 写-only 口径：只有非空白才携带 apiKey；留空即「不变更」。
+  if (input.apiKey && input.apiKey.trim() !== "") {
+    body.apiKey = input.apiKey.trim();
+  }
   const data = await jsonRequest<unknown>(
     `/admin/llm/providers/${encodeURIComponent(id)}`,
     "PUT",
-    input,
+    body,
   );
   return parseData(llmProviderSchema, data);
 }

@@ -29,7 +29,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 管理端 provider 目录接口（API §8.15）：CC Switch 式多 provider 的元数据 CRUD 与激活切换，服务端 ADMIN 鉴权； 写操作全部审计 {@code
- * LLM_CONFIG_UPDATE}，读接口不标。apiKey 不入库不回读——每条目只回 hasKey（env 按 id 索引）；激活中的 provider 服务端拒绝删除。
+ * LLM_CONFIG_UPDATE}，读接口不标。027B 起 apiKey 为写-only 字段（非空白=AES-GCM 加密入库，空/缺省=不变更），明文任何路径不回读、不入审计——条目只回
+ * hasKey 与 keyLast4 尾 4 位；激活中的 provider 服务端拒绝删除，删除时密钥行同事务删除。
  */
 @Tag(name = "管理", description = "用户、题库、日志、出题与答疑 LLM 配置的管理端接口。")
 @SecurityRequirement(name = "bearerAuth")
@@ -56,7 +57,8 @@ public class AdminLlmProviderController {
      */
     @Operation(
             summary = "列出 LLM provider 目录",
-            description = "data.items 每项含元数据、hasKey（YILIAN_LLM_KEY_<大写ID> 是否已配置）与激活态；apiKey 不回读。")
+            description =
+                    "data.items 每项含元数据、hasKey（入库密钥或 YILIAN_LLM_KEY_<大写ID> 任一存在）、keyLast4（入库密钥尾 4 位；env 态为 null）与激活态；明文不回读。")
     @ApiResponses({
         @io.swagger.v3.oas.annotations.responses.ApiResponse(
                 responseCode = "200",
@@ -86,8 +88,8 @@ public class AdminLlmProviderController {
     @Operation(
             summary = "新增 LLM provider",
             description =
-                    "id 限小写字母/数字/连字符且目录内唯一；只收元数据，apiKey 走环境变量 "
-                            + "YILIAN_LLM_KEY_<大写ID>。新增后需显式激活才成为答疑数据源。")
+                    "id 限小写字母/数字/连字符且目录内唯一；apiKey 为写-only：非空白=加密入库（不回显、不入审计），"
+                            + "空白/缺省=不录（密钥回退环境变量 YILIAN_LLM_KEY_<大写ID> / legacy）。新增后需显式激活才成为答疑数据源。")
     @ApiResponses({
         @io.swagger.v3.oas.annotations.responses.ApiResponse(
                 responseCode = "200",
@@ -121,7 +123,9 @@ public class AdminLlmProviderController {
      * @param principal 当前管理员
      * @return 更新后的条目视图
      */
-    @Operation(summary = "更新 LLM provider", description = "id 走路径不可改；元数据整体覆盖（末写胜出）。")
+    @Operation(
+            summary = "更新 LLM provider",
+            description = "id 走路径不可改；元数据整体覆盖（末写胜出）；apiKey 留空=不变更，填入=加密覆盖旧密钥。")
     @ApiResponses({
         @io.swagger.v3.oas.annotations.responses.ApiResponse(
                 responseCode = "200",
@@ -161,7 +165,7 @@ public class AdminLlmProviderController {
      */
     @Operation(
             summary = "删除 LLM provider",
-            description = "只移除目录元数据（env 密钥不改动）；激活中的 provider 40000 拒绝，先激活其他条目。")
+            description = "移除目录元数据，入库密钥行同事务删除（env 密钥不在库中、不改动）；激活中的 provider 40000 拒绝，先激活其他条目。")
     @ApiResponses({
         @io.swagger.v3.oas.annotations.responses.ApiResponse(
                 responseCode = "200",

@@ -76,8 +76,7 @@ class LlmProviderKeyResolutionIntegrationTest {
      */
     private LlmProviderView createOpenAiProvider(String providerId) {
         return providerAdminService.create(
-                new LlmProviderCreateRequest(
-                        providerId, "解析链集成测试", "openai-chat", "http://127.0.0.1:1/v4", "glm-4.7"),
+                new LlmProviderCreateRequest(providerId, "解析链集成测试", "openai-chat", "http://127.0.0.1:1/v4", "glm-4.7", null),
                 1L);
     }
 
@@ -186,12 +185,7 @@ class LlmProviderKeyResolutionIntegrationTest {
     @DisplayName("[AC-3] anthropic 轨无 key 凭证齐备语义保留")
     void ac3_anthropicTrackKeyOptionalSemanticsPreserved() {
         providerAdminService.create(
-                new LlmProviderCreateRequest(
-                        PLAIN_ID,
-                        "解析链集成测试（anthropic）",
-                        "anthropic-messages",
-                        "http://127.0.0.1:1/gateway/zcode",
-                        "glm-5.3"),
+                new LlmProviderCreateRequest(PLAIN_ID, "解析链集成测试（anthropic）", "anthropic-messages", "http://127.0.0.1:1/gateway/zcode", "glm-5.3", null),
                 1L);
         providerAdminService.activate(PLAIN_ID, 1L);
         assertThat(providerKeys.hasKey(PLAIN_ID)).isFalse();

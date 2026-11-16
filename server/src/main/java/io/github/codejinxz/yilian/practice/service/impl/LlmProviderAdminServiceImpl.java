@@ -5,34 +5,43 @@ import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.practice.llm.LlmProtocol;
 import io.github.codejinxz.yilian.practice.llm.LlmProviderCatalog;
 import io.github.codejinxz.yilian.practice.llm.LlmProviderDescriptor;
+import io.github.codejinxz.yilian.practice.llm.LlmProviderKeys;
 import io.github.codejinxz.yilian.practice.service.LlmProviderAdminService;
 import io.github.codejinxz.yilian.practice.service.dto.LlmProviderCreateRequest;
 import io.github.codejinxz.yilian.practice.service.dto.LlmProviderUpdateRequest;
 import io.github.codejinxz.yilian.practice.service.vo.LlmProviderView;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
 /**
- * {@link LlmProviderAdminService} 实现：目录读写经 {@link LlmProviderCatalog}（app_settings 单键，末写胜出）， hasKey
- * 经 env 索引。并发写目录是低频管理操作，读-改-写不加速锁（冲突窗口极小且最坏只是丢一次元数据修改， 无数据完整性风险）；激活切换 /
- * 删除保护等服务端规则全部在本层强制（前端隐藏不算权限）。
+ * {@link LlmProviderAdminService} 实现：目录读写经 {@link LlmProviderCatalog}（app_settings 单键，末写胜出）， 密钥状态经
+ * {@link LlmProviderKeys} 解析链（027B：DB 密文 &gt; env）。并发写目录是低频管理操作，读-改-写
+ * 不加速锁（冲突窗口极小且最坏只是丢一次元数据修改，无数据完整性风险）；激活切换 / 删除保护等服务端规则 全部在本层强制（前端隐藏不算权限）。
+ *
+ * <p>事务口径（027B）：目录（app_settings）与密钥行（llm_provider_keys）是零物理外键的两张表， 「目录删除 + 密钥行删除」「条目写入 +
+ * 密钥录入」必须同事务——密钥加密失败时元数据变更一并回滚， 不留「目录有密钥无」的中间态；一致性由应用层保证（审计留痕经 {@code @OperationLog} 切面）。
  */
 @Service
 public class LlmProviderAdminServiceImpl implements LlmProviderAdminService {
 
     private final LlmProviderCatalog catalog;
 
+    private final LlmProviderKeys providerKeys;
+
     /**
      * 注入依赖。
      *
      * @param catalog provider 目录存取
+     * @param providerKeys 条目密钥解析链与入库存取
      */
-    public LlmProviderAdminServiceImpl(LlmProviderCatalog catalog) {
+    public LlmProviderAdminServiceImpl(LlmProviderCatalog catalog, LlmProviderKeys providerKeys) {
         this.catalog = catalog;
+        this.providerKeys = providerKeys;
     }
 
     @Override
@@ -44,6 +53,7 @@ public class LlmProviderAdminServiceImpl implements LlmProviderAdminService {
     }
 
     @Override
+    @Transactional
     public LlmProviderView create(LlmProviderCreateRequest request, Long operatorId) {
         LlmProtocol protocol = requireProtocol(request.protocol());
         LlmProviderDescriptor descriptor =
@@ -62,10 +72,15 @@ public class LlmProviderAdminServiceImpl implements LlmProviderAdminService {
         List<LlmProviderDescriptor> next = new ArrayList<>(snapshot.providers());
         next.add(descriptor);
         catalog.saveProviders(next, operatorId);
+        // 写-only 密钥（027B）：非空白才录入；加密失败上抛让整个事务回滚，不留中间态。
+        if (request.hasApiKey()) {
+            providerKeys.upsert(descriptor.id(), request.apiKey().trim());
+        }
         return toView(descriptor, snapshot.activeId());
     }
 
     @Override
+    @Transactional
     public LlmProviderView update(String id, LlmProviderUpdateRequest request, Long operatorId) {
         LlmProtocol protocol = requireProtocol(request.protocol());
         LlmProviderDescriptor updated =
@@ -86,10 +101,15 @@ public class LlmProviderAdminServiceImpl implements LlmProviderAdminService {
             throw new BusinessException(ApiCode.NOT_FOUND, "provider 不存在：" + updated.id());
         }
         catalog.saveProviders(next, operatorId);
+        // 写-only 密钥（027B）：空/缺省=不变更（保留已入库密钥与 env 态）；非空白=加密覆盖。
+        if (request.hasApiKey()) {
+            providerKeys.upsert(id, request.apiKey().trim());
+        }
         return toView(updated, snapshot.activeId());
     }
 
     @Override
+    @Transactional
     public void delete(String id, Long operatorId) {
         LlmProviderCatalog.Catalog snapshot = catalog.read();
         List<LlmProviderDescriptor> next =
@@ -106,6 +126,9 @@ public class LlmProviderAdminServiceImpl implements LlmProviderAdminService {
                     ApiCode.VALIDATION_FAILED, "激活中的 provider 不能删除，请先激活其他 provider");
         }
         catalog.saveProviders(next, operatorId);
+        // 密钥行与目录同事务删除（027B 预披露裁决：密钥投影表允许受控 DELETE，审计留痕走切面）；
+        // 环境变量密钥不在库中，无从删也不改动。
+        providerKeys.delete(id);
     }
 
     @Override
@@ -141,21 +164,22 @@ public class LlmProviderAdminServiceImpl implements LlmProviderAdminService {
     }
 
     /**
-     * 目录条目 → 管理端视图（hasKey 实时查 env，不落库）。
+     * 目录条目 → 管理端视图：hasKey 走解析链新口径（入库可解密或 env 任一），keyLast4 只在 有入库密钥行时给值（env 态不显示
+     * last4）；明文密钥任何路径不进本视图。
      *
      * @param descriptor 目录条目
      * @param activeId 当前激活 id
      * @return 条目视图
      */
     private LlmProviderView toView(LlmProviderDescriptor descriptor, String activeId) {
-        String envKey = catalog.envKey(descriptor.id());
         return new LlmProviderView(
                 descriptor.id(),
                 descriptor.name(),
                 Objects.requireNonNull(descriptor.protocol()).wire(),
                 descriptor.baseUrl(),
                 descriptor.model(),
-                envKey != null && !envKey.isEmpty(),
+                providerKeys.hasKey(descriptor.id()),
+                providerKeys.storedLast4(descriptor.id()).orElse(null),
                 descriptor.id().equals(activeId));
     }
 }

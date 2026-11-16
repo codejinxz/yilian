@@ -135,6 +135,7 @@ class AdminLlmProviderControllerTest {
                                         "http://127.0.0.1:47860/gateway/zcode",
                                         "glm-5.3",
                                         false,
+                                        null,
                                         true)));
 
         mockMvc.perform(
@@ -185,7 +186,8 @@ class AdminLlmProviderControllerTest {
                                 "ZCode 网关",
                                 "anthropic-messages",
                                 "http://127.0.0.1:47860/gateway/zcode",
-                                "glm-5.3"),
+                                "glm-5.3",
+                                null),
                         1L))
                 .thenReturn(
                         new LlmProviderView(
@@ -195,6 +197,7 @@ class AdminLlmProviderControllerTest {
                                 "http://127.0.0.1:47860/gateway/zcode",
                                 "glm-5.3",
                                 false,
+                                null,
                                 false));
 
         mockMvc.perform(
@@ -258,7 +261,11 @@ class AdminLlmProviderControllerTest {
                         eq("zai"),
                         eq(
                                 new LlmProviderUpdateRequest(
-                                        "ZCode 网关", "anthropic-messages", "https://x", "glm-5.3")),
+                                        "ZCode 网关",
+                                        "anthropic-messages",
+                                        "https://x",
+                                        "glm-5.3",
+                                        null)),
                         eq(1L)))
                 .thenReturn(
                         new LlmProviderView(
@@ -268,6 +275,7 @@ class AdminLlmProviderControllerTest {
                                 "https://x",
                                 "glm-5.3",
                                 false,
+                                null,
                                 true));
 
         mockMvc.perform(
@@ -302,7 +310,7 @@ class AdminLlmProviderControllerTest {
         when(providerAdminService.activate(eq("zai"), eq(1L)))
                 .thenReturn(
                         new LlmProviderView(
-                                "zai", "n", "openai-chat", "https://x", "m", true, true));
+                                "zai", "n", "openai-chat", "https://x", "m", true, null, true));
 
         mockMvc.perform(
                         put("/api/admin/llm/providers/zai/activate")
@@ -370,5 +378,139 @@ class AdminLlmProviderControllerTest {
                         .getDeclaredMethod("list", YilianUserPrincipal.class)
                         .getAnnotation(OperationLog.class);
         assertThat(list).isNull();
+    }
+
+    /** [AC-4] POST/PUT 的写-only apiKey：请求体明文透传 Service（加密在服务层），响应永不回显明文。 */
+    @Test
+    void apiKeyWriteOnlyPassthroughWithoutEcho_ac4() throws Exception {
+        when(providerAdminService.create(
+                        eq(
+                                new LlmProviderCreateRequest(
+                                        "zai",
+                                        "ZCode 网关",
+                                        "anthropic-messages",
+                                        "http://127.0.0.1:47860/gateway/zcode",
+                                        "glm-5.3",
+                                        "sk-plaintext-from-ui-001")),
+                        eq(1L)))
+                .thenReturn(
+                        new LlmProviderView(
+                                "zai",
+                                "ZCode 网关",
+                                "anthropic-messages",
+                                "http://127.0.0.1:47860/gateway/zcode",
+                                "glm-5.3",
+                                true,
+                                "001",
+                                false));
+
+        String createResponse =
+                mockMvc.perform(
+                                post("/api/admin/llm/providers")
+                                        .with(
+                                                authentication(
+                                                        new TestingAuthenticationToken(
+                                                                ADMIN, null, "ROLE_ADMIN")))
+                                        .with(csrf())
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(
+                                                "{\"id\":\"zai\",\"name\":\"ZCode 网关\","
+                                                        + "\"protocol\":\"anthropic-messages\","
+                                                        + "\"baseUrl\":\"http://127.0.0.1:47860/gateway/zcode\","
+                                                        + "\"model\":\"glm-5.3\","
+                                                        + "\"apiKey\":\"sk-plaintext-from-ui-001\"}"))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.data.hasKey").value(true))
+                        .andExpect(jsonPath("$.data.keyLast4").value("001"))
+                        // 明文与 apiKey 字段均不出现在响应（写-only：请求收、响应永不回）。
+                        .andExpect(jsonPath("$.data.apiKey").doesNotExist())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(createResponse).doesNotContain("sk-plaintext-from-ui-001");
+
+        when(providerAdminService.update(
+                        eq("zai"),
+                        eq(
+                                new LlmProviderUpdateRequest(
+                                        "ZCode 网关",
+                                        "anthropic-messages",
+                                        "https://x",
+                                        "glm-5.3",
+                                        "sk-rotated-002")),
+                        eq(1L)))
+                .thenReturn(
+                        new LlmProviderView(
+                                "zai",
+                                "ZCode 网关",
+                                "anthropic-messages",
+                                "https://x",
+                                "glm-5.3",
+                                true,
+                                "002",
+                                true));
+
+        String updateResponse =
+                mockMvc.perform(
+                                put("/api/admin/llm/providers/zai")
+                                        .with(
+                                                authentication(
+                                                        new TestingAuthenticationToken(
+                                                                ADMIN, null, "ROLE_ADMIN")))
+                                        .with(csrf())
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(
+                                                "{\"name\":\"ZCode 网关\",\"protocol\":\"anthropic-messages\","
+                                                        + "\"baseUrl\":\"https://x\",\"model\":\"glm-5.3\","
+                                                        + "\"apiKey\":\"sk-rotated-002\"}"))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.data.keyLast4").value("002"))
+                        .andExpect(jsonPath("$.data.apiKey").doesNotExist())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(updateResponse).doesNotContain("sk-rotated-002");
+    }
+
+    /** [AC-4] GET 条目形状：keyLast4 只在入库态有值，env 态（null）不显示 last4；响应无任何明文字段。 */
+    @Test
+    void listExposesKeyLast4OnlyForStoredKeys_ac4() throws Exception {
+        when(providerAdminService.list())
+                .thenReturn(
+                        List.of(
+                                new LlmProviderView(
+                                        "stored",
+                                        "入库密钥条目",
+                                        "openai-chat",
+                                        "https://x",
+                                        "m",
+                                        true,
+                                        "8811",
+                                        false),
+                                new LlmProviderView(
+                                        "env-only",
+                                        "env 密钥条目",
+                                        "openai-chat",
+                                        "https://y",
+                                        "m",
+                                        true,
+                                        null,
+                                        true)));
+
+        String body =
+                mockMvc.perform(
+                                get("/api/admin/llm/providers")
+                                        .with(
+                                                authentication(
+                                                        new TestingAuthenticationToken(
+                                                                ADMIN, null, "ROLE_ADMIN"))))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.data.items[0].keyLast4").value("8811"))
+                        .andExpect(jsonPath("$.data.items[1].keyLast4").doesNotExist())
+                        .andExpect(jsonPath("$.data.items[0].apiKey").doesNotExist())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(body).doesNotContain("apiKey");
     }
 }
