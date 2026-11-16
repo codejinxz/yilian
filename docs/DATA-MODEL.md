@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 版本 | v0.3（027B provider 密钥加密入库 llm_provider_keys） |
+| 版本 | v0.4（028 答疑 LLM 覆盖配置 llm.tutor 扩展 + llm_provider_keys 预留 id=tutor） |
 | 日期 | 2026-11-17 |
 | 状态 | 待产品/技术负责人确认后冻结 |
 | 上游 | `AGENTS.md`、`docs/PRD.md` §5/§8/§11/§16/§17/§18、`docs/NAMING.md`、`docs/GAP-ANALYSIS.md` |
@@ -819,7 +819,13 @@ provider 条目密钥投影表（027B）：022 起条目密钥走 env 按 id 索
 目录条目删除即同事务删行（零物理外键下的一致性由应用层保证，审计经 `@OperationLog`
 留痕）；`updated_at` 每次变更留痕。明文只在加密前内存短暂存在，不落任何表/日志/审计/响应；
 `key_last4` 仅尾 4 位辨识用（预披露裁决），不算明文泄露；密钥不进缓存（AGENTS §3.8）。
-内部表，无端点；管理端经 §8.15 五端点读写。
+内部表，无端点；目录条目密钥经 §8.15 五端点读写。
+
+**预留 id `tutor`（028）**：答疑 LLM 自身的密钥行，复用本表与加密基建、不新建表（028 预披露
+裁决）——它不属于任何目录条目，目录增删/激活切换不触碰本行；只在 legacy 形态（目录空）的
+tutor 覆盖轨生效，密钥链为 **本行密文解密 > `YILIAN_LLM_API_KEY` env > 空**（API.md §8.14）。
+写入经 `PUT /api/admin/llm/config`（apiKey 非空白=加密 upsert，clearKey=true=删行），与覆盖
+写（`app_settings` 键 `llm.tutor`）同事务；行数上限 = 目录条目数 + 1（本预留行）。
 
 | 字段 | 类型 | 可空 | 默认 | 说明 |
 |---|---|---|---|---|
@@ -1098,6 +1104,9 @@ provider 条目密钥投影表（027B）：022 起条目密钥走 env 按 id 索
 | `fsrs.default_weights` | `{"schemaVersion":1,"weights":[...]}` | 首次启动种子；不覆盖已有 ACTIVE |
 | `daily_goal.default` | `{"schemaVersion":1,"value":3}` | 1/3/5 |
 | `registration.invite_required` | `{"schemaVersion":1,"value":true}` | prod true；local 可 false |
+| `llm.tutor` | `{"schemaVersion":1,"enabled":bool,"baseUrl":"…或null","model":"…或null"}` | 答疑开关 + legacy 形态覆盖值（017 建键只含 enabled；028 扩 baseUrl/model——null=无覆盖回退 `YILIAN_LLM_*` env；fail-closed 解析，兼容 017 早期裸布尔值；密钥不入本键，走 `llm_provider_keys` 预留 id=`tutor`，见 §5.20）。生效优先级：目录激活 > 本覆盖 > env（API.md §8.14） |
+| `llm.providers` | `{"schemaVersion":1,"providers":[{id,name,protocol,baseUrl,model}...]}` | provider 目录（022）；apiKey 不入目录 |
+| `llm.active` | `{"schemaVersion":1,"providerId":"…"}` | 激活 provider（022）；激活唯一 |
 | `llm.monthly_budget_cny` | `{"schemaVersion":1,"value":30}` | M3 |
 | `llm.default_model` | `{"schemaVersion":1,"providerId":"1","modelId":"2"}` | M3 |
 
@@ -1426,3 +1435,4 @@ RELEARNING --rating>=GOOD--> REVIEW
 | 2026-10-24 | v0.1.1 | 补 `admin_audit_log.module`，满足后台按模块筛选 | 技术负责人 |
 | 2026-11-06 | v0.2 | 025 申诉 LLM 裁决：§5.10 补两级裁决口径（LLM 初裁产 AI 意见 status 保持 PENDING → 人工终审 ACCEPTED/REJECTED；UNAVAILABLE 占位语义；ACCEPTED 经判分 overlay 参与判分，DISPUTE 排除语义不变）；新增 §5.19 `prompt_versions` 注册表（V13，ask/review/appeal 首版种子幂等，行内容不改写、label 流转表达启用态）；§6 枚举 `PromptStatus`→`PromptLabel`（M3 四态模板形状作废）；§5.9 MODEL 行 prompt_version_id 落值；V13 进迁移清单；可变投影表清单补 prompt_versions | 实现工程师 |
 | 2026-11-17 | v0.3 | 027B provider 密钥加密入库：新增 §5.20 `llm_provider_keys`（V14，provider_id 主键逻辑引用目录条目、AES-256-GCM 密文、key_last4 尾 4 位辨识、updated_at 留痕；密钥投影表允许受控 UPDATE/DELETE，与 prompt_versions 的 append-only 区分）；§2 表清单补 ai/llm_provider_keys 行；§4 可变投影表清单补 llm_provider_keys；迁移清单 V14 行；主密钥 `YILIAN_SECRET_MASTER_KEY` 口径（prod fail-fast、local dev 值禁复用）与解析链 DB>env>legacy 见 §5.20 | 实现工程师 |
+| 2026-11-17 | v0.4 | 028 答疑 LLM 配置全可改：§6.11 登记 `llm.tutor` 键形状扩展（017 的 `{"schemaVersion":1,"enabled":bool}` → 028 扩 `baseUrl`/`model` 可空覆盖字段，fail-closed 解析 + 裸布尔兼容；生效优先级目录激活 > 覆盖 > env，API.md §8.14）；§5.20 注明 `llm_provider_keys` **预留 id=`tutor`** 行（答疑密钥复用本表与 027B 加密基建，不新建表、不新建迁移；不属于任何目录条目、目录增删不触碰；密钥链本行密文 > `YILIAN_LLM_API_KEY` env > 空；与覆盖写同事务）；§6.11 补登记 `llm.providers`/`llm.active` 两键形状（022 已投产，随本批一并入表） | 实现工程师 |

@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 |---|---|
-| 版本 | v1.6（对齐文末变更记录最新行，027B 批次头部版本号随变更记录推进） |
-| 日期 | 2026-11-06 |
+| 版本 | v1.7（对齐文末变更记录最新行，028 批次头部版本号随变更记录推进） |
+| 日期 | 2026-11-17 |
 | 字段来源 | `docs/DATA-MODEL.md` v0.1（唯一字段来源） |
 | 上游约束 | `AGENTS.md`、`docs/PRD.md` §4/§5/§8/§11/§12、`docs/NAMING.md` |
 | 下游 | `docs/openapi.yaml`（仅导出已实现端点）、`web/src/lib/api.ts` |
@@ -1871,35 +1871,45 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 
 字段回溯：`fsrs_parameter_versions.*`。
 
-### 8.14 `/api/admin/llm/config`（implemented，017；022 扩展目录维度）
+### 8.14 `/api/admin/llm/config`（implemented，017；022 扩展目录维度；028 legacy 形态全字段可编辑）
 
-答疑 LLM 配置（017）：服务端 `ROLE_ADMIN`（AGENTS §3.7）；配置选型——022 起端点/模型经 provider 目录（§8.15）管理；027B 起条目密钥解析链为 **DB 密文解密（`llm_provider_keys`，管理端录入 AES-256-GCM 加密入库）> `YILIAN_LLM_KEY_<大写ID>` env > legacy**（目录空回退 legacy 环境变量三件套不变；`llm_provider_keys` 形状见 DATA-MODEL §5.20，主密钥只走 env `YILIAN_SECRET_MASTER_KEY`，AGENTS §3.4 修订允许管理端加密入库）。后台可改的只有 `enabled` 开关，存 `app_settings` 键 `llm.tutor`（JSON：`{"schemaVersion":1,"enabled":bool}`）。
+答疑 LLM 配置：服务端 `ROLE_ADMIN`（AGENTS §3.7）。**生效值优先级（028）：目录激活条目（022 语义不变，高于一切 legacy 形态）> tutor 覆盖（`app_settings` 键 `llm.tutor` 的 `baseUrl`/`model` + `llm_provider_keys` 预留 id=`tutor` 密钥，目录空时生效）> legacy 环境变量（`YILIAN_LLM_*`）**。027B 起目录条目密钥解析链为 **DB 密文解密（AES-256-GCM，管理端录入）> `YILIAN_LLM_KEY_<大写ID>` env > legacy**；028 起 tutor 覆盖轨密钥链为 **`llm_provider_keys` 预留 id=`tutor` 行密文解密 > `YILIAN_LLM_API_KEY` env > 空**（复用 027B 加密基建，主密钥只走 env `YILIAN_SECRET_MASTER_KEY`）。覆盖与密钥变更经注册表状态指纹即时换轨（无需重启）。契约演进链：017「baseUrl/model/apiKey 只经环境变量、PUT 非空值 40000 拒绝」→ 027B 密钥可加密入库（AGENTS §3.4 修订）→ **028 废除 40000 env-only 拒绝，legacy 形态（目录空/未激活）端点/模型/密钥全字段可编辑**。
 
 #### 8.14.1 `GET /api/admin/llm/config`
 
 响应：
 
 ```json
-{ "enabled": false, "baseUrl": "http://127.0.0.1:47860/gateway/zcode", "model": "glm-5.3", "hasKey": false, "providerId": "zcode-gateway", "protocol": "anthropic-messages", "credentialsComplete": true }
+{ "enabled": false, "baseUrl": "http://127.0.0.1:47860/gateway/zcode", "model": "glm-5.3", "hasKey": false, "providerId": "zcode-gateway", "protocol": "anthropic-messages", "credentialsComplete": true, "source": "env", "keyLast4": null }
 ```
 
-- `baseUrl`/`model`/`hasKey` 反映**激活的 provider**（目录模式，022）或 legacy 环境变量（目录为空时）；未配置为空串/`false`。
-- `providerId`：生效 provider id；legacy 环境变量直配时为 `"legacy"`，未配置（目录未激活且 legacy 未配）时为 `null`。`protocol`：生效协议 wire 值（`anthropic-messages` | `openai-chat` | `openai-responses`），未配置时为 `null`。
-- `credentialsComplete`：凭证按协议口径是否齐备（anthropic-messages 轨 key 可空、齐备只看端点）——前端判定答疑可用性用它，不能用 `hasKey` 代替（anthropic 轨无 key 也可用，022）。
-- **API Key 不回读**（AGENTS §3.4），只回 `hasKey` 布尔；响应无 `apiKey` 字段。
+- `baseUrl`/`model`：**生效值**——目录激活时为激活条目端点/模型（022）；legacy 形态（目录空或未激活）逐字段按「覆盖 > env」投影（覆盖值非空取覆盖，否则取 `YILIAN_LLM_BASE_URL`/`YILIAN_LLM_MODEL`，模型缺省回落 `glm-4.7`）。
+- `source`（028 新增）：legacy 形态取值来源——`custom`=存在 tutor 覆盖（`baseUrl`/`model` 任一非空）；`env`=纯环境变量。目录激活态恒为 `env`（覆盖休眠，前端以目录徽标优先）。
+- `hasKey`：生效轨是否有可用密钥——目录激活按 027B 条目解析链（入库密钥可解密或 `YILIAN_LLM_KEY_<大写ID>` env 任一）；legacy 覆盖轨为 tutor 预留行可解密或 `YILIAN_LLM_API_KEY` env；纯 env 轨为 `YILIAN_LLM_API_KEY`。
+- `keyLast4`（028 新增）：tutor 密钥行（`llm_provider_keys` 预留 id=`tutor`）的尾 4 位辨识号——仅在覆盖轨生效（覆盖轨视图存在）且有入库行时给值；env 态密钥与目录激活态为 `null`（明文永不回读）。
+- `providerId`：生效 provider id；legacy 形态（覆盖轨与环境变量轨）为 `"legacy"`（覆盖/env 的来源差异由 `source` 表达），未配置（目录未激活且 legacy 未配）时为 `null`。`protocol`：生效协议 wire 值（`anthropic-messages` | `openai-chat` | `openai-responses`），未配置时为 `null`。
+- `credentialsComplete`：凭证按协议口径是否齐备（anthropic-messages 轨 key 可空、齐备只看端点）——前端判定答疑可用性用它，不能用 `hasKey` 代替（anthropic 轨无 key 也可用，022）。目录非空但未激活时轨道 fail-closed（022 语义不变），`credentialsComplete=false`。
+- **API Key 不回读**（AGENTS §3.4），只回 `hasKey` 布尔与 `keyLast4` 尾号；响应无 `apiKey` 字段。
 - `enabled` 读 `app_settings`；键不存在/JSON 损坏/版本不识别一律按 `false`（fail-closed）。
 
 #### 8.14.2 `PUT /api/admin/llm/config`
 
-请求：`{ "enabled": true, "baseUrl": null, "model": null, "apiKey": null }`（`enabled` 必填；其余三个字段为 017 计划请求形状保留，**传非空值一律 40000 拒绝**并提示走环境变量，不静默忽略）。
+请求（028）：
 
-- `enabled=true` 且无可用客户端（激活 provider 凭证不齐 / 目录未激活且 legacy 未配）→ `40000`，文案按配置形态分口径（022；027B 更新）：目录模式缺密钥时提示「管理端录入 API 密钥（即时生效）或设置环境变量 `YILIAN_LLM_KEY_<大写ID>`（连字符转下划线）」，未激活提示先激活；legacy 沿用 021 文案（anthropic 轨提示「无需 API Key」）。
+```json
+{ "enabled": true, "baseUrl": "http://10.0.0.8:8080/v4", "model": "glm-5.3-flash", "apiKey": "可选", "clearKey": false }
+```
+
+- `enabled` 必填，语义不变：`true` 且无可用客户端（激活 provider 凭证不齐 / 目录未激活且覆盖轨与 legacy 均不可用）→ `40000` 拒绝，**本次全部变更（覆盖/密钥/开关）同事务回滚**；文案按配置形态分口径（目录缺密钥→条目录入/env 索引；覆盖轨缺密钥→卡内录入或 `YILIAN_LLM_API_KEY`；纯 env→两件套文案，anthropic 轨提示「无需 API Key」）。
+- `baseUrl`/`model` 为**状态型字段**（028）：非空白（trim 后）=落 tutor 覆盖（存 `app_settings` 键 `llm.tutor`，即时生效——`baseUrl` 需 `http(s)://` 前缀且无空白、≤500 字符；`model` ≤2048 字符，违规 `40000`）；**空串/缺省=清除该项覆盖**（生效值回退 env）。只传 `enabled` 的调用会同时清除既有覆盖——客户端应总是携带表单当前值。
+- `apiKey` 写-only（028）：非空白（trim 后 ≤2048 字符）=AES-256-GCM 加密 upsert 到 `llm_provider_keys` 预留 id=`tutor`（明文只在加密前内存短暂存在，不入库明文列、不入日志/审计/响应）；空/缺省=不变更；清除密钥用 `clearKey=true`（删该行，无行幂等）。
+- 校验失败（形状/长度）先于任何写路径 `40000`；覆盖写（`app_settings`）与密钥写（`llm_provider_keys`）同事务，任何失败一并回滚。
 - 审计：`@OperationLog(module="llm", action="LLM_CONFIG_UPDATE")`；GET 不标（§3.6）。
 - 错误：`40100`、`40300`、`40000`、`40001`。
 
-字段回溯：`app_settings.value`（JSON，键 `llm.tutor`）+ provider 目录（键 `llm.providers`/`llm.active`）+ 条目密钥 `llm_provider_keys`（027B，DATA-MODEL §5.20，密文列）+ 环境变量；`credentialsComplete`/`hasKey` 按解析链实时口径（入库密钥解密失败按「密钥不存在」回退 env，不阻塞目录读）。
+字段回溯：`app_settings.value`（JSON，键 `llm.tutor`，028 形状 `{"schemaVersion":1,"enabled":bool,"baseUrl":"…或null","model":"…或null"}`）+ provider 目录（键 `llm.providers`/`llm.active`）+ `llm_provider_keys`（027B 条目密钥 + 028 预留 id=`tutor` 行，密文列，DATA-MODEL §5.20）+ 环境变量；`credentialsComplete`/`hasKey` 按解析链实时口径（入库密钥解密失败按「密钥不存在」回退 env，不阻塞装配）。
 
-前端消费（019，022 升级，027B 更新）：ModelsPage「统一模型配置」状态卡读 GET 回显 providerId/protocol/hasKey/enabled/model/baseUrl/credentialsComplete，凭证不齐时按形态展示指引（legacy=`YILIAN_LLM_*` 两件套；目录模式=「编辑条目录入 API 密钥（即时生效无需重启）或设置 `YILIAN_LLM_KEY_<大写ID>`」）；启停只传 `{ "enabled": bool }` 走 PUT，成功失效本地缓存并以 GET 回读为准；「题目答疑」行与 AI 功能清单按 credentialsComplete && enabled 联动展示启用中/未生效（缺凭证）/未开放。
+前端消费（019，022 升级，027B 更新，028 更新）：ModelsPage「统一模型配置」状态卡读 GET 回显；目录激活态字段只读展示、编辑走 provider 抽屉（§8.15）；legacy 态（目录空/未激活）当前模型/生效端点 inline 可编辑（默认回显生效值），密钥 password 写-only（留空=不变更，永不回填），保存/「重置为环境默认」（清覆盖 + 删 tutor 密钥，确认弹窗）走 PUT，成功先落回执再失效本地缓存；来源徽标按激活态/`source` 三态展示（目录/自定义/环境变量）；「题目答疑」行与 AI 功能清单按 credentialsComplete && enabled 联动展示启用中/未生效（缺凭证）/未开放。legacy 态启停开关与表单当前值一起提交（状态型字段语义下裸传 enabled 会清掉既有覆盖）；目录态开关只传 `{ "enabled": bool }`。
 
 ### 8.15 `/api/admin/llm/providers`（implemented，022）
 
@@ -2102,7 +2112,7 @@ provider 目录（022，CC Switch 式多 provider；027B 扩密钥录入）：�
 | Practice | `POST /api/practice/attempts/{attemptId}/review`（024，§6.13） | 模型复核：追加 grader=MODEL 判分行（sequence=首判+1，append-only），回看/统计取最新 sequence 而排程与错题维持首判口径（wrongCount/countWrong 限定 sequence=1）；可见性复用 §6.3 口径（40403/40300，REVEAL 无判分 40000）；幂等=已有 MODEL 行回读不再调模型（有意非 409），并发撞 uk 回读既有行；strict JSON 输出解析失败重试 1 次仍败降级 50000 不落行（镜像答疑模式），无可用客户端 40400；score 钳制 0–100、reason ≤200 字码点截断；限流 model-review 5 次/分钟（账号）；llm_usage scene='review' 三终态双写；prompt_version_id 落 PromptRegistry 的 review 版本 id（025 V13 注册表，缺行时 NULL 降级） | `PracticeControllerTest`（切片：匿名 401、委托与信封形状、限流注解契约 5 次/60 秒/账号）；`PracticeModelReviewIntegrationTest`（真实 MySQL + 桩注册表/桩客户端：[AC-1] 落行 sequence+1/grader=MODEL/快照/耗时/口径版本沿用与 result 批注结构、[AC-2] 幂等读 LLM 调用数=1、[AC-3] 匿名 401/他人与不存在/REVEAL 拒绝且零模型调用、[AC-4] 异常与非法输出降级不落行+重试后成功+101 钳制 100、[AC-5] llm_usage 三终态、[AC-6] 限流脚本化 429+Retry-After 且被拒请求零业务副作用（真实 ZSET 窗口语义由 RateLimitServiceTest/RateLimitAspectTest 覆盖，CI 无 Redis 不可复现）、[AC-7] 回看/今日全对率取复核分而卡与 review_logs/错题池 lastScore 维持首判）；`ModelReviewPromptBuilderTest`（prompt 五段上下文、系统提示 strict JSON 契约、定界剥离防伪造、解析/钳制/码点截断）；前端 `PracticePage.test.tsx`（[AC-8] 入口门禁匿名与本地占位隐藏、成功新分+理由+复核不影响复习计划注记+attempt 刷新、失败 toast 保留原分、无演示占位残留） |
 | Practice | `POST /api/practice/attempts/{attemptId}/annotations/{key}/appeal`（025 扩展，§6.4） | 申诉同步 LLM 初裁：落库（status 保持 PENDING）后同步调模型，成功落 decision/decision_reason/decided_by=LLM/decided_at/model_snapshot/prompt_version_id（V8 裁决列启用）；失败/超时/非法输出（重试 1 次）与限流（独立 scene `appeal-adjudication` 5 次/分钟账号、程序化判定）落 `{"verdict":"UNAVAILABLE"}` 占位，**不阻塞提交**（响应 200、status PENDING）；llm_usage scene='appeal' 三终态双写；提示词只含被申诉批注上下文与本人主张（系统提示走 PromptRegistry ask/review/appeal 三链路注册表，V13）；`dispute`（§6.5）语义不变 | `PracticeControllerTest`（切片：appeal/dispute 200 信封与缺体、40000/40300/40403/40900 映射）；`PracticeAppealAdjudicationIntegrationTest`（真实 MySQL + 桩注册表/桩限流：[AC-2] 初裁成功落裁决六列且 status=PENDING/失败与非法输出占位 decided_by=NULL/限流跳过且申诉不拒/重试恢复/DISPUTE 零模型调用、[AC-5] ACCEPTED 进 overlay 后 proposed_answer 判对而 PENDING/REJECTED 不影响、DISPUTE 不进 overlay、[AC-6] 初裁行与 MODEL 复核行 prompt_version_id 落注册表 id）；prompt 契约另由 `AppealAdjudicationPromptBuilderTest`（五段上下文不含整句参考译文/strict JSON/verdict 枚举/300 字截断/围栏容错）、V13 形状由 `V13PromptVersionsSchemaIntegrationTest` 锁定；前端 `PracticePage-appeal-opinion.test.tsx`（[AC-7] 批注行 AI 意见/初裁不可用/终审通过/驳回/无意见原文案/DISPUTE 已排除回归） |
 | Admin | `GET /api/admin/appeals`、`POST /api/admin/appeals/{id}/decision`（025，§8.16） | 申诉分页检索（status/kind 精确过滤、011 分页口径 size 上限 100、非法筛选 40000、行内含 AI 意见/题目摘要/用户主张；复杂查询走 MyBatis 只读 JOIN）与人工终审（仅 PENDING 可裁决否则 40900、status/decision_reason/decided_by=ADMIN/decided_at 定向 UPDATE、decision JSON 保留初裁意见；ACCEPTED 进判分 overlay 不改题目、REJECTED 不回写；审计 `@OperationLog(action=APPEAL_DECIDE)` + OperationLogContext 落对象与理由） | `AdminAppealControllerTest`（切片：匿名 401/非管理员 403、筛选透传与非法筛选 40000、PageResponse+AdminAppealView 形状、终审 200/绑定校验 400/40900 透传、审计注解口径 [AC-3]）；终审落库与 overlay 消费另由 `PracticeAppealAdjudicationIntegrationTest`（真实 MySQL）覆盖 |
-| Admin | `GET/PUT /api/admin/llm/config`（017）、`GET/POST /api/admin/llm/providers`、`PUT/DELETE /api/admin/llm/providers/{id}`、`PUT /api/admin/llm/providers/{id}/activate`（022） | 答疑 LLM 配置（§8.14）与 provider 目录（§8.15）：enabled 存 `app_settings` 键 `llm.tutor`（fail-closed 解析）；目录存键 `llm.providers`/`llm.active`（激活唯一、激活中不可删、id `[a-z0-9-]+` 唯一、协议白名单 fail-closed）；027B：POST/PUT 收写-only 可选 apiKey（非空白=加密 upsert，空/缺省=不变更），GET 回 hasKey（DB 或 env 任一）/keyLast4（仅 DB 态）/active 不回读明文（响应无 apiKey 字段），DELETE 同事务删密钥行，元数据与密钥行同事务；enabled=true 无可用客户端 40000（文案按目录/legacy 分口径，027B 文案双通道）；审计 LLM_CONFIG_UPDATE（GET 不标，切面不读请求体） | `AdminLlmConfigControllerTest`、`AdminLlmProviderControllerTest`（切片：匿名 401/非管理员 403、GET 形状含 keyLast4、POST/PUT/DELETE/activate 透传与 id 校验 40000、40400 信封、审计注解口径、apiKey 透传与响应无明文）；service 分支另由 `LlmProviderAdminServiceImplTest`（CRUD 规则/激活幂等/写-only apiKey/删除联动密钥行）与解析链集成 `LlmProviderKeyResolutionIntegrationTest`（DB>env>legacy 优先级/删 UI 值回退/坏密文回退/凭证口径）覆盖 |
+| Admin | `GET/PUT /api/admin/llm/config`（017）、`GET/POST /api/admin/llm/providers`、`PUT/DELETE /api/admin/llm/providers/{id}`、`PUT /api/admin/llm/providers/{id}/activate`（022） | 答疑 LLM 配置（§8.14）与 provider 目录（§8.15）：enabled 与 tutor 覆盖存 `app_settings` 键 `llm.tutor`（fail-closed 解析；028 扩 baseUrl/model 覆盖）；目录存键 `llm.providers`/`llm.active`（激活唯一、激活中不可删、id `[a-z0-9-]+` 唯一、协议白名单 fail-closed）；027B：目录 POST/PUT 收写-only 可选 apiKey（非空白=加密 upsert，空/缺省=不变更），GET 回 hasKey（DB 或 env 任一）/keyLast4（仅 DB 态）/active 不回读明文（响应无 apiKey 字段），DELETE 同事务删密钥行，元数据与密钥行同事务；028：PUT config 收 baseUrl/model 覆盖（非空白=落覆盖、空/缺省=清除，形状/长度校验 40000）与写-only apiKey（加密 upsert 到 `llm_provider_keys` 预留 id=`tutor`）及 clearKey（删行），GET 回 source（custom\|env）/keyLast4（tutor 行），原 40000 env-only 拒绝废除；enabled=true 无可用客户端 40000 且同事务回滚（文案按目录/覆盖轨/legacy 分口径）；审计 LLM_CONFIG_UPDATE（GET 不标，切面不读请求体） | `AdminLlmConfigControllerTest`（切片：匿名 401/非管理员 403、GET 投影形状 source/keyLast4 无 apiKey 回显、PUT 全字段透传/clearKey、校验拒绝信封、审计注解口径）、`AdminLlmProviderControllerTest`（切片：401/403、GET 形状含 keyLast4、POST/PUT/DELETE/activate 透传与 id 校验 40000、40400 信封、审计注解口径、apiKey 透传与响应无明文）；service 分支另由 `TutorServiceImplTest`（覆盖落库/清除/tutor 密钥 upsert/clearKey/校验零写入/定向文案）、`LlmProviderAdminServiceImplTest`（CRUD 规则/激活幂等/写-only apiKey/删除联动密钥行）、`LlmClientRegistryTest`（覆盖轨>env 轨/即时换轨/三态门）与集成 `TutorConfigRailIntegrationTest`、`LlmProviderKeyResolutionIntegrationTest`（真实 MySQL：三级优先序/覆盖即时换轨/tutor 密钥加密入库与 last4/开启被拒回滚）覆盖 |
 | Practice/llm | （022 支撑 §6.12 的三协议客户端与 provider 目录装配，无独立端点） | `LlmChatClient` 三协议统一接口：`OpenAiChatLlmClient`（Spring AI OpenAI 轨收编）、`AnthropicMessagesLlmClient`（021 网关轨；022 改官方 SDK 直调+手写 content 提取）、`OpenAiResponsesLlmClient`（新，手写 java.net.http）；`LlmClientRegistry` 按激活 provider 装配+目录指纹缓存+legacy 回退。V11：`llm_usage` 用量账本（DATA-MODEL §5.18）落库为内部表，无端点、不进矩阵行 | `AnthropicMessagesLlmClientTest`（JDK 桩：/v1/messages 请求形状与头、**thinking 块只拼 text 块**/max_tokens 吃尽空正文、usage 映射、429（网关非标准错误体）与 5xx 退避重试一次、4xx 不重试）；`OpenAiResponsesLlmClientTest`（JDK 桩：/v1/responses 请求形状与 Bearer 头、output 取 message/output_text、reasoning 跳过、非 2xx 不重试）；`OpenAiChatLlmClientTest`（离线装配）；`LlmClientRegistryTest`（协议装配选择、目录指纹缓存失效、legacy 回退、凭证口径按协议分、三态门）；`LlmProviderCatalogTest`（app_settings 解析 fail-closed、写入形状、env 索引连字符→下划线）；`LlmPropertiesTest`（env 绑定+legacy 映射）；V11 落库形状/失败旁路由 `TutorServiceImplTest`（[AC-V11-1]/[AC-V11-2]）与 `SentenceActiveExternalKeySchemaIntegrationTest`（真实 MySQL 全字段读回）覆盖——矩阵注：内部表无端点，无接口级测试行 |
 | Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 | `ImportBatchControllerTest`（切片：匿名 401/非管理员 403、multipart 绑定与缺参 40000、缺请求体 40001、40405/40904、PageResponse 信封）；`ImportBatchServiceIntegrationTest`（真实 MySQL：五端点语义、commit 原子性（回写失败整体回滚可恢复）、COMMITTING 残留对账收敛、重复 commit 幂等、回滚 tombstone） |
 | Admin | `GET /api/admin/overview`、`GET /api/admin/users`、`PATCH /api/admin/users/{id}/status`、`PATCH /api/admin/users/{id}/role`、`POST /api/admin/invites`、`GET /api/admin/invites`（011-a）、`POST /api/admin/users/{id}/reset-password`、`DELETE /api/admin/users/{id}`（018） | 概览聚合（活跃=attempts 当日去重用户，UTC 日界）、用户检索分页、启停/改角色（审计经 `OperationLogContext`）、邀请码生成（明文一次性）/前缀列表、重置密码（一次性临时口令+40303 强制改密+吊销全部会话，§8.2b）、删除账号（软删+吊销会话+40400 幂等口径，§8.2c） | `AdminOverviewControllerTest`、`AdminUserControllerTest`、`AdminInviteControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse 形状、reason 越界 40000、40001、审计上下文断言；018 补 reset-password/delete 绑定校验与 403/401 矩阵）；service 分支另由 `UserAccountServiceImplTest`（自己停自己/自己降自己/邀请码哈希落库；018 补重置成功与自重置/已删/原因必填、删除成功与自删/已删/最后管理员）、`AdminOverviewServiceImplTest`（补 0 与活动组装）覆盖 |
@@ -2165,6 +2175,7 @@ provider 目录（022，CC Switch 式多 provider；027B 扩密钥录入）：�
 | 2026-11-06 | v1.5 | 025 申诉 LLM 裁决：§6.4 扩展（提交即同步 LLM 初裁，回执新增 verdict/decisionReason/decidedBy/decidedAt 四字段，初裁失败/限流落 `{"verdict":"UNAVAILABLE"}` 占位不阻塞提交，status 恒 PENDING 待人工终审）；新增 §8.16 `GET /api/admin/appeals` + `POST /api/admin/appeals/{id}/decision`（011 分页口径、仅 PENDING 可裁决 40900、审计 APPEAL_DECIDE；ACCEPTED 进判分 overlay 不改题目、REJECTED 不回写）；判分 overlay：本句 ACCEPTED APPEAL 的 (chunk_index, proposed_answer) 作为该槽额外可接受答案（norm-1 同口径，DISPUTE 排除语义不变）；V13 建 `prompt_versions` 注册表（ask/review/appeal 首版种子），ask/review/appeal 三链路系统提示改经 PromptRegistry 取 ACTIVE 版本（缺行回退同文常量），attempt_gradings MODEL 行与 appeals 落 prompt_version_id（llm_usage 无该列、本批不扩列——计划 AC-6 原文含 llm_usage 系笔误，PR 披露）；§2 矩阵、§10.1 矩阵两行同步 | 实现工程师 |
 | 2026-11-06 | v1.4 | 024 模型复核接后端：新增 §6.13 `POST /api/practice/attempts/{attemptId}/review`（追加 grader=MODEL 判分行 sequence=首判+1，model_snapshot/latency_ms V8 预留列启用；幂等=已有 MODEL 行回读不重复计费，并发撞 uk 回读既有行故 40900 不适用；strict JSON 解析失败重试 1 次仍败降级 50000 不落行；score 钳制 0–100、reason ≤200 字；限流 model-review 5 次/分钟账号；llm_usage scene='review' 三终态双写）；错题池/wrongCount 口径明确按首判（sequence=1），复核不影响复习计划；§2 矩阵、§10.1 矩阵同步 | 实现工程师 |
 | 2026-11-17 | v1.6 | 027B provider 密钥管理端加密入库：V14 建 `llm_provider_keys`（DATA-MODEL §5.20；provider_id 主键/AES-256-GCM 密文/key_last4/updated_at，零物理外键）；新增主密钥 env `YILIAN_SECRET_MASTER_KEY`（prod 缺失 fail-fast、local 文档化 dev 值，AGENTS §3.4 修订随批次落地）；条目密钥解析链改 **DB 密文 > `YILIAN_LLM_KEY_<大写ID>` env > legacy**（解密失败按密钥不存在回退 env 不阻塞目录读，hasKey=DB 或 env 任一，credentialsComplete 同步）；§8.15.2/8.15.3 请求体增写-only 可选 apiKey（空/缺省=不变更、非空白=加密 upsert，明文不入日志/审计/响应）、§8.15.1 增 keyLast4（env 态 null）、§8.15.4 密钥行同事务删；§8.14 字段回溯与开答疑被拒文案双通道；§10.1 Admin 行测试引用同步 | 实现工程师 |
+| 2026-11-17 | v1.7 | 028 答疑 LLM legacy 态全字段可编辑：§8.14.2 PUT 扩 baseUrl/model 覆盖（非空白=落覆盖存 `app_settings` 键 `llm.tutor`，空/缺省=清除回 env；形状/长度校验 40000）、写-only apiKey（AES-256-GCM 加密 upsert 到 `llm_provider_keys` 预留 id=`tutor`，空/缺省=不变更）、clearKey=true 删 tutor 密钥行；**废除 017 的 40000 env-only 拒绝语义**（契约演进链 017→027B→028），enabled=true 无可用客户端仍 40000 且同事务回滚全部写入；§8.14.1 GET 增 source（custom\|env，legacy 形态取值来源）与 keyLast4（tutor 密钥行尾号），生效值改按「目录激活 > tutor 覆盖 > env」逐字段投影；解析链三级（022 语义不变：目录激活高于一切 legacy 形态，目录非空未激活仍 fail-closed），覆盖/密钥变更经注册表指纹即时换轨；§10.1 Admin 行同步；黑盒套件（docs/analysis/ai-tutor-test）A-04/A-05/A-06/C-05 期望同步并注明 | 实现工程师 |
 
 ---
 
