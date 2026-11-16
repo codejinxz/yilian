@@ -51,6 +51,8 @@ class LlmClientRegistryTest {
 
     @Mock private LlmProviderCatalog providerCatalog;
 
+    @Mock private LlmProviderKeys providerKeys;
+
     private LlmProperties legacyProperties;
 
     private LlmClientRegistryImpl registry;
@@ -59,11 +61,21 @@ class LlmClientRegistryTest {
     void setUp() {
         // 缺省 legacy 轨未配置（base-url 空）；目录侧缺省空。
         legacyProperties = new LlmProperties("", "", null, null, null);
-        registry = new LlmClientRegistryImpl(providerCatalog, legacyProperties);
+        registry = new LlmClientRegistryImpl(providerCatalog, providerKeys, legacyProperties);
         lenient().when(providerCatalog.read()).thenReturn(emptyCatalog());
         lenient().when(providerCatalog.envKey("zai")).thenReturn("");
         lenient().when(providerCatalog.envKey("zhipu")).thenReturn("sk-zhipu");
         lenient().when(providerCatalog.envKey("oai-responses")).thenReturn("sk-oai");
+        // 027B 解析链：单测里密钥链退化为纯 env 轨（DB 行由集成测试覆盖），保持既有断言语义。
+        lenient()
+                .doAnswer(
+                        invocation -> {
+                            String env = providerCatalog.envKey(invocation.getArgument(0));
+                            return env.isEmpty() ? Optional.empty() : Optional.of(env);
+                        })
+                .when(providerKeys)
+                .resolve(org.mockito.ArgumentMatchers.any());
+        lenient().when(providerKeys.stateFingerprint()).thenReturn("");
     }
 
     /** [AC-1] 激活 provider 按协议装配：anthropic-messages→Anthropic 客户端，openai-chat→OpenAI 兼容客户端。 */
@@ -110,7 +122,7 @@ class LlmClientRegistryTest {
                         "glm-4.7",
                         Duration.ofSeconds(15),
                         LlmProperties.LlmProvider.OPENAI);
-        registry = new LlmClientRegistryImpl(providerCatalog, legacyProperties);
+        registry = new LlmClientRegistryImpl(providerCatalog, providerKeys, legacyProperties);
 
         assertThat(registry.chatHandle())
                 .hasValueSatisfying(
@@ -141,7 +153,7 @@ class LlmClientRegistryTest {
                         "glm-5.3",
                         null,
                         LlmProperties.LlmProvider.ANTHROPIC);
-        registry = new LlmClientRegistryImpl(providerCatalog, legacyProperties);
+        registry = new LlmClientRegistryImpl(providerCatalog, providerKeys, legacyProperties);
 
         assertThat(registry.chatHandle())
                 .hasValueSatisfying(

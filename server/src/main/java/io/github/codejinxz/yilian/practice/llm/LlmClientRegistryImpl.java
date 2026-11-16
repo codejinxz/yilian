@@ -8,9 +8,9 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * {@link LlmClientRegistry} 实现：每次解析读 provider 目录快照，以快照为指纹做运行时缓存——目录（含激活
- * 态）未变时复用已装配的客户端，目录任何变更（增删改/激活切换）下下次调用自动换轨，「目录变更失效」无需重启也无 需显式失效钩子（app_settings 单行读很廉价，答疑另有 5
- * 次/分钟限流）。
+ * {@link LlmClientRegistry} 实现：每次解析读 provider 目录快照，以「目录快照 + 密钥状态」为指纹做运行时缓存——目录（含激活
+ * 态）与入库密钥行未变时复用已装配的客户端，目录任何变更（增删改/激活切换）或密钥录入/删除 下下次调用自动换轨，「变更失效」无需重启也无需显式失效钩子（app_settings 单行读与
+ * llm_provider_keys 全行读都极廉价，答疑另有 5 次/分钟限流）。
  *
  * <p>装配选择：按激活条目 protocol 构造 {@link AnthropicMessagesLlmClient} / {@link OpenAiChatLlmClient} /
  * {@link OpenAiResponsesLlmClient}；legacy 轨（目录空 + 环境变量齐备）按 {@link LlmProperties#legacyProtocol()}
@@ -22,6 +22,7 @@ public class LlmClientRegistryImpl implements LlmClientRegistry {
     private static final Logger log = LoggerFactory.getLogger(LlmClientRegistryImpl.class);
 
     private final LlmProviderCatalog providerCatalog;
+    private final LlmProviderKeys providerKeys;
     private final LlmProperties legacyProperties;
 
     /** legacy 轨客户端惰性缓存：环境变量启动期固定，构造一次复用。 */
@@ -33,19 +34,25 @@ public class LlmClientRegistryImpl implements LlmClientRegistry {
     /** 一次解析的结果：可用句柄与管理端视图可以同时存在/缺席（凭证不齐=视图在、句柄缺）。 */
     private record Resolution(Optional<ChatHandle> handle, Optional<EffectiveConfig> config) {}
 
-    /** 缓存条目：目录快照指纹 + 解析结果。 */
-    private record CachedResolution(
-            LlmProviderCatalog.Catalog fingerprint, Resolution resolution) {}
+    /** 缓存指纹：目录快照 + 入库密钥行状态（027B：只换密钥不改目录时也要换轨）。 */
+    private record Fingerprint(LlmProviderCatalog.Catalog catalog, String keyStamp) {}
+
+    /** 缓存条目：指纹 + 解析结果。 */
+    private record CachedResolution(Fingerprint fingerprint, Resolution resolution) {}
 
     /**
      * 注入依赖。
      *
      * @param providerCatalog provider 目录存取
+     * @param providerKeys 条目密钥解析链（DB 密文 &gt; env）
      * @param legacyProperties legacy 环境变量配置（兼容轨）
      */
     public LlmClientRegistryImpl(
-            LlmProviderCatalog providerCatalog, LlmProperties legacyProperties) {
+            LlmProviderCatalog providerCatalog,
+            LlmProviderKeys providerKeys,
+            LlmProperties legacyProperties) {
         this.providerCatalog = providerCatalog;
+        this.providerKeys = providerKeys;
         this.legacyProperties = legacyProperties;
     }
 
@@ -65,7 +72,7 @@ public class LlmClientRegistryImpl implements LlmClientRegistry {
     }
 
     /**
-     * 解析当前生效客户端（带目录指纹缓存）。
+     * 解析当前生效客户端（带「目录快照 + 密钥状态」指纹缓存）。
      *
      * @return 解析结果（永不返回 null）
      */
@@ -74,12 +81,15 @@ public class LlmClientRegistryImpl implements LlmClientRegistry {
         if (catalog.isEmpty()) {
             return resolveLegacy();
         }
+        // 密钥状态指纹每次解析现算（llm_provider_keys 全行读极廉价）：只录入/删除密钥、
+        // 不动目录 JSON 时也能即时换轨，UI 保存的新密钥下一次调用即生效。
+        Fingerprint fingerprint = new Fingerprint(catalog, providerKeys.stateFingerprint());
         CachedResolution cachedEntry = cached.get();
-        if (cachedEntry != null && cachedEntry.fingerprint().equals(catalog)) {
+        if (cachedEntry != null && cachedEntry.fingerprint().equals(fingerprint)) {
             return cachedEntry.resolution();
         }
         Resolution resolution = resolveDirectory(catalog);
-        cached.set(new CachedResolution(catalog, resolution));
+        cached.set(new CachedResolution(fingerprint, resolution));
         return resolution;
     }
 
@@ -135,15 +145,18 @@ public class LlmClientRegistryImpl implements LlmClientRegistry {
             return new Resolution(Optional.empty(), Optional.empty());
         }
         LlmProviderDescriptor descriptor = active.get();
-        String envKey = providerCatalog.envKey(descriptor.id());
-        boolean credentialsComplete = descriptor.hasCredentials(!envKey.isEmpty());
+        // 027B 解析链：DB 密文解密 > YILIAN_LLM_KEY_<大写ID> env（>空）；legacy 三件套只在
+        // 目录空分支生效，与本处无关。解密失败按密钥不存在回退 env（fail-safe，见
+        // LlmProviderKeys），不把坏密文放大成装配异常。
+        String resolvedKey = providerKeys.resolve(descriptor.id()).orElse("");
+        boolean credentialsComplete = descriptor.hasCredentials(!resolvedKey.isEmpty());
         EffectiveConfig config =
                 new EffectiveConfig(
                         descriptor.id(),
                         descriptor.protocol().wire(),
                         descriptor.baseUrl(),
                         descriptor.model(),
-                        !envKey.isEmpty(),
+                        !resolvedKey.isEmpty(),
                         credentialsComplete);
         if (!credentialsComplete) {
             return new Resolution(Optional.empty(), Optional.of(config));
@@ -151,7 +164,8 @@ public class LlmClientRegistryImpl implements LlmClientRegistry {
         LlmChatClient client =
                 createSafely(
                         descriptor.protocol(),
-                        new LlmEndpoint(descriptor.baseUrl(), envKey, descriptor.model(), null));
+                        new LlmEndpoint(
+                                descriptor.baseUrl(), resolvedKey, descriptor.model(), null));
         if (client == null) {
             return new Resolution(Optional.empty(), Optional.of(config));
         }
