@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 |---|---|
-| 版本 | v0.2（025 申诉裁决与 prompt_versions 注册表） |
-| 日期 | 2026-11-06 |
+| 版本 | v0.3（027B provider 密钥加密入库 llm_provider_keys） |
+| 日期 | 2026-11-17 |
 | 状态 | 待产品/技术负责人确认后冻结 |
 | 上游 | `AGENTS.md`、`docs/PRD.md` §5/§8/§11/§16/§17/§18、`docs/NAMING.md`、`docs/GAP-ANALYSIS.md` |
 | 下游 | `docs/API.md`（未开始）、`docs/openapi.yaml`（M1/M2 实现后导出） |
@@ -69,6 +69,7 @@
 | system | `app_settings` | PRD §17 | M1（只读配置；编辑 M3） |
 | analytics | `user_daily_stats` | PRD §16 | M3 预留，不建 |
 | ai | `llm_usage` | PRD §17 | **V11 已建**（§5.18，append-only 用量账本，内部表无端点） |
+| ai | `llm_provider_keys` | PRD §17（provider 密钥管理） | **V14 已建**（§5.20，密钥投影表，内部表无端点） |
 | ai | `llm_providers` / `llm_models` / `prompt_templates` / `prompt_versions` | PRD §17 | M3 预留，不建 |
 
 基础设施表（不属于业务实体，但属于最终 schema）：
@@ -172,7 +173,7 @@ erDiagram
 - `admin_audit_log`（UPDATE 禁止；保留期通过月分区 DROP 清理，不按行 DELETE）
 - `error_log`（同上）
 
-`reviews`、`appeals`、`import_batches`、`import_batch_rows`、`users`、`sentences`、`sentence_banks`、`prompt_versions`（label 流转；行内容 name/version/content 不改写）是可变投影/状态表，允许受控 UPDATE；变更必须写 `admin_audit_log` 或 `review_logs`。
+`reviews`、`appeals`、`import_batches`、`import_batch_rows`、`users`、`sentences`、`sentence_banks`、`prompt_versions`（label 流转；行内容 name/version/content 不改写）、`llm_provider_keys`（027B 密钥投影：录入即 upsert 覆盖密文、目录删除即删行，变更经管理端 `@OperationLog` 审计留痕）是可变投影/状态表，允许受控 UPDATE/DELETE；其余变更必须写 `admin_audit_log` 或 `review_logs`。
 
 ### 4.4 时区与日界
 
@@ -805,6 +806,36 @@ Prompt 版本注册表（025）：三条 LLM 链路的系统提示登记为版�
 （MODEL 行）与 `appeals`（初裁行）的 `prompt_version_id` 指向本表；`llm_usage` 无
 `prompt_version_id` 列（保持元数据最小口径，025 不扩列）。
 
+### 5.20 `llm_provider_keys`（V14 已建）
+
+provider 条目密钥投影表（027B）：022 起条目密钥走 env 按 id 索引（不入库）；027B 把「密钥」
+扩为管理端可动态录入——API Key 经 `ProviderKeyCrypto` 以 **AES-256-GCM**（随机 12 字节 IV
+每次加密、128 位 auth tag）加密落本表，主密钥只走环境变量 `YILIAN_SECRET_MASTER_KEY`
+（prod 缺失启动失败 fail-fast；local 允许 application-local.yml 的 `local-dev-only` 开发值，
+禁复用；解析口径 hex/base64/原始口令 SHA-256 派生，见 ProviderKeyCrypto 类注释）。
+解析优先级：**本表密文解密 > `YILIAN_LLM_KEY_<大写ID>` env > legacy 三件套**；解密失败
+（主密钥被换/密文被篡改）按「该条目密钥不存在」回退 env，不阻塞目录读（fail-safe）。
+本表是密钥投影表（与 prompt_versions 的 append-only 不同）：录入即 upsert 覆盖旧密文、
+目录条目删除即同事务删行（零物理外键下的一致性由应用层保证，审计经 `@OperationLog`
+留痕）；`updated_at` 每次变更留痕。明文只在加密前内存短暂存在，不落任何表/日志/审计/响应；
+`key_last4` 仅尾 4 位辨识用（预披露裁决），不算明文泄露；密钥不进缓存（AGENTS §3.8）。
+内部表，无端点；管理端经 §8.15 五端点读写。
+
+| 字段 | 类型 | 可空 | 默认 | 说明 |
+|---|---|---|---|---|
+| `provider_id` | VARCHAR(64) | 否 | — | 主键；逻辑引用 provider 目录条目 id（目录存 app_settings JSON，无法建物理外键），同形态约束 `[a-z0-9-]+` |
+| `secret_cipher` | TEXT | 否 | — | AES-256-GCM 密文：`Base64(12 字节随机 IV ‖ 密文含 128 位 auth tag)`；列上无明文 |
+| `key_last4` | VARCHAR(4) | 是 | NULL | 录入时留痕的尾 4 位辨识号；env 态/未配置无行 |
+| `updated_at` | DATETIME(6) | 否 | — | 最近一次写入时间（UTC）；upsert 与目录删除同事务变更 |
+
+索引/约束：
+
+- 主键 `(provider_id)`——一目录条目至多一把入库密钥；无其余索引（按主键查唯一路径）。
+- 零物理外键（仓库纪律）；`provider_id` 逻辑引用目录条目 id，随目录删除同事务删行。
+
+消费：`LlmProviderKeys`（解析链与入库存取）→ `LlmClientRegistry`（激活条目装配，缓存指纹
+含本表状态）→ `AdminLlmProviderController`（§8.15 写-only apiKey / keyLast4 投影）。
+
 #### M3 预留表（只登记，不建）
 
 #### `llm_providers`
@@ -1273,6 +1304,7 @@ RELEARNING --rating>=GOOD--> REVIEW
 | `V9__review_card_single.sql` | 复习卡唯一键收敛 `(user_id, sentence_id)`；GLOBAL FSRS 权重种子 | Q1「一句一卡」 |
 | `V10__drop_fks_index_tuning.sql` | 三处索引调整 + 全部物理外键改逻辑外键（§4.5） | schema 合理化 |
 | `V13__prompt_versions.sql` | `prompt_versions`（ask/review/appeal 首版种子） | 025 申诉裁决：prompt 版本注册与 prompt_version_id 落值 |
+| `V14__llm_provider_keys.sql` | `llm_provider_keys`（provider_id 主键/AES-GCM 密文/key_last4/updated_at） | 027B：provider 条目密钥管理端加密入库（主密钥 env `YILIAN_SECRET_MASTER_KEY`，AGENTS §3.4 修订） |
 | 未来版本（M3） | `user_daily_stats`、`llm_*` 五表 | 暂不建，版本号顺延 |
 
 规则：
@@ -1393,3 +1425,4 @@ RELEARNING --rating>=GOOD--> REVIEW
 | 2026-10-24 | v0.1 | 初稿：实体边界、FSRS、表结构、迁移规划 | 技术负责人 |
 | 2026-10-24 | v0.1.1 | 补 `admin_audit_log.module`，满足后台按模块筛选 | 技术负责人 |
 | 2026-11-06 | v0.2 | 025 申诉 LLM 裁决：§5.10 补两级裁决口径（LLM 初裁产 AI 意见 status 保持 PENDING → 人工终审 ACCEPTED/REJECTED；UNAVAILABLE 占位语义；ACCEPTED 经判分 overlay 参与判分，DISPUTE 排除语义不变）；新增 §5.19 `prompt_versions` 注册表（V13，ask/review/appeal 首版种子幂等，行内容不改写、label 流转表达启用态）；§6 枚举 `PromptStatus`→`PromptLabel`（M3 四态模板形状作废）；§5.9 MODEL 行 prompt_version_id 落值；V13 进迁移清单；可变投影表清单补 prompt_versions | 实现工程师 |
+| 2026-11-17 | v0.3 | 027B provider 密钥加密入库：新增 §5.20 `llm_provider_keys`（V14，provider_id 主键逻辑引用目录条目、AES-256-GCM 密文、key_last4 尾 4 位辨识、updated_at 留痕；密钥投影表允许受控 UPDATE/DELETE，与 prompt_versions 的 append-only 区分）；§2 表清单补 ai/llm_provider_keys 行；§4 可变投影表清单补 llm_provider_keys；迁移清单 V14 行；主密钥 `YILIAN_SECRET_MASTER_KEY` 口径（prod fail-fast、local dev 值禁复用）与解析链 DB>env>legacy 见 §5.20 | 实现工程师 |
