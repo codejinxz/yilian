@@ -54,7 +54,7 @@
 
 ## 029 轮巡余量（双 skill 第一轮消缺批登记入册，2026-11-17）
 
-来源：[code-review-full-20261117](analysis/code-review-full-20261117/00-评审汇总.md)（P3×7）与 [test-audit-full-20261117](analysis/test-audit-full-20261117/00-测试体检报告.md)（DEF-02/02-01/U-01/黑盒扩套件）+ 029 AC-6 实测（DEF-01）。预披露裁决：P3 与依赖侧只登记不修；CI 配置（保护路径）不动；黑盒扩套件不入 029 批。**F-03 已随 029 AC-1/AC-2 闭合**（终审/复核并发用例落地），登记备查不重复排期；C-01 本批已修注释部分（如实化），余量如下：
+来源：[code-review-full-20261117](analysis/code-review-full-20261117/00-评审汇总.md)（P3×7）与 [test-audit-full-20261117](analysis/test-audit-full-20261117/00-测试体检报告.md)（DEF-02/02-01/U-01/黑盒扩套件）+ 029 AC-6 实测（DEF-01）+ 第二轮复审（07-第二轮复审.md，R2-01/R2-02）。预披露裁决：P3 与依赖侧只登记不修；CI 配置（保护路径）不动；黑盒扩套件不入 029 批。**F-03 已随 029 AC-1/AC-2 闭合**（终审/复核并发用例落地），登记备查不重复排期；C-01 本批已修注释部分（如实化），余量如下：
 
 | 来源条目 | 一句话 | 级别 |
 |---|---|---|
@@ -71,6 +71,8 @@
 | test-audit 02 · 02-01 | 前端覆盖率无 CI 级阈值（vite coverage 无 thresholds、CI web job 不采集覆盖，gates.json 增量门禁为流程级）——现有口径为有意设计，登记为公网化/加固时的技术护栏候选项 | P3 |
 | test-audit 00/06 · 黑盒扩套件 | 015 套件基于 v0.1.1 时代契约，024/025/027B/028 新端点不在其内（本次靠 S/C 组临时脚本补位）——扩套件 6（review/appeal 链：复核落行/幂等/429、申诉 40900/终审/overlay 判对）登记 backlog，主人点单 | P3 |
 | test-audit 00 · U-01 | CI 平台运行历史（server/web job 是否绿、是否真拦过失败）本机无 gh CLI 未核——push 后核验 | 未决项 |
+| code-review 07 第二轮 · R2-01 | 初裁落列 `updateAdjudication` WHERE 仅按 id（AppealJpaRepository:77-82）——申诉落库后 ~31.5s LLM 窗口内该行 PENDING 可见于管理端，若管理员窗口内合法终审，随后到达的初裁会覆盖终审理由与 decided_by 且不可自愈（status 已非 PENDING）；「预检代替守卫」同型第三实例（终审已修、复核已修、此为初裁侧），一处 JPQL 加 status 谓词+窗口竞态测试即可 | P2 |
+| code-review 07 第二轮 · R2-02 | 复核事务持连接+attempts 行锁贯穿外呼（~31.5s）——≥10 跨账号并发复核触达连接池上限/第 3+ 等待者撞 InnoDB 50s 锁等待超时，均有已捕获降级路径；取舍已留痕（代码注释+API.md），量化登记防未来误修 | P3 |
 
 
 ## P0：上线前必须补
