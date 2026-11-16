@@ -58,6 +58,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -174,6 +175,12 @@ public class PracticeServiceImpl implements PracticeService {
     private final TransactionTemplate freshTxTemplate;
 
     /**
+     * LLM 用量旁路记账的独立新事务（REQUIRES_NEW）：llm_usage 是与主链路成败无关的旁路账本—— 029 起复核在事务内跑，若沿用外层事务，降级抛 50000
+     * 时记账会随回滚一起丢（三终态契约破坏）； 内层独立提交保证「调用即记账」与主事务成败解耦（答疑/初裁链路无外层事务，行为不变）。
+     */
+    private final TransactionTemplate usageTxTemplate;
+
+    /**
      * 只依赖 Dao 接口与跨模块 service 接口，不触碰实体映射之外的具体实现。
      *
      * @param attemptDao 提交 Dao
@@ -221,6 +228,8 @@ public class PracticeServiceImpl implements PracticeService {
         this.objectMapper = objectMapper;
         this.freshTxTemplate = new TransactionTemplate(transactionManager);
         this.freshTxTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.usageTxTemplate = new TransactionTemplate(transactionManager);
+        this.usageTxTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Override
@@ -2015,9 +2024,14 @@ public class PracticeServiceImpl implements PracticeService {
     }
 
     @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public ModelReviewView reviewAttempt(Long userId, String attemptId) {
-        // 刻意不加 @Transactional：模型外呼最长 15s（网关退避更久）不占数据库连接；复核行落库由
-        // Dao 自身事务提交，并发撞 uk 的回读不需要 REQUIRES_NEW（本方法没有持有中的写事务）。
+        // 029 事务化（A-02 修复）：整个复核在一个 READ_COMMITTED 事务内。模型外呼在事务里持着
+        // attempts 行锁与一条连接（最长约 31.5s）——这是已批准计划的明示取舍：复核低频
+        // （5 次/分钟限流），行级锁只串行化同一 attempt 的复核，不碰其他提交的并发；
+        // 换来的是幂等闸、sequence 计算、MODEL 行落库三步的原子性，并发复核不再可能落两条
+        // MODEL 行并双份消耗 token。READ_COMMITTED 而非默认 RR：后到者在行锁上等到先到者提交后，
+        // 幂等闸的重读必须看到先到者已提交的 MODEL 行（RR 的旧快照会漏看，导致二次调模型再撞 uk）。
         Attempt attempt =
                 attemptDao
                         .findById(attemptId)
@@ -2045,6 +2059,10 @@ public class PracticeServiceImpl implements PracticeService {
             // REVEAL 提交没有判分（score=null）：没有可复核的对象，属客户端请求错误。
             throw new BusinessException(ApiCode.VALIDATION_FAILED, "该提交没有可复核的判分");
         }
+        // 并发闸门：锁 attempts 父行后再做幂等检查（归属/可读性等廉价校验放锁外，缩短持锁时间）。
+        // 锁在事务提交前持有——先到者落行提交释放锁后，后到者的幂等闸（RC 快照）直接读到既有
+        // MODEL 行按幂等回读返回，模型只调一次；attempts append-only 无删除，锁点稳定。
+        attemptDao.lockById(attemptId);
         // 幂等闸：已有 MODEL 复核行直接返回既有结果，不再调模型——省 token 防重复计费，
         // POST 非严格幂等在此为有意取舍（复核一人一次，重复点击只是取回同一份结果）。
         Optional<AttemptGrading> existing = findModelReviewRow(attemptId);
@@ -2127,16 +2145,16 @@ public class PracticeServiceImpl implements PracticeService {
                     grading.getLatencyMs());
             return toReviewView(grading, first.getScore());
         } catch (DataIntegrityViolationException exception) {
-            // 并发复核撞 uk_grading_attempt_sequence：幂等以数据库唯一约束为准，回读已落行的
-            // 复核结果返回（第二次调用不再发生，结果与首调一致）。
-            AttemptGrading winner =
-                    findModelReviewRow(attemptId)
-                            .orElseThrow(
-                                    () ->
-                                            new BusinessException(
-                                                    ApiCode.INTERNAL_ERROR,
-                                                    "复核记录写入冲突：" + attemptId));
-            return toReviewView(winner, first.getScore());
+            // uk_grading_attempt_sequence 兜底（幂等以数据库唯一约束为准）：029 起 attempt 行锁 +
+            // RC 快照已让并发复核在锁上串行化、后到者幂等回读，正常路径撞不到该唯一键；
+            // 一旦命中即是数据异常（如 sequence 被外部改写）。撞键后本事务的持久化上下文
+            // 不再可信（提交阶段可能重放失败的 INSERT），按既有先例（提交链撞幂等键后不
+            // 继续本事务）抛业务异常整体回滚，而不是在脏会话上继续读，也不把堆栈外抛。
+            log.warn(
+                    "model_review sequence 冲突降级 attemptId={} error={}",
+                    attemptId,
+                    exception.getClass().getSimpleName());
+            throw new BusinessException(ApiCode.INTERNAL_ERROR, "复核记录写入冲突：" + attemptId);
         }
     }
 
@@ -2307,18 +2325,20 @@ public class PracticeServiceImpl implements PracticeService {
             long durationMs,
             boolean ok) {
         try {
-            llmUsageDao.save(
-                    LlmUsage.of(
-                            userId,
-                            sentenceId,
-                            MODEL_REVIEW_SCENE,
-                            protocol,
-                            model,
-                            promptTokens,
-                            completionTokens,
-                            durationMs,
-                            ok,
-                            Instant.now()));
+            usageTxTemplate.executeWithoutResult(
+                    status ->
+                            llmUsageDao.save(
+                                    LlmUsage.of(
+                                            userId,
+                                            sentenceId,
+                                            MODEL_REVIEW_SCENE,
+                                            protocol,
+                                            model,
+                                            promptTokens,
+                                            completionTokens,
+                                            durationMs,
+                                            ok,
+                                            Instant.now())));
         } catch (RuntimeException exception) {
             log.warn(
                     "LLM 用量落库失败（旁路不阻塞）：scene={}, userId={}, sentenceId={}, error={}",

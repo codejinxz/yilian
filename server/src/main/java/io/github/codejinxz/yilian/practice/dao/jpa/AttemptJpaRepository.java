@@ -2,7 +2,12 @@ package io.github.codejinxz.yilian.practice.dao.jpa;
 
 import io.github.codejinxz.yilian.practice.entity.Attempt;
 
+import jakarta.persistence.LockModeType;
+
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
@@ -10,6 +15,20 @@ import java.util.Optional;
 
 /** 提交 Spring Data 仓库，只允许同包 JpaAttemptDao 使用。 */
 public interface AttemptJpaRepository extends JpaRepository<Attempt, String> {
+
+    /**
+     * 锁定单条提交行（SELECT ... FOR UPDATE），用于模型复核对同 attempt 的并发串行化（029）。
+     *
+     * <p>attempts 行是复核写入的唯一天然锁点：复核的幂等闸、sequence 计算与 MODEL 行落库都以它为界串行化，
+     * 后到者在锁上等待先到者提交后再读，幂等回读语义不变。只锁已存在的行且 attempt append-only 无删除， 锁等待超时由 InnoDB 默认值兜底；参照 {@code
+     * AppUserJpaRepository.lockActiveAdminIds} 先例。
+     *
+     * @param id 提交 UUID
+     * @return 被锁定的提交 id；行不存在时为 null（调用方已先做存在性校验）
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a.id from Attempt a where a.id = :id")
+    String lockById(@Param("id") String id);
 
     /**
      * 用户在某题的最近提交。

@@ -38,6 +38,11 @@ public class JpaAttemptDao implements AttemptDao {
     }
 
     @Override
+    public void lockById(String id) {
+        attempts.lockById(id);
+    }
+
+    @Override
     public Optional<Attempt> findLatestByUserAndSentence(Long userId, String sentenceId) {
         return attempts.findFirstByUserIdAndSentenceIdOrderByCreatedAtDesc(userId, sentenceId);
     }

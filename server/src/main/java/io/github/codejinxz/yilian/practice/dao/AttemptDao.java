@@ -41,6 +41,15 @@ public interface AttemptDao {
     Attempt saveAndFlush(Attempt attempt);
 
     /**
+     * 锁定单条提交行（SELECT ... FOR UPDATE），模型复核对同 attempt 的并发复核串行化用（029）。
+     *
+     * <p>必须在事务内调用：锁随事务提交/回滚释放。行不存在时静默返回（调用方已先做存在性校验）。
+     *
+     * @param id 提交 UUID
+     */
+    void lockById(String id);
+
+    /**
      * 用户在某题的最近一次提交。
      *
      * @param userId 用户 id
