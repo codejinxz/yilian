@@ -358,11 +358,13 @@ public class TutorServiceImpl implements TutorService {
                         + config.providerId()
                         + "」尚未配置端点，无法开启答疑（anthropic-messages 轨无需 API Key）";
             }
+            // 027B 口径：条目密钥可经管理端加密入库（解析链 DB > env，录入即时生效无需重启），
+            // 文案两条路都给出，不再只指向环境变量。
             return "激活的 provider「"
                     + config.providerId()
-                    + "」缺少密钥：请设置环境变量 YILIAN_LLM_KEY_"
-                    + config.providerId().replace('-', '_').toUpperCase(java.util.Locale.ROOT)
-                    + " 并重启服务端";
+                    + "」缺少密钥：请在管理端模型页编辑该条目录入 API 密钥（即时生效），"
+                    + "或设置环境变量 YILIAN_LLM_KEY_"
+                    + config.providerId().replace('-', '_').toUpperCase(java.util.Locale.ROOT);
         }
         return legacyProperties.provider() == LlmProperties.LlmProvider.ANTHROPIC
                 ? "尚未配置 YILIAN_LLM_BASE_URL，无法开启答疑（anthropic 轨无需 API Key）"
