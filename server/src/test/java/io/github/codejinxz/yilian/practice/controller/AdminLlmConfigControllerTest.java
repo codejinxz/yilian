@@ -114,8 +114,8 @@ class AdminLlmConfigControllerTest {
     }
 
     /**
-     * [AC-1] GET：200 信封 data 为 {enabled, baseUrl, model, hasKey, providerId, protocol, credentialsComplete,
-     * source, keyLast4}，无 apiKey 字段回显（写-only 红线）。
+     * [AC-1] GET：200 信封 data 为 {enabled, baseUrl, model, hasKey, providerId, protocol,
+     * credentialsComplete, source, keyLast4}，无 apiKey 字段回显（写-only 红线）。
      */
     @Test
     void getConfigReturnsProjectionWithoutSecret_ac1() throws Exception {
@@ -196,8 +196,7 @@ class AdminLlmConfigControllerTest {
         when(tutorService.updateAdminConfig(
                         new LlmConfigUpdateRequest(false, null, null, null, true), 1L))
                 .thenReturn(
-                        new LlmConfigView(
-                                false, "", "", false, null, null, false, "env", null));
+                        new LlmConfigView(false, "", "", false, null, null, false, "env", null));
 
         mockMvc.perform(
                         put("/api/admin/llm/config")

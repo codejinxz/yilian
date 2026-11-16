@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 管理端答疑 LLM 配置接口（API §8.14）：服务端 ADMIN 鉴权，写操作审计 {@code LLM_CONFIG_UPDATE}；API Key 永不回读（GET 回 hasKey
  * 布尔与 keyLast4 尾号）。生效值优先级（028）：目录激活条目（目录管理见 {@link AdminLlmProviderController}）&gt; tutor 覆盖
  * （app_settings 键 llm.tutor 的 baseUrl/model + llm_provider_keys 预留 id=tutor 密钥）&gt; legacy 环境变量
- *（{@code YILIAN_LLM_*}）——legacy 形态全字段可编辑，目录激活态经 provider 抽屉编辑。
+ * （{@code YILIAN_LLM_*}）——legacy 形态全字段可编辑，目录激活态经 provider 抽屉编辑。
  */
 @Tag(name = "管理", description = "用户、题库、日志、出题与答疑 LLM 配置的管理端接口。")
 @SecurityRequirement(name = "bearerAuth")
@@ -95,8 +95,7 @@ public class AdminLlmConfigController {
                 description = "更新成功；data 为更新后的 LlmConfigView"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(
                 responseCode = "400",
-                description =
-                        "enabled 缺失、baseUrl/model 形状或长度非法、apiKey 超长或凭证未配置无法开启（code=40000）",
+                description = "enabled 缺失、baseUrl/model 形状或长度非法、apiKey 超长或凭证未配置无法开启（code=40000）",
                 content = @Content(schema = @Schema(implementation = ApiResponse.class))),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(
                 responseCode = "401",

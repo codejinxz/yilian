@@ -5,10 +5,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 /**
  * 管理端 LLM 配置视图（API §8.14）。
  *
- * <p>API Key 永不回读，只回 {@code hasKey} 布尔与 {@code keyLast4} 尾号投影。生效值优先级（028）：目录激活条目 &gt;
- * tutor 覆盖（app_settings 键 {@code llm.tutor}）&gt; legacy 环境变量；{@code source} 描述 legacy
- * 形态的取值来源（目录激活态恒为 env，前端以目录徽标优先）。027B 起 hasKey 为解析链口径（入库密钥可解密或 env 任一，见 {@code
- * LlmProviderKeys}）。
+ * <p>API Key 永不回读，只回 {@code hasKey} 布尔与 {@code keyLast4} 尾号投影。生效值优先级（028）：目录激活条目 &gt; tutor
+ * 覆盖（app_settings 键 {@code llm.tutor}）&gt; legacy 环境变量；{@code source} 描述 legacy 形态的取值来源（目录激活态恒为
+ * env，前端以目录徽标优先）。027B 起 hasKey 为解析链口径（入库密钥可解密或 env 任一，见 {@code LlmProviderKeys}）。
  *
  * @param enabled 答疑是否开放（app_settings 键 llm.tutor）
  * @param baseUrl 生效端点：目录激活=激活条目 baseUrl；legacy 形态=覆盖值 &gt; YILIAN_LLM_BASE_URL
@@ -27,9 +26,13 @@ import io.swagger.v3.oas.annotations.media.Schema;
 public record LlmConfigView(
         @Schema(description = "答疑是否开放", requiredMode = Schema.RequiredMode.REQUIRED)
                 boolean enabled,
-        @Schema(description = "生效端点（覆盖值 > env；目录激活时为激活条目端点）", requiredMode = Schema.RequiredMode.REQUIRED)
+        @Schema(
+                        description = "生效端点（覆盖值 > env；目录激活时为激活条目端点）",
+                        requiredMode = Schema.RequiredMode.REQUIRED)
                 String baseUrl,
-        @Schema(description = "生效模型名（覆盖值 > env；目录激活时为激活条目模型）", requiredMode = Schema.RequiredMode.REQUIRED)
+        @Schema(
+                        description = "生效模型名（覆盖值 > env；目录激活时为激活条目模型）",
+                        requiredMode = Schema.RequiredMode.REQUIRED)
                 String model,
         @Schema(description = "是否有可用密钥（入库密钥或 env 任一）", requiredMode = Schema.RequiredMode.REQUIRED)
                 boolean hasKey,

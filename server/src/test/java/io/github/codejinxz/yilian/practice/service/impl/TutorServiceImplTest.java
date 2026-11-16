@@ -385,7 +385,9 @@ class TutorServiceImplTest {
         verifyNoInteractions(llmChatClient);
     }
 
-    /** [AC-3] GET 配置：apiKey 不回读只回 hasKey；enabled 来自存储值；带 providerId/protocol/凭证齐备性；env 态 source=env。 */
+    /**
+     * [AC-3] GET 配置：apiKey 不回读只回 hasKey；enabled 来自存储值；带 providerId/protocol/凭证齐备性；env 态 source=env。
+     */
     @Test
     void getAdminConfigReturnsHasKeyInsteadOfKey_ac3() {
         LlmConfigView view = tutorService.getAdminConfig();
@@ -501,12 +503,14 @@ class TutorServiceImplTest {
 
         tutorService.updateAdminConfig(
                 new LlmConfigUpdateRequest(
-                        false, " http://10.0.0.8:8080/v4 ", " glm-5.3-flash ", null, null), 1L);
+                        false, " http://10.0.0.8:8080/v4 ", " glm-5.3-flash ", null, null),
+                1L);
 
         ArgumentCaptor<String> value = ArgumentCaptor.forClass(String.class);
         verify(appSettingService)
                 .upsert(eq(TutorServiceImpl.SETTING_KEY), value.capture(), anyString(), eq(1L));
-        TutorOverrides.Stored stored = objectMapper.readValue(value.getValue(), TutorOverrides.Stored.class);
+        TutorOverrides.Stored stored =
+                objectMapper.readValue(value.getValue(), TutorOverrides.Stored.class);
         assertThat(stored.enabled()).isFalse();
         assertThat(stored.baseUrl()).isEqualTo("http://10.0.0.8:8080/v4");
         assertThat(stored.model()).isEqualTo("glm-5.3-flash");
@@ -531,7 +535,8 @@ class TutorServiceImplTest {
         ArgumentCaptor<String> value = ArgumentCaptor.forClass(String.class);
         verify(appSettingService)
                 .upsert(eq(TutorServiceImpl.SETTING_KEY), value.capture(), anyString(), eq(1L));
-        TutorOverrides.Stored stored = objectMapper.readValue(value.getValue(), TutorOverrides.Stored.class);
+        TutorOverrides.Stored stored =
+                objectMapper.readValue(value.getValue(), TutorOverrides.Stored.class);
         assertThat(stored.baseUrl()).isNull();
         assertThat(stored.model()).isNull();
     }
@@ -566,7 +571,8 @@ class TutorServiceImplTest {
                         () ->
                                 tutorService.updateAdminConfig(
                                         new LlmConfigUpdateRequest(
-                                                false, "ftp://10.0.0.8", null, null, null), 1L))
+                                                false, "ftp://10.0.0.8", null, null, null),
+                                        1L))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> {
@@ -578,20 +584,27 @@ class TutorServiceImplTest {
                         () ->
                                 tutorService.updateAdminConfig(
                                         new LlmConfigUpdateRequest(
-                                                false, "https://x/" + "a".repeat(492), null, null, null),
+                                                false,
+                                                "https://x/" + "a".repeat(492),
+                                                null,
+                                                null,
+                                                null),
                                         1L))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
-                        exception -> assertThat(exception.getMessage()).contains("baseUrl 最长 500 字符"));
+                        exception ->
+                                assertThat(exception.getMessage()).contains("baseUrl 最长 500 字符"));
         // model 超长（trim 后 2049）。
         assertThatThrownBy(
                         () ->
                                 tutorService.updateAdminConfig(
                                         new LlmConfigUpdateRequest(
-                                                false, null, "m".repeat(2049), null, null), 1L))
+                                                false, null, "m".repeat(2049), null, null),
+                                        1L))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
-                        exception -> assertThat(exception.getMessage()).contains("model 最长 2048 字符"));
+                        exception ->
+                                assertThat(exception.getMessage()).contains("model 最长 2048 字符"));
         verify(appSettingService, never()).upsert(anyString(), anyString(), anyString(), eq(1L));
         verifyNoInteractions(providerKeys);
     }
@@ -605,7 +618,8 @@ class TutorServiceImplTest {
         assertThatThrownBy(
                         () ->
                                 tutorService.updateAdminConfig(
-                                        new LlmConfigUpdateRequest(true, null, null, null, null), 1L))
+                                        new LlmConfigUpdateRequest(true, null, null, null, null),
+                                        1L))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception ->
@@ -637,7 +651,8 @@ class TutorServiceImplTest {
         assertThatThrownBy(
                         () ->
                                 tutorService.updateAdminConfig(
-                                        new LlmConfigUpdateRequest(true, null, null, null, null), 1L))
+                                        new LlmConfigUpdateRequest(true, null, null, null, null),
+                                        1L))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception ->
@@ -665,7 +680,8 @@ class TutorServiceImplTest {
         assertThatThrownBy(
                         () ->
                                 tutorService.updateAdminConfig(
-                                        new LlmConfigUpdateRequest(true, null, null, null, null), 1L))
+                                        new LlmConfigUpdateRequest(true, null, null, null, null),
+                                        1L))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception ->
@@ -696,7 +712,8 @@ class TutorServiceImplTest {
                                         true)));
         when(appSettingService.upsert(
                         eq(TutorServiceImpl.SETTING_KEY),
-                        eq("{\"schemaVersion\":1,\"enabled\":true,\"baseUrl\":null,\"model\":null}"),
+                        eq(
+                                "{\"schemaVersion\":1,\"enabled\":true,\"baseUrl\":null,\"model\":null}"),
                         anyString(),
                         eq(1L)))
                 .thenReturn("{\"schemaVersion\":1,\"enabled\":true}");
@@ -731,7 +748,8 @@ class TutorServiceImplTest {
     void updateStoresEnabledFlagAndReturnsView_ac3() {
         when(appSettingService.upsert(
                         eq(TutorServiceImpl.SETTING_KEY),
-                        eq("{\"schemaVersion\":1,\"enabled\":false,\"baseUrl\":null,\"model\":null}"),
+                        eq(
+                                "{\"schemaVersion\":1,\"enabled\":false,\"baseUrl\":null,\"model\":null}"),
                         anyString(),
                         eq(1L)))
                 .thenReturn("{\"schemaVersion\":1,\"enabled\":false}");
@@ -747,7 +765,8 @@ class TutorServiceImplTest {
         verify(appSettingService)
                 .upsert(
                         eq(TutorServiceImpl.SETTING_KEY),
-                        eq("{\"schemaVersion\":1,\"enabled\":false,\"baseUrl\":null,\"model\":null}"),
+                        eq(
+                                "{\"schemaVersion\":1,\"enabled\":false,\"baseUrl\":null,\"model\":null}"),
                         anyString(),
                         eq(1L));
     }

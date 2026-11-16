@@ -23,8 +23,8 @@ import java.util.Optional;
 
 /**
  * {@link LlmClientRegistryImpl} 单测 [AC-1]/[AC-2]：按激活 provider 的 protocol 装配三协议客户端、运行时缓存（目录
- * 未变复用同一实例、目录变更即失效换轨）、legacy 族回退（目录空：tutor 覆盖轨 &gt; YILIAN_LLM_* 三件套）与三态门（无可用配置 →
- * chatHandle 空），凭证口径按协议分（anthropic-messages key 可空，openai 两轨 key 必填）；覆盖变更即时换轨（028）。
+ * 未变复用同一实例、目录变更即失效换轨）、legacy 族回退（目录空：tutor 覆盖轨 &gt; YILIAN_LLM_* 三件套）与三态门（无可用配置 → chatHandle
+ * 空），凭证口径按协议分（anthropic-messages key 可空，openai 两轨 key 必填）；覆盖变更即时换轨（028）。
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -307,7 +307,9 @@ class LlmClientRegistryTest {
         // 初始：无覆盖 → env 轨（端点=env 值）。
         assertThat(registry.effectiveConfig())
                 .hasValueSatisfying(
-                        config -> assertThat(config.baseUrl()).isEqualTo("https://env.example.com/v4"));
+                        config ->
+                                assertThat(config.baseUrl())
+                                        .isEqualTo("https://env.example.com/v4"));
 
         // 保存覆盖 → 下一次解析即换覆盖轨（无需重启/显式失效）。
         when(appSettingService.findValue(TutorOverrides.SETTING_KEY))
@@ -322,7 +324,8 @@ class LlmClientRegistryTest {
                             assertThat(config.model()).isEqualTo("glm-5.3-flash");
                         });
         assertThat(registry.chatHandle())
-                .hasValueSatisfying(handle -> assertThat(handle.model()).isEqualTo("glm-5.3-flash"));
+                .hasValueSatisfying(
+                        handle -> assertThat(handle.model()).isEqualTo("glm-5.3-flash"));
 
         // 修改覆盖模型 → 即时换轨到新模型（028 即时生效语义）。
         when(appSettingService.findValue(TutorOverrides.SETTING_KEY))
@@ -340,7 +343,9 @@ class LlmClientRegistryTest {
                                 "{\"schemaVersion\":1,\"enabled\":true,\"baseUrl\":null,\"model\":null}"));
         assertThat(registry.effectiveConfig())
                 .hasValueSatisfying(
-                        config -> assertThat(config.baseUrl()).isEqualTo("https://env.example.com/v4"));
+                        config ->
+                                assertThat(config.baseUrl())
+                                        .isEqualTo("https://env.example.com/v4"));
     }
 
     /** [AC-2] 022 语义不变：目录非空时覆盖轨休眠——目录未激活仍是 fail-closed（不回落覆盖/env）。 */

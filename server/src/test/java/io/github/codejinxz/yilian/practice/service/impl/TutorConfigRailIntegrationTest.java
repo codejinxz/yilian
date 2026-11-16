@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.practice.llm.LlmClientRegistry;
 import io.github.codejinxz.yilian.practice.llm.LlmProviderKeys;
-import io.github.codejinxz.yilian.practice.llm.TutorOverrides;
 import io.github.codejinxz.yilian.practice.service.LlmProviderAdminService;
 import io.github.codejinxz.yilian.practice.service.TutorService;
 import io.github.codejinxz.yilian.practice.service.dto.LlmConfigUpdateRequest;
@@ -26,16 +25,14 @@ import org.springframework.test.context.ActiveProfiles;
 /**
  * 028 答疑配置三级解析链集成测试（真实 MySQL）[AC-2]/[AC-3]：
  *
- * <p><strong>装配优先级：目录激活条目（022 语义不变）&gt; tutor 覆盖轨（app_settings 键 llm.tutor 的
- * baseUrl/model + llm_provider_keys 预留 id=tutor 密钥）&gt; legacy env 轨</strong>——逐级验证：env 轨基线、
- * 覆盖保存即换轨、覆盖修改即时换新模型、目录激活压过覆盖、目录清空后覆盖轨回归；022 语义保留（目录非空未激活 =
- * fail-closed，覆盖休眠不救场）。
+ * <p><strong>装配优先级：目录激活条目（022 语义不变）&gt; tutor 覆盖轨（app_settings 键 llm.tutor 的 baseUrl/model +
+ * llm_provider_keys 预留 id=tutor 密钥）&gt; legacy env 轨</strong>——逐级验证：env 轨基线、
+ * 覆盖保存即换轨、覆盖修改即时换新模型、目录激活压过覆盖、目录清空后覆盖轨回归；022 语义保留（目录非空未激活 = fail-closed，覆盖休眠不救场）。
  *
- * <p>[AC-3] tutor 密钥复用 llm_provider_keys（预留 id=tutor）：PUT apiKey 加密入库（密文列无明文）、
- * last4 投影、clearKey 删行后 hasKey 回落 env；[AC-1] enabled=true 被拒时本次覆盖与密钥写入整体回滚（同事务）。
+ * <p>[AC-3] tutor 密钥复用 llm_provider_keys（预留 id=tutor）：PUT apiKey 加密入库（密文列无明文）、 last4 投影、clearKey
+ * 删行后 hasKey 回落 env；[AC-1] enabled=true 被拒时本次覆盖与密钥写入整体回滚（同事务）。
  *
- * <p>legacy env 轨凭据以测试属性注入（{@code yilian.llm.*}），目录与覆盖/密钥行每用例前后清理，恢复
- * 「空目录 + 无覆盖 + 无 tutor 密钥行」基线。
+ * <p>legacy env 轨凭据以测试属性注入（{@code yilian.llm.*}），目录与覆盖/密钥行每用例前后清理，恢复 「空目录 + 无覆盖 + 无 tutor 密钥行」基线。
  */
 @SpringBootTest(
         properties = {
@@ -75,7 +72,9 @@ class TutorConfigRailIntegrationTest {
     @BeforeEach
     @AfterEach
     void cleanState() {
-        jdbcTemplate.update("DELETE FROM llm_provider_keys WHERE provider_id = ?", LlmProviderKeys.TUTOR_PROVIDER_ID);
+        jdbcTemplate.update(
+                "DELETE FROM llm_provider_keys WHERE provider_id = ?",
+                LlmProviderKeys.TUTOR_PROVIDER_ID);
         jdbcTemplate.update(
                 "DELETE FROM app_settings WHERE `key` IN ('llm.tutor', 'llm.providers', 'llm.active')");
     }
@@ -154,7 +153,8 @@ class TutorConfigRailIntegrationTest {
                 .hasValueSatisfying(
                         config -> {
                             assertThat(config.providerId()).isEqualTo(PROVIDER_ID);
-                            assertThat(config.baseUrl()).isEqualTo("https://directory.example.test/v4");
+                            assertThat(config.baseUrl())
+                                    .isEqualTo("https://directory.example.test/v4");
                             assertThat(config.model()).isEqualTo("glm-directory");
                         });
         LlmConfigView view = tutorService.getAdminConfig();
@@ -189,7 +189,9 @@ class TutorConfigRailIntegrationTest {
         assertThat(view.baseUrl()).isEqualTo("https://env-rail.example.test/v4");
         assertThat(llmClients.effectiveConfig())
                 .hasValueSatisfying(
-                        config -> assertThat(config.baseUrl()).isEqualTo("https://env-rail.example.test/v4"));
+                        config ->
+                                assertThat(config.baseUrl())
+                                        .isEqualTo("https://env-rail.example.test/v4"));
     }
 
     /** [AC-3]/[AC-1] tutor 密钥：PUT apiKey 加密入库（密文列无明文、last4 投影）、clearKey 删行后回落 env。 */
@@ -254,7 +256,11 @@ class TutorConfigRailIntegrationTest {
                         () ->
                                 tutorService.updateAdminConfig(
                                         new LlmConfigUpdateRequest(
-                                                true, OVERRIDE_BASE_URL, "glm-override", TUTOR_KEY, null),
+                                                true,
+                                                OVERRIDE_BASE_URL,
+                                                "glm-override",
+                                                TUTOR_KEY,
+                                                null),
                                         1L))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
@@ -300,11 +306,16 @@ class TutorConfigRailIntegrationTest {
                         () ->
                                 tutorService.updateAdminConfig(
                                         new LlmConfigUpdateRequest(
-                                                false, "ftp://127.0.0.1:1/v4", null, TUTOR_KEY, null),
+                                                false,
+                                                "ftp://127.0.0.1:1/v4",
+                                                null,
+                                                TUTOR_KEY,
+                                                null),
                                         1L))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
-                        exception -> assertThat(exception.getMessage()).contains("http:// 或 https://"));
+                        exception ->
+                                assertThat(exception.getMessage()).contains("http:// 或 https://"));
 
         assertThat(
                         jdbcTemplate.queryForObject(

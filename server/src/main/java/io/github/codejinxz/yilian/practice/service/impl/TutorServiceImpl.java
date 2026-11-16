@@ -41,13 +41,13 @@ import java.util.Optional;
  * 题目答疑实现：被动一问一答，不判分、不改批注、不进学习闭环（PRD §5.4）。
  *
  * <p>配置选型（028）：LLM 客户端经 {@link LlmClientRegistry} 按「目录激活条目 &gt; tutor 覆盖轨 &gt; legacy 环境变量轨」
- * 三级解析装配——目录激活条目语义不变（022，高于一切 legacy 形态）；覆盖轨的 baseUrl/model 存
- * {@code app_settings} 键 {@code llm.tutor}（{@link TutorOverrides}），密钥存 llm_provider_keys 预留 id=tutor
- * （027B 加密基建）。后台 PUT 管理开关 + 覆盖 + 密钥：baseUrl/model 非空白=落覆盖、空/缺省=清除覆盖；
- * apiKey 写-only（非空白=加密 upsert）；clearKey=true 删 tutor 密钥行；enabled=true 且无可用客户端时
- * 40000 拒绝（写操作整体回滚，不留「开关开了弹药没跟上」的中间态）。三态：无可用客户端=功能不存在（40400、前端隐藏入口）；配了未开=40304；开了=可用。
- * 客户端实现按生效轨的 protocol 三选一（anthropic-messages / openai-chat / openai-responses），共用同一 降级语义、护栏（maxTokens 2048 /
- * 15s / SDK 重试 0）与免责标注。
+ * 三级解析装配——目录激活条目语义不变（022，高于一切 legacy 形态）；覆盖轨的 baseUrl/model 存 {@code app_settings} 键 {@code
+ * llm.tutor}（{@link TutorOverrides}），密钥存 llm_provider_keys 预留 id=tutor （027B 加密基建）。后台 PUT 管理开关 + 覆盖
+ * + 密钥：baseUrl/model 非空白=落覆盖、空/缺省=清除覆盖； apiKey 写-only（非空白=加密 upsert）；clearKey=true 删 tutor
+ * 密钥行；enabled=true 且无可用客户端时 40000
+ * 拒绝（写操作整体回滚，不留「开关开了弹药没跟上」的中间态）。三态：无可用客户端=功能不存在（40400、前端隐藏入口）；配了未开=40304；开了=可用。 客户端实现按生效轨的 protocol
+ * 三选一（anthropic-messages / openai-chat / openai-responses），共用同一 降级语义、护栏（maxTokens 2048 / 15s / SDK
+ * 重试 0）与免责标注。
  *
  * <p>安全边界：提示词只包含题目中文、考点标签与该用户本人最近一次批注（与其在页面上看到的一致）， 不喂参考译文与解析全文；用户问题用显式定界符包裹并限制 500
  * 字符，系统提示声明定界区内是数据不是 指令——LLM 无工具、无判分权限，注入的最坏后果只是得到一条带免责标注的低质量回答。
@@ -317,7 +317,9 @@ public class TutorServiceImpl implements TutorService {
                 effective.isPresent() && effective.get().credentialsComplete(),
                 stored.hasOverride() ? LlmConfigView.SOURCE_CUSTOM : LlmConfigView.SOURCE_ENV,
                 // tutor 密钥行的 last4 投影：只作录入辨识（写-only，明文永不回读）；env 态密钥无行。
-                tutorRail ? providerKeys.storedLast4(LlmProviderKeys.TUTOR_PROVIDER_ID).orElse(null) : null);
+                tutorRail
+                        ? providerKeys.storedLast4(LlmProviderKeys.TUTOR_PROVIDER_ID).orElse(null)
+                        : null);
     }
 
     @Override
@@ -352,8 +354,8 @@ public class TutorServiceImpl implements TutorService {
     }
 
     /**
-     * 归一覆盖字段：null/空白=清除（返回 null）；非空白 trim 后校验长度与（端点）URL 形状（宽松：
-     * http(s):// 前缀且无空白）。校验失败 40000，先于任何写路径。
+     * 归一覆盖字段：null/空白=清除（返回 null）；非空白 trim 后校验长度与（端点）URL 形状（宽松： http(s):// 前缀且无空白）。校验失败
+     * 40000，先于任何写路径。
      *
      * @param raw 请求原值（可空）
      * @param max trim 后最大长度
@@ -370,8 +372,7 @@ public class TutorServiceImpl implements TutorService {
             return null;
         }
         if (trimmed.length() > max) {
-            throw new BusinessException(
-                    ApiCode.VALIDATION_FAILED, field + " 最长 " + max + " 字符");
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, field + " 最长 " + max + " 字符");
         }
         if (urlShape && !trimmed.matches("https?://\\S+")) {
             throw new BusinessException(
@@ -390,8 +391,8 @@ public class TutorServiceImpl implements TutorService {
     }
 
     /**
-     * 开启答疑被拒（无可用客户端）的定向文案：目录模式指向激活 provider 的密钥录入/激活入口；legacy 族按轨道
-     * 分口径——覆盖轨缺密钥指向卡片录入（即时生效），env 轨沿用 YILIAN_LLM_* 两件套文案（anthropic 轨 key 可空、只差端点）。
+     * 开启答疑被拒（无可用客户端）的定向文案：目录模式指向激活 provider 的密钥录入/激活入口；legacy 族按轨道 分口径——覆盖轨缺密钥指向卡片录入（即时生效），env 轨沿用
+     * YILIAN_LLM_* 两件套文案（anthropic 轨 key 可空、只差端点）。
      *
      * @return 提示文案
      */
@@ -426,12 +427,9 @@ public class TutorServiceImpl implements TutorService {
         if (stored.hasBaseUrl()) {
             Optional<LlmClientRegistry.EffectiveConfig> rail = llmClients.effectiveConfig();
             boolean keyMissing =
-                    rail.isPresent()
-                            && !rail.get().credentialsComplete()
-                            && !rail.get().hasKey();
+                    rail.isPresent() && !rail.get().credentialsComplete() && !rail.get().hasKey();
             if (keyMissing) {
-                return "答疑凭证不齐：请在管理端模型页「答疑 LLM」卡录入 API 密钥（保存即时生效），"
-                        + "或设置环境变量 YILIAN_LLM_API_KEY";
+                return "答疑凭证不齐：请在管理端模型页「答疑 LLM」卡录入 API 密钥（保存即时生效），" + "或设置环境变量 YILIAN_LLM_API_KEY";
             }
             return "答疑无法启用：请检查「答疑 LLM」卡的端点与模型配置（保存即时生效，无需重启）";
         }
