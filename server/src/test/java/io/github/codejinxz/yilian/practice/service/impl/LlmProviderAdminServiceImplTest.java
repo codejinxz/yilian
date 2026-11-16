@@ -122,7 +122,10 @@ class LlmProviderAdminServiceImplTest {
                 new LlmProviderCreateRequest(
                         "deep-seek",
                         "DeepSeek",
-                        "openai-chat", "https://api.deepseek.com", "deepseek-chat", null);
+                        "openai-chat",
+                        "https://api.deepseek.com",
+                        "deepseek-chat",
+                        null);
 
         var view = service.create(request, 1L);
 
@@ -158,7 +161,12 @@ class LlmProviderAdminServiceImplTest {
                         () ->
                                 service.create(
                                         new LlmProviderCreateRequest(
-                                                "Bad_Id", "形态非法", "openai-chat", "https://x", "m", null),
+                                                "Bad_Id",
+                                                "形态非法",
+                                                "openai-chat",
+                                                "https://x",
+                                                "m",
+                                                null),
                                         1L))
                 .isInstanceOf(BusinessException.class);
 
@@ -191,7 +199,8 @@ class LlmProviderAdminServiceImplTest {
 
         // create 不带 apiKey：不触碰密钥链。
         service.create(
-                new LlmProviderCreateRequest("new-prov-2", "新条目二", "openai-chat", "https://x", "m", null),
+                new LlmProviderCreateRequest(
+                        "new-prov-2", "新条目二", "openai-chat", "https://x", "m", null),
                 1L);
         verify(providerKeys, never()).upsert(eq("new-prov-2"), anyString());
 
@@ -199,7 +208,12 @@ class LlmProviderAdminServiceImplTest {
         when(catalog.read()).thenReturn(new LlmProviderCatalog.Catalog(List.of(ZHIPU), null));
         service.update(
                 "zhipu",
-                new LlmProviderUpdateRequest("智谱", "openai-chat", "https://open.bigmodel.cn/api/paas/v4", "glm-4.7", null),
+                new LlmProviderUpdateRequest(
+                        "智谱",
+                        "openai-chat",
+                        "https://open.bigmodel.cn/api/paas/v4",
+                        "glm-4.7",
+                        null),
                 1L);
         verify(providerKeys, never()).upsert(eq("zhipu"), anyString());
         service.update(
@@ -250,7 +264,12 @@ class LlmProviderAdminServiceImplTest {
         var view =
                 service.update(
                         "zai",
-                        new LlmProviderUpdateRequest("ZCode 网关（改）", "anthropic-messages", "http://10.150.191.220:47860/gateway/zcode", "glm-5.3", null),
+                        new LlmProviderUpdateRequest(
+                                "ZCode 网关（改）",
+                                "anthropic-messages",
+                                "http://10.150.191.220:47860/gateway/zcode",
+                                "glm-5.3",
+                                null),
                         1L);
 
         assertThat(view.name()).isEqualTo("ZCode 网关（改）");
@@ -261,7 +280,8 @@ class LlmProviderAdminServiceImplTest {
                         () ->
                                 service.update(
                                         "ghost",
-                                        new LlmProviderUpdateRequest("n", "openai-chat", "https://x", "m", null),
+                                        new LlmProviderUpdateRequest(
+                                                "n", "openai-chat", "https://x", "m", null),
                                         1L))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
