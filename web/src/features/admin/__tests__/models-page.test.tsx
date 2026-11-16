@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ModelsPage } from "@/features/admin/ModelsPage";
 import { resetApiState } from "@/lib/api";
-import { createQueryClient } from "@/lib/query";
+import { createQueryClient, queryKeys } from "@/lib/query";
 
 /**
  * ModelsPage「统一模型配置」状态中心 + provider 目录管理（022）：
@@ -12,7 +12,7 @@ import { createQueryClient } from "@/lib/query";
  * 因此用 fetch 桩按服务端真实响应形状（API §8.14/§8.15）应答，不经过 src/mocks。
  */
 
-/** 服务端 LlmConfigView 的合法形状（API §8.14.1，022 扩展目录维度）。 */
+/** 服务端 LlmConfigView 的合法形状（API §8.14.1，028 扩 source/keyLast4）。 */
 interface LlmConfigFixture {
   enabled: boolean;
   baseUrl: string;
@@ -21,6 +21,10 @@ interface LlmConfigFixture {
   providerId: string | null;
   protocol: string | null;
   credentialsComplete: boolean;
+  /** legacy 形态取值来源：custom=存在 tutor 覆盖；env=纯环境变量（目录激活态恒为 env）。 */
+  source: "custom" | "env";
+  /** tutor 密钥行尾 4 位；env 态密钥/目录激活态为 null。 */
+  keyLast4: string | null;
 }
 
 /** 服务端 LlmProviderView 的合法形状（API §8.15.1；027B 增 keyLast4）。 */
@@ -35,7 +39,7 @@ interface LlmProviderFixture {
   active: boolean;
 }
 
-/** legacy 直配且开启的缺省夹具（022 前 019 用例形态，目录为空）；用例按需覆盖字段。 */
+/** legacy 直配且开启的缺省夹具（019 用例形态，目录为空、纯 env）；用例按需覆盖字段。 */
 const CONFIGURED_ON: LlmConfigFixture = {
   enabled: true,
   baseUrl: "https://open.bigmodel.cn/api/paas/v4",
@@ -44,6 +48,8 @@ const CONFIGURED_ON: LlmConfigFixture = {
   providerId: "legacy",
   protocol: "openai-chat",
   credentialsComplete: true,
+  source: "env",
+  keyLast4: null,
 };
 
 /** ZCode 网关的目录条目夹具（anthropic-messages 轨、无 env key、已激活）。 */
@@ -139,7 +145,21 @@ function stubAdminLlmFetch(
           400,
         );
       }
-      current = { ...current, enabled: Boolean(body.enabled) };
+      // 028 状态型字段语义：baseUrl/model 出现即表达完整意图（值=落覆盖，空串/缺省=清除回 env）；
+      // apiKey 写-only（非空白=加密入库投影新尾号），clearKey=true 删 tutor 密钥行。
+      const baseUrl = typeof body.baseUrl === "string" ? body.baseUrl : "";
+      const model = typeof body.model === "string" ? body.model : "";
+      const apiKeyGiven = typeof body.apiKey === "string" && body.apiKey !== "";
+      const clearKey = body.clearKey === true;
+      current = {
+        ...current,
+        enabled: Boolean(body.enabled),
+        baseUrl,
+        model,
+        source: baseUrl !== "" || model !== "" ? "custom" : "env",
+        hasKey: apiKeyGiven ? true : clearKey ? false : current.hasKey,
+        keyLast4: apiKeyGiven ? String(body.apiKey).slice(-4) : clearKey ? null : current.keyLast4,
+      };
       return jsonResponse(successEnvelope(current));
     }
     if (url.endsWith("/api/admin/llm/providers") && method === "GET") {
@@ -274,7 +294,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     expect(alert).not.toHaveTextContent("已经填写的答案会保存在本机");
   });
 
-  it("019 AC-1: hasKey=true 且 enabled=true 时显示已配置、当前模型与答疑「启用中」，不出环境变量指引", async () => {
+  it("019 AC-1: hasKey=true 且 enabled=true 时显示已配置、当前模型（inline 回显）与答疑「启用中」，不出环境变量指引", async () => {
     stubAdminLlmFetch(CONFIGURED_ON);
 
     renderModelsPage();
@@ -282,14 +302,16 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     // 凭证与开关联动：卡内答疑关联与 AI 功能清单两处都应为「启用中」。
     expect(await screen.findAllByText("启用中")).toHaveLength(2);
     expect(screen.getByText("已配置")).toBeInTheDocument();
-    expect(screen.getByText("glm-4.7")).toBeInTheDocument();
+    // 028：legacy 态当前模型为 inline 输入（默认回显生效值），不再是纯文本。
+    expect(screen.getByLabelText("当前模型")).toHaveValue("glm-4.7");
+    expect(screen.getByLabelText("生效端点")).toHaveValue("https://open.bigmodel.cn/api/paas/v4");
     expect(screen.getByRole("button", { name: "停用答疑" })).toBeEnabled();
     // 已配置时不出现配置指引，也不出现占位误导。
     expect(screen.queryByText(/YILIAN_LLM_API_KEY/)).not.toBeInTheDocument();
     expect(screen.queryByText(/尚未配置模型凭证/)).not.toBeInTheDocument();
   });
 
-  it("019 AC-1: hasKey=false 时显示未配置与 YILIAN_LLM_* 环境变量两件套指引（注明密钥不入库），答疑联动为「未开放」", async () => {
+  it("019 AC-1: hasKey=false 时显示未配置与 YILIAN_LLM_* 环境变量两件套指引（注明可加密入库或环境变量注入），答疑联动为「未开放」", async () => {
     stubAdminLlmFetch({
       ...CONFIGURED_ON,
       enabled: false,
@@ -304,11 +326,13 @@ describe("ModelsPage 统一模型配置状态中心", () => {
 
     // 「未配置」出现在卡片凭证状态与协议占位两处，任意一处可见即达标。
     expect((await screen.findAllByText("未配置")).length).toBeGreaterThanOrEqual(1);
-    // 指引两件套：端点与密钥两个变量名都必须可见，且注明密钥只经环境变量不入库。
+    // 指引两件套：端点与密钥两个变量名都必须可见，且注明密钥加密入库/环境变量两条路都通。
     // legacy 形态卡与指引块都含变量名，取「全部匹配」锚定指引本身。
     expect(screen.getAllByText(/YILIAN_LLM_BASE_URL/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText(/YILIAN_LLM_API_KEY/).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText(/不进配置文件、不回显/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/可加密入库或经环境变量注入，明文不回显、不进日志/),
+    ).toBeInTheDocument();
     // 未配凭证即不可用：卡片运行态、答疑关联、AI 功能清单三处都联动为「未开放」。
     expect(screen.getAllByText("未开放")).toHaveLength(3);
     expect(screen.getByRole("button", { name: "启用答疑" })).toBeEnabled();
@@ -329,8 +353,9 @@ describe("ModelsPage 统一模型配置状态中心", () => {
 
     // 答疑关联与 AI 功能清单两处联动位都归一为「未生效（缺凭证）」。
     expect(await screen.findAllByText("未生效（缺凭证）")).toHaveLength(2);
-    // 展示层归一不影响指引：缺什么（环境变量两件套）与下一步（重启生效）同时可见。
-    expect(screen.getByText(/YILIAN_LLM_API_KEY/)).toBeInTheDocument();
+    // 展示层归一不影响指引：缺什么（环境变量两件套）与下一步（inline 补齐）同时可见。
+    // 028：密钥输入提示与指引块都含变量名，取「全部匹配」计数。
+    expect(screen.getAllByText(/YILIAN_LLM_API_KEY/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/开关已开启但未生效/)).toBeInTheDocument();
     // 运行态卡仍如实显示未开放（不谎称运行中）。
     expect(screen.getByText("未配置")).toBeInTheDocument();
@@ -361,7 +386,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     expect(screen.queryByText("缺 Key")).not.toBeInTheDocument();
   });
 
-  it("019 AC-1: 点击启用提交 PUT {enabled:true}，成功后失效缓存重新拉取并提示", async () => {
+  it("019 AC-1: 点击启用提交 PUT（enabled 翻转 + 表单当前值），成功后乐观刷新缓存并提示", async () => {
     const observed = stubAdminLlmFetch({ ...CONFIGURED_ON, enabled: false });
 
     renderModelsPage();
@@ -369,10 +394,14 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "启用答疑" }));
 
-    // 请求形状：只受理 enabled（baseUrl/model/apiKey 不传，服务端对非空值 40000）。
+    // 028 状态型字段语义：legacy 态开关与表单当前值一起提交（裸传 enabled 会清掉既有覆盖）。
     await waitFor(() => expect(observed.putBodies).toHaveLength(1));
-    expect(observed.putBodies[0]).toEqual({ enabled: true });
-    // 成功即失效缓存：invalidateQueries 触发第二次 GET（config 与 providers 各一）。
+    expect(observed.putBodies[0]).toEqual({
+      enabled: true,
+      baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      model: "glm-4.7",
+    });
+    // 成功即乐观刷新 + 失效缓存：回执落缓存后 invalidate 再拉（config 与 providers 各一）。
     await waitFor(() => expect(observed.getCalls).toBeGreaterThanOrEqual(2));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "停用答疑" })).toBeInTheDocument(),
@@ -797,5 +826,162 @@ describe("ModelsPage provider 密钥管理（027B 写-only 与投影）", () => 
     expect(await screen.findByText("新条目")).toBeInTheDocument();
     expect(screen.getByLabelText("provider new-prov").textContent).toContain("尾号 ••••cd34");
     expect(screen.queryByText("sk-new-plaintext-cd34")).not.toBeInTheDocument();
+  });
+});
+describe("ModelsPage 答疑 LLM 卡 legacy 态编辑（028 AC-4）", () => {
+  beforeEach(() => {
+    resetApiState();
+    // biome-ignore lint/suspicious/noDocumentCookie: 测试需要写入可读的 CSRF cookie
+    document.cookie = "XSRF-TOKEN=test-token; path=/";
+  });
+
+  it("028 AC-4: legacy 态 inline 编辑模型/端点保存——PUT 携带表单当前值（状态型字段语义），保存后徽标换「自定义」且回显新值", async () => {
+    const observed = stubAdminLlmFetch(CONFIGURED_ON);
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    const modelInput = await screen.findByLabelText("当前模型");
+    const endpointInput = screen.getByLabelText("生效端点");
+    // 默认回显生效值（覆盖 > env）。
+    expect(modelInput).toHaveValue("glm-4.7");
+    expect(endpointInput).toHaveValue("https://open.bigmodel.cn/api/paas/v4");
+
+    await user.clear(modelInput);
+    await user.type(modelInput, "glm-5.3-flash");
+    await user.clear(endpointInput);
+    await user.type(endpointInput, "http://10.0.0.8:8080/v4");
+    await user.click(screen.getByRole("button", { name: "保存答疑配置" }));
+
+    // 请求形状：enabled 保持 + 端点/模型当前值；密钥留空=不变更（不携带 apiKey 字段）。
+    await waitFor(() => expect(observed.putBodies).toHaveLength(1));
+    expect(observed.putBodies[0]).toEqual({
+      enabled: true,
+      baseUrl: "http://10.0.0.8:8080/v4",
+      model: "glm-5.3-flash",
+    });
+    expect(JSON.stringify(observed.putBodies[0])).not.toContain("apiKey");
+    // 乐观刷新：徽标换「自定义」，输入框回显保存后的值，提示即时生效。
+    expect(await screen.findByRole("status")).toHaveTextContent(/答疑配置已保存并即时生效/);
+    await waitFor(() => expect(screen.getAllByText("自定义")).toHaveLength(1));
+    await waitFor(() => expect(screen.getByLabelText("当前模型")).toHaveValue("glm-5.3-flash"));
+    await waitFor(() =>
+      expect(screen.getByLabelText("生效端点")).toHaveValue("http://10.0.0.8:8080/v4"),
+    );
+  });
+
+  it("028 AC-4: 密钥写-only——password 掩码、留空=不变更不携带字段；填入=加密入库投影尾号且明文不残留 DOM", async () => {
+    const observed = stubAdminLlmFetch(CONFIGURED_ON);
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    const keyInput = await screen.findByLabelText("答疑 API 密钥");
+    // 写-only：password 掩码、初始空白（已存密钥/环境变量密钥不回填）。
+    expect(keyInput).toHaveAttribute("type", "password");
+    expect(keyInput).toHaveValue("");
+
+    // 留空保存：PUT 不携带 apiKey（=不变更）。
+    await user.click(screen.getByRole("button", { name: "保存答疑配置" }));
+    await waitFor(() => expect(observed.putBodies).toHaveLength(1));
+    expect(observed.putBodies[0]).not.toHaveProperty("apiKey");
+
+    // 填入新密钥保存：body 携带明文（写-only 请求侧允许），响应只投影尾号。
+    await user.type(screen.getByLabelText("答疑 API 密钥"), "sk-tutor-plaintext-99ab");
+    await user.click(screen.getByRole("button", { name: "保存答疑配置" }));
+    await waitFor(() => expect(observed.putBodies).toHaveLength(2));
+    expect((observed.putBodies[1] as Record<string, unknown>).apiKey).toBe(
+      "sk-tutor-plaintext-99ab",
+    );
+    // 保存成功后输入框清空：明文不留在 DOM（无明文回显红线），尾号进入提示。
+    await waitFor(() => expect(screen.getByLabelText("答疑 API 密钥")).toHaveValue(""));
+    expect(screen.getByText(/已存密钥尾号 ••••99ab/)).toBeInTheDocument();
+    expect(screen.queryByText("sk-tutor-plaintext-99ab")).not.toBeInTheDocument();
+  });
+
+  it("028 AC-4: 「重置为环境默认」需确认——确认后 PUT 清覆盖（空串）+ clearKey 删 tutor 密钥，徽标回「环境变量」", async () => {
+    const observed = stubAdminLlmFetch({
+      ...CONFIGURED_ON,
+      source: "custom",
+      keyLast4: "8811",
+    });
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    // 覆盖态徽标在位。
+    expect(await screen.findByText("自定义")).toBeInTheDocument();
+    expect(screen.getByText(/已存密钥尾号 ••••8811/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "重置为环境默认" }));
+    // 确认弹窗讲清后果（清覆盖 + 删答疑密钥 + 开关不变）。
+    expect(await screen.findByRole("dialog")).toHaveTextContent(/清除端点与模型的覆盖值/);
+    expect(screen.getByRole("dialog")).toHaveTextContent(/答疑开关保持不变/);
+
+    await user.click(screen.getByRole("button", { name: "重置" }));
+    await waitFor(() => expect(observed.putBodies).toHaveLength(1));
+    expect(observed.putBodies[0]).toEqual({
+      enabled: true,
+      baseUrl: "",
+      model: "",
+      clearKey: true,
+    });
+    // 重置后徽标回「环境变量」：生效值回退环境变量。
+    expect(await screen.findByRole("status")).toHaveTextContent(/回退环境变量/);
+    await waitFor(() => expect(screen.getAllByText("环境变量").length).toBeGreaterThanOrEqual(1));
+    expect(screen.queryByText("自定义")).not.toBeInTheDocument();
+  });
+
+  it("028 AC-4: 来源徽标三态——目录激活=「目录」（字段指引走抽屉、无 inline 编辑）；覆盖态=「自定义」；纯 env=「环境变量」", async () => {
+    // 目录激活态：徽标「目录」，无 inline 输入，指引指向抽屉。
+    const observed = stubAdminLlmFetch(
+      { ...CONFIGURED_ON, providerId: "zcode-gateway", protocol: "anthropic-messages" },
+      { providers: [ZCODE_GATEWAY] },
+    );
+    const first = renderModelsPage();
+
+    expect(await screen.findByText("目录")).toBeInTheDocument();
+    expect(screen.queryByLabelText("当前模型")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("答疑 API 密钥")).not.toBeInTheDocument();
+    expect(screen.getByText(/在上方 provider 卡「编辑」抽屉中修改/)).toBeInTheDocument();
+    // 目录态无保存/重置按钮（编辑走抽屉）。
+    expect(screen.queryByRole("button", { name: "保存答疑配置" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "重置为环境默认" })).toBeNull();
+    first.unmount();
+
+    // 覆盖态：source=custom → 徽标「自定义」。
+    stubAdminLlmFetch({ ...CONFIGURED_ON, source: "custom", keyLast4: "8811" });
+    const second = renderModelsPage();
+    expect(await screen.findByText("自定义")).toBeInTheDocument();
+    second.unmount();
+
+    // 纯 env 态：source=env → 徽标「环境变量」。
+    stubAdminLlmFetch(CONFIGURED_ON);
+    const third = renderModelsPage();
+    expect(await screen.findByText("环境变量")).toBeInTheDocument();
+    third.unmount();
+    expect(observed.getCalls).toBeGreaterThanOrEqual(0);
+  });
+
+  it("028 AC-4: 编辑态下外部变更不抹输入（dirty 守卫）——有未保存输入时服务端状态回填不覆盖表单", async () => {
+    const observed = stubAdminLlmFetch(CONFIGURED_ON);
+    const queryClient = createQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ModelsPage />
+      </QueryClientProvider>,
+    );
+
+    const user = userEvent.setup();
+    const modelInput = await screen.findByLabelText("当前模型");
+    await user.clear(modelInput);
+    await user.type(modelInput, "glm-5.3-flash");
+
+    // 模拟一次外部变更落缓存（如目录激活切换等操作触发的 config 回填）。
+    queryClient.setQueryData(queryKeys.admin.llmConfig, { ...CONFIGURED_ON, model: "glm-changed" });
+
+    // dirty（有未保存输入）→ 表单不被服务端值覆盖；无输入时才按服务端值对齐。
+    await waitFor(() => expect(screen.getByLabelText("当前模型")).toHaveValue("glm-5.3-flash"));
+    expect(observed.getCalls).toBeGreaterThanOrEqual(0);
   });
 });

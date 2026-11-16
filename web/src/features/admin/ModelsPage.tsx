@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ErrorState, LoadingBlock } from "@/components/feedback";
 import { ConfirmDialog } from "@/features/settings/confirm-dialog";
 import {
@@ -8,6 +8,7 @@ import {
   deleteLlmProvider,
   getLlmConfig,
   getLlmProviders,
+  type LlmConfig,
   type LlmProtocol,
   type LlmProvider,
   updateLlmConfig,
@@ -98,7 +99,8 @@ const PROTOCOL_LABELS: Record<LlmProtocol, string> = {
 /** 页面顶部的现状说明：只描述本页与密钥的当前解析方式，不对密钥通道做唯一性承诺。 */
 const PAGE_NOTE =
   "本页管理 provider 目录、激活切换与答疑开关；条目密钥可在抽屉录入（加密入库，" +
-  "不回显）或按条目 ID 走环境变量；目录为空时回退 legacy 环境变量直配；开关改动写入操作日志。";
+  "不回显）或按条目 ID 走环境变量；目录为空时可在「答疑 LLM」卡直接编辑端点/模型/密钥（保存即时生效），" +
+  "开关与配置改动写入操作日志。";
 
 /** 新增/编辑表单的字段状态；protocol 允许空串表达「未选择」，新增时不预填默认协议。 */
 interface ProviderFormState {
@@ -111,6 +113,18 @@ interface ProviderFormState {
   apiKey: string;
   /** 编辑态下已入库密钥的尾 4 位（仅展示辨识，不含明文）；新增态恒 null。 */
   existingLast4: string | null;
+}
+
+/**
+ * 答疑 LLM 卡 legacy 态（目录空/未激活）的编辑表单：当前模型/生效端点 inline 输入 + 写-only 密钥。
+ * 输入框默认回显生效值（覆盖 > env）；密钥永远空白起步（已存密钥不回填，写-only）。
+ */
+interface LegacyFormState {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  /** 写-only 密钥输入：提交时非空白才发送（trim 归一）；保存成功后清空。 */
+  apiKey: string;
 }
 
 /** 统一配置卡里一个「标签 + 值」小格的原型样式。 */
@@ -258,6 +272,43 @@ export function ModelsPage() {
     null,
   );
   const [deleting, setDeleting] = useState<LlmProvider | null>(null);
+  // legacy 卡编辑表单：null=待惰性初始化（config 到位后以生效值回填）；dirty=true 表示用户有未保存输入，
+  // 期间服务端状态变化不回填（防后台 refetch 抹掉输入），保存/重置/开关成功后统一对齐并清 dirty。
+  const [legacyForm, setLegacyForm] = useState<LegacyFormState | null>(null);
+  const [legacyFormDirty, setLegacyFormDirty] = useState(false);
+  // 「重置为环境默认」的确认弹窗（清覆盖 + 清 tutor 密钥，预披露裁决口径）。
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+
+  // 非编辑态下表单与服务端保持一致：config 首次到位时以生效值回填；目录删除/激活等外部变更
+  // 引起 config 更新时同样回填（编辑态不回填，见 dirty 守卫）。函数式更新 + 值相等短路——
+  // legacyForm 故意不进依赖：每次 set 一个新对象会让本 effect 无限自触发（React 渲染死循环）。
+  useEffect(() => {
+    const data = configQuery.data;
+    if (!data) {
+      return;
+    }
+    setLegacyForm((prev) => {
+      if (prev !== null && legacyFormDirty) {
+        return prev;
+      }
+      const next = {
+        enabled: data.enabled,
+        baseUrl: data.baseUrl,
+        model: data.model,
+        apiKey: "",
+      };
+      if (
+        prev !== null &&
+        prev.enabled === next.enabled &&
+        prev.baseUrl === next.baseUrl &&
+        prev.model === next.model &&
+        prev.apiKey === ""
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [configQuery.data, legacyFormDirty]);
 
   /** 目录/配置双失效：激活与 CRUD 都影响 llm/config 的生效视图（服务端同一事实源）。 */
   function invalidateLlmQueries() {
@@ -269,12 +320,42 @@ export function ModelsPage() {
     toast(error instanceof Error ? error.message : "操作失败，请稍后重试");
   }
 
-  // 启停只受理 enabled；成功失效缓存重新拉取（服务端是开关唯一事实源），失败透出业务文案。
+  /**
+   * 配置写成功的统一收口：先把服务端回执落缓存（乐观刷新——徽标/回显立即换算），
+   * 再失效缓存后台校准，并解除编辑态（表单下次渲染按服务端值对齐）。
+   * @param next 服务端回执的配置视图
+   * @param message 成功提示文案
+   */
+  function onConfigSaved(next: LlmConfig, message: string) {
+    queryClient.setQueryData(queryKeys.admin.llmConfig, next);
+    setLegacyFormDirty(false);
+    invalidateLlmQueries();
+    toast(message);
+  }
+
+  // 启停答疑：目录态只传 enabled（缺省覆盖字段=清除休眠覆盖，不伤及目录生效配置）；
+  // legacy 态携带表单当前值一起提交（状态型字段语义下裸传 enabled 会清掉既有覆盖）。
   const toggleMutation = useMutation({
     mutationFn: updateLlmConfig,
     onSuccess: (next) => {
-      invalidateLlmQueries();
-      toast(next.enabled ? "答疑已启用，练习页「问一问」即时生效" : "答疑已停用，入口随之隐藏");
+      onConfigSaved(
+        next,
+        next.enabled ? "答疑已启用，练习页「问一问」即时生效" : "答疑已停用，入口随之隐藏",
+      );
+    },
+    onError,
+  });
+
+  // 保存 legacy 卡编辑（端点/模型覆盖 + 写-only 密钥）：服务端保存即时生效（覆盖轨换轨无需重启）。
+  const saveConfigMutation = useMutation({
+    mutationFn: updateLlmConfig,
+    onSuccess: (next) => {
+      onConfigSaved(
+        next,
+        next.source === "custom"
+          ? "答疑配置已保存并即时生效"
+          : "答疑配置已保存，端点与模型回退环境变量",
+      );
     },
     onError,
   });
@@ -394,32 +475,116 @@ export function ModelsPage() {
             ) : (
               <span className="font-mono text-[10px] text-ink-faint">未配置</span>
             )}
+            {/* 来源徽标（028）：目录激活=「目录」（字段在 provider 抽屉编辑）；覆盖态=「自定义」；纯 env=「环境变量」。 */}
+            {activeProvider ? (
+              <StatePill tone="muted">目录</StatePill>
+            ) : config.source === "custom" ? (
+              <StatePill tone="muted">自定义</StatePill>
+            ) : (
+              <StatePill tone="muted">环境变量</StatePill>
+            )}
           </span>
           <LiveMark on={askOpen}>{askOpen ? "运行中" : "未开放"}</LiveMark>
         </div>
 
-        <div className="mt-[18px] flex flex-wrap gap-x-12 gap-y-5">
-          <div>
-            <p className={configCellLabelClassName()}>凭证状态</p>
-            <StatePill tone={config.credentialsComplete ? "ok" : "warn"}>
-              {config.credentialsComplete ? "已配置" : "未配置"}
-            </StatePill>
+        {activeProvider ? (
+          // 目录激活态（022/027A 语义）：字段只读展示，编辑走 provider 抽屉（预披露裁决，本批不改）。
+          <div className="mt-[18px] flex flex-wrap gap-x-12 gap-y-5">
+            <div>
+              <p className={configCellLabelClassName()}>凭证状态</p>
+              <StatePill tone={config.credentialsComplete ? "ok" : "warn"}>
+                {config.credentialsComplete ? "已配置" : "未配置"}
+              </StatePill>
+            </div>
+            <div>
+              <p className={configCellLabelClassName()}>当前模型</p>
+              <p className="font-mono text-[12px] text-ink">{config.model || "—"}</p>
+            </div>
+            <div>
+              <p className={configCellLabelClassName()}>生效端点</p>
+              <p className="font-mono text-[12px] text-ink">{config.baseUrl || "—"}</p>
+            </div>
+            <div>
+              <p className={configCellLabelClassName()}>答疑关联</p>
+              <StatePill tone={askOpen ? "ok" : "muted"}>
+                {askLinkageLabel(config.enabled, config.credentialsComplete)}
+              </StatePill>
+            </div>
           </div>
-          <div>
-            <p className={configCellLabelClassName()}>当前模型</p>
-            <p className="font-mono text-[12px] text-ink">{config.model || "—"}</p>
+        ) : (
+          // legacy 态（028）：当前模型/生效端点 inline 可编辑（默认回显生效值），密钥写-only。
+          <div className="mt-[18px] flex flex-wrap gap-x-12 gap-y-5">
+            <div>
+              <p className={configCellLabelClassName()}>凭证状态</p>
+              <StatePill tone={config.credentialsComplete ? "ok" : "warn"}>
+                {config.credentialsComplete ? "已配置" : "未配置"}
+              </StatePill>
+            </div>
+            <div className="min-w-[220px] flex-1">
+              <p className={configCellLabelClassName()}>当前模型</p>
+              {legacyForm ? (
+                <input
+                  aria-label="当前模型"
+                  className="w-full border-b border-rule bg-transparent py-2 font-mono text-[12px] text-ink outline-none transition focus:border-vermilion"
+                  value={legacyForm.model}
+                  onChange={(event) => {
+                    setLegacyForm({ ...legacyForm, model: event.target.value });
+                    setLegacyFormDirty(true);
+                  }}
+                />
+              ) : (
+                <p className="font-mono text-[12px] text-ink">—</p>
+              )}
+            </div>
+            <div className="min-w-[280px] flex-1">
+              <p className={configCellLabelClassName()}>生效端点</p>
+              {legacyForm ? (
+                <input
+                  aria-label="生效端点"
+                  className="w-full border-b border-rule bg-transparent py-2 font-mono text-[12px] text-ink outline-none transition focus:border-vermilion"
+                  value={legacyForm.baseUrl}
+                  onChange={(event) => {
+                    setLegacyForm({ ...legacyForm, baseUrl: event.target.value });
+                    setLegacyFormDirty(true);
+                  }}
+                />
+              ) : (
+                <p className="font-mono text-[12px] text-ink">—</p>
+              )}
+            </div>
+            <div>
+              <p className={configCellLabelClassName()}>答疑关联</p>
+              <StatePill tone={askOpen ? "ok" : "muted"}>
+                {askLinkageLabel(config.enabled, config.credentialsComplete)}
+              </StatePill>
+            </div>
+            <div className="min-w-[240px] flex-1">
+              <p className={configCellLabelClassName()}>答疑 API 密钥</p>
+              {legacyForm ? (
+                <input
+                  aria-label="答疑 API 密钥"
+                  type="password"
+                  autoComplete="new-password"
+                  className="w-full border-b border-rule bg-transparent py-2 font-mono text-[12px] text-ink outline-none transition focus:border-vermilion"
+                  value={legacyForm.apiKey}
+                  onChange={(event) => {
+                    setLegacyForm({ ...legacyForm, apiKey: event.target.value });
+                    setLegacyFormDirty(true);
+                  }}
+                />
+              ) : (
+                <p className="font-mono text-[12px] text-ink">—</p>
+              )}
+              <p className="mt-1 font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
+                {config.keyLast4
+                  ? `已存密钥尾号 ••••${config.keyLast4}（不回显）；留空=不变更，填入=加密覆盖。`
+                  : config.hasKey
+                    ? "密钥经环境变量注入（不回显）；填入=加密入库覆盖。"
+                    : "可选：填入=加密入库（不回显）；留空则走环境变量 YILIAN_LLM_API_KEY。"}
+              </p>
+            </div>
           </div>
-          <div>
-            <p className={configCellLabelClassName()}>生效端点</p>
-            <p className="font-mono text-[12px] text-ink">{config.baseUrl || "—"}</p>
-          </div>
-          <div>
-            <p className={configCellLabelClassName()}>答疑关联</p>
-            <StatePill tone={askOpen ? "ok" : "muted"}>
-              {askLinkageLabel(config.enabled, config.credentialsComplete)}
-            </StatePill>
-          </div>
-        </div>
+        )}
 
         {!config.credentialsComplete && config.providerId && config.providerId !== "legacy" ? (
           <div className="mt-[18px] rounded-[2px] border border-vermilion/30 bg-vermilion/5 p-3.5">
@@ -441,8 +606,8 @@ export function ModelsPage() {
         {!config.credentialsComplete && (!config.providerId || config.providerId === "legacy") ? (
           <div className="mt-[18px] rounded-[2px] border border-vermilion/30 bg-vermilion/5 p-3.5">
             <p className="text-[13px] text-ink">
-              尚未配置模型凭证，答疑与后续 AI 功能均不可用。在部署环境设置以下两个环境变量后重启服
-              务端：
+              尚未配置模型凭证，答疑与后续 AI 功能均不可用。可直接在上方填写端点并录入 API
+              密钥（保存即时生效、加密入库），或在部署环境设置以下两个环境变量：
             </p>
             <p className="mt-2.5 font-mono text-[11px] leading-[1.9] text-ink-muted">
               YILIAN_LLM_BASE_URL（OpenAI 兼容端点，如 https://open.bigmodel.cn/api/paas/v4）
@@ -450,7 +615,7 @@ export function ModelsPage() {
               YILIAN_LLM_API_KEY（模型服务密钥）
             </p>
             <p className="mt-2.5 font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
-              API Key 当前经环境变量注入，不入库、不进配置文件、不回显。
+              API Key 可加密入库或经环境变量注入，明文不回显、不进日志。
             </p>
           </div>
         ) : null}
@@ -459,15 +624,63 @@ export function ModelsPage() {
           <button
             type="button"
             className="btn ghost"
-            disabled={toggleMutation.isPending}
-            onClick={() => toggleMutation.mutate({ enabled: !config.enabled })}
+            disabled={toggleMutation.isPending || (!activeProvider && !legacyForm)}
+            onClick={() => {
+              if (activeProvider) {
+                // 目录态：开关独立提交（缺省覆盖字段=清除休眠覆盖，不伤及目录生效配置）。
+                toggleMutation.mutate({ enabled: !config.enabled });
+                return;
+              }
+              // legacy 态（028）：开关与表单当前值一起提交——状态型字段语义下裸传 enabled 会清掉既有覆盖。
+              toggleMutation.mutate({
+                enabled: !config.enabled,
+                baseUrl: legacyForm?.baseUrl.trim() ?? "",
+                model: legacyForm?.model.trim() ?? "",
+              });
+            }}
           >
             {config.enabled ? "停用答疑" : "启用答疑"}
           </button>
+          {!activeProvider ? (
+            <>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={saveConfigMutation.isPending || !legacyForm}
+                onClick={() => {
+                  if (!legacyForm) {
+                    return;
+                  }
+                  // 状态型字段语义：总是携带端点/模型当前值（值=落覆盖，空串=清除回 env）；密钥写-only 非空白才发送。
+                  saveConfigMutation.mutate({
+                    enabled: legacyForm.enabled,
+                    baseUrl: legacyForm.baseUrl.trim(),
+                    model: legacyForm.model.trim(),
+                    apiKey: legacyForm.apiKey.trim() || undefined,
+                  });
+                }}
+              >
+                保存答疑配置
+              </button>
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={saveConfigMutation.isPending || !legacyForm}
+                onClick={() => setResetConfirmOpen(true)}
+              >
+                重置为环境默认
+              </button>
+            </>
+          ) : null}
           <span className="font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
             保存即时生效，无需重启；改动写入操作日志。
           </span>
         </div>
+        {activeProvider ? (
+          <p className="mt-3 font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
+            目录激活态：当前模型、生效端点与密钥在上方 provider 卡「编辑」抽屉中修改，保存即时生效。
+          </p>
+        ) : null}
         {config.credentialsComplete && !config.enabled ? (
           <p className="mt-3 font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
             答疑未开放：练习页不出现「问一问」入口；开启后即时生效。
@@ -477,8 +690,9 @@ export function ModelsPage() {
           // 对称说明：与上方「配了凭证没开」的提示互补，讲清这一组合
           // （开关已开、缺凭证）差什么、下一步做什么。
           <p className="mt-3 font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
-            开关已开启但未生效（缺凭证）：配置好 provider 环境变量并重启服务端后自动可用；
-            练习页暂不出现「问一问」入口。
+            {activeProvider
+              ? "开关已开启但未生效（缺凭证）：在激活条目的抽屉里录入 API 密钥或设置对应环境变量后自动可用；练习页暂不出现「问一问」入口。"
+              : "开关已开启但未生效（缺凭证）：在上方补齐端点与密钥（保存即时生效）后自动可用；练习页暂不出现「问一问」入口。"}
           </p>
         ) : null}
       </div>
@@ -516,8 +730,9 @@ export function ModelsPage() {
               {config.model || "—"}
             </p>
             <p className="mt-2.5 font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
-              目录为空时的回退形态：当前模型接入来自 YILIAN_LLM_* 环境变量；新增 provider
-              并激活后由目录接管，本卡只读展示、无需改动。
+              目录为空时的回退形态：模型接入在上方「答疑
+              LLM」卡直接编辑（端点/模型/密钥，保存即时生效）， 或沿用 YILIAN_LLM_* 环境变量；新增
+              provider 并激活后由目录接管。
             </p>
           </div>
         ) : (
@@ -804,6 +1019,27 @@ export function ModelsPage() {
           }
         }}
         onCancel={() => setDeleting(null)}
+      />
+
+      {/* 重置为环境默认（028 预披露裁决）：清端点/模型覆盖 + 删 tutor 密钥行，生效值回退环境变量；开关状态不变。 */}
+      <ConfirmDialog
+        open={resetConfirmOpen}
+        title="重置为环境默认"
+        description="清除端点与模型的覆盖值，并删除已录入的答疑 API 密钥（如仅走环境变量则无入库密钥可删）；生效值回退 YILIAN_LLM_* 环境变量，答疑开关保持不变。"
+        confirmLabel="重置"
+        onConfirm={() => {
+          setResetConfirmOpen(false);
+          if (!legacyForm) {
+            return;
+          }
+          saveConfigMutation.mutate({
+            enabled: legacyForm.enabled,
+            baseUrl: "",
+            model: "",
+            clearKey: true,
+          });
+        }}
+        onCancel={() => setResetConfirmOpen(false)}
       />
 
       {toastNode}

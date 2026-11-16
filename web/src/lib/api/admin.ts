@@ -630,10 +630,12 @@ export async function updateAdminBankStatus(
 }
 
 // ---------------------------------------------------------------------------
-// 答疑 LLM 配置（017 落地的真实端点，019 ModelsPage 状态中心接入；022 扩展
-// provider 目录维度）。凭据只走环境变量（密钥不入库）：GET 回
-// hasKey 不回读 apiKey；PUT 只受理 enabled，baseUrl/model/apiKey 三个字段不传
-// ——服务端对非空值一律 40000 拒绝（API §8.14.2）。
+// 答疑 LLM 配置（017 落地，019 ModelsPage 状态中心接入；022 扩 provider 目录；
+// 028 起 legacy 形态全字段可编辑）。GET 回生效值（目录激活 > tutor 覆盖 > env）、
+// source（custom|env）与 keyLast4（tutor 密钥行尾号），apiKey 明文永不回读；PUT 为
+// 状态型字段语义——baseUrl/model 非空白=落覆盖（即时生效）、空串/缺省=清除覆盖回
+// env（只传 enabled 的调用会同时清除既有覆盖）；apiKey 写-only（非空白=加密入库，
+// 空/缺省=不变更），clearKey=true 删 tutor 密钥行（API §8.14.2）。
 // ---------------------------------------------------------------------------
 
 /** 对话协议 wire 值（022，与服务端 LlmProtocol 一致；发布后不改号）。 */
@@ -642,27 +644,45 @@ export const llmProtocols = ["anthropic-messages", "openai-chat", "openai-respon
 /** 对话协议类型。 */
 export type LlmProtocol = (typeof llmProtocols)[number];
 
-/** 管理端 LLM 配置视图（API §8.14.1）：enabled 为生效开关，baseUrl/model/hasKey 反映激活 provider（目录模式）或 legacy 环境变量。 */
+/** 管理端 LLM 配置视图（API §8.14.1）：生效值按「目录激活 > tutor 覆盖 > env」投影，source 描述 legacy 形态取值来源。 */
 export const llmConfigSchema = z.object({
   enabled: z.boolean(),
   baseUrl: z.string(),
   model: z.string(),
   hasKey: z.boolean(),
-  /** 生效 provider id；legacy 环境变量直配时为 "legacy"，未配置时为 null（022 新增）。 */
+  /** 生效 provider id；legacy 形态与环境变量直配时为 "legacy"，未配置时为 null（022 新增）。 */
   providerId: z.string().nullable(),
   /** 生效协议 wire 值；未配置时为 null（022 新增）。 */
   protocol: z.string().nullable(),
   /** 凭证按协议口径是否齐备（anthropic-messages 轨 key 可空；不能用 hasKey 代替判断可用性）。 */
   credentialsComplete: z.boolean(),
+  /** legacy 形态取值来源（028 新增）：custom=存在 tutor 覆盖；env=纯环境变量（目录激活态恒为 env）。 */
+  source: z.enum(["custom", "env"]),
+  /** tutor 密钥行尾 4 位辨识号（028 新增）；env 态密钥/目录激活态为 null（明文永不回读）。 */
+  keyLast4: z.string().nullable(),
 });
 
 /** 管理端 LLM 配置视图类型。 */
 export type LlmConfig = z.infer<typeof llmConfigSchema>;
 
+/** 更新答疑 LLM 配置的请求形状（API §8.14.2，028）：baseUrl/model 为状态型字段，apiKey 写-only。 */
+export interface LlmConfigUpdateInput {
+  /** 答疑开关；true 且无可用客户端时服务端 40000 拒绝并回滚本次全部变更。 */
+  enabled: boolean;
+  /** 端点覆盖值：非空白=落覆盖（即时生效），空串/缺省=清除覆盖回 env。 */
+  baseUrl?: string;
+  /** 模型名覆盖值：非空白=落覆盖，空串/缺省=清除覆盖回 env。 */
+  model?: string;
+  /** API 密钥（写-only）：非空白才发送（=加密入库覆盖），空/缺省=不变更。 */
+  apiKey?: string;
+  /** 清除 tutor 密钥行（重置为环境默认时置 true）。 */
+  clearKey?: boolean;
+}
+
 /**
  * 读取答疑 LLM 配置；ModelsPage「统一模型配置」状态卡的数据源。
  * @param signal 取消信号
- * @returns enabled、生效 baseUrl/model 与 hasKey（API Key 不回读）
+ * @returns enabled、生效 baseUrl/model、hasKey/keyLast4 与 source（API Key 不回读）
  */
 export async function getLlmConfig(signal?: AbortSignal): Promise<LlmConfig> {
   const data = await apiRequest<unknown>("/admin/llm/config", { signal });
@@ -670,12 +690,28 @@ export async function getLlmConfig(signal?: AbortSignal): Promise<LlmConfig> {
 }
 
 /**
- * 更新答疑开关；只传 enabled，凭证字段留给环境变量（传非空值会被服务端 40000 拒绝）。
- * @param input 目标开关状态
+ * 更新答疑 LLM 配置（028：legacy 形态端点/模型/密钥可编辑）。
+ * @param input 开关 + 覆盖字段（baseUrl/model 状态型；apiKey 写-only 非空白才发送）
  * @returns 更新后的配置视图
  */
-export async function updateLlmConfig(input: { enabled: boolean }): Promise<LlmConfig> {
-  const data = await jsonRequest<unknown>("/admin/llm/config", "PUT", { enabled: input.enabled });
+export async function updateLlmConfig(input: LlmConfigUpdateInput): Promise<LlmConfig> {
+  const body: Record<string, unknown> = { enabled: input.enabled };
+  // 状态型字段：字段出现即表达完整意图（值=落覆盖，空串=清除）；目录态开关切换可不携带（缺省=清除休眠覆盖）。
+  if (input.baseUrl !== undefined) {
+    body.baseUrl = input.baseUrl;
+  }
+  if (input.model !== undefined) {
+    body.model = input.model;
+  }
+  // 写-only 密钥：只有非空白才携带（JSON.stringify 丢弃 undefined 字段）。
+  const apiKey = input.apiKey?.trim();
+  if (apiKey) {
+    body.apiKey = apiKey;
+  }
+  if (input.clearKey) {
+    body.clearKey = true;
+  }
+  const data = await jsonRequest<unknown>("/admin/llm/config", "PUT", body);
   return parseData(llmConfigSchema, data);
 }
 
