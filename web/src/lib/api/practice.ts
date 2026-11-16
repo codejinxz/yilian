@@ -39,6 +39,14 @@ export const ASK_TIMEOUT_MS = 35_000;
 export const REVIEW_TIMEOUT_MS = 35_000;
 
 /**
+ * 申诉提交请求的超时毫秒数：与复核/答疑同算术（服务端申诉落库后**同步**调 LLM 初裁，
+ * 15s + 解析失败重试一次 ≈ 31.5s）。025 同构链路漏对齐的补齐（029 AC-3）：默认 10s 会在
+ * 服务端仍在初裁时先把用户侧掐断，而申诉行此时已落库——用户重试只会撞 40900「请勿重复
+ * 提交」，失败提示与真实状态不符。
+ */
+export const APPEAL_TIMEOUT_MS = 35_000;
+
+/**
  * 取下一题；没有可练题时返回 null（HTTP 200，页面显示空状态）。
  * sentenceId 指定句子时忽略 bankId/tag/exclude——复习页「重练」与下一步训练都依赖这一优先级。
  * errors=1 时改为只在错题里取下一题（今日页「错题」chip）；本地引擎与 mock 应答，不依赖网络。
@@ -156,7 +164,9 @@ export async function getAttempt(
 }
 
 /**
- * 提交「我觉得也对」申诉；M2 只记录 PENDING。
+ * 提交「我觉得也对」申诉；025 起落库后同步 LLM 初裁，回执带 AI 意见（不可用或未生成时为空）。
+ * 超时放宽到 35s，与复核/答疑同算术（服务端同步初裁 15s + 重试一次 ≈ 31.5s）；
+ * 默认 10s 会在初裁仍进行时先掐断，申诉实际已落库，重试只会撞 40900。
  * @param attemptId attempt id
  * @param key 批注稳定键
  * @param input 建议答案与理由
@@ -171,6 +181,7 @@ export async function appealAnnotation(
     `/practice/attempts/${encodeURIComponent(attemptId)}/annotations/${encodeURIComponent(key)}/appeal`,
     "POST",
     input,
+    { timeoutMs: APPEAL_TIMEOUT_MS },
   );
   return parseData(appealResponseSchema, data);
 }
