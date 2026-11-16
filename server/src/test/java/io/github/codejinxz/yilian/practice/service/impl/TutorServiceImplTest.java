@@ -27,7 +27,9 @@ import io.github.codejinxz.yilian.practice.grading.GradingResult;
 import io.github.codejinxz.yilian.practice.llm.LlmChatClient;
 import io.github.codejinxz.yilian.practice.llm.LlmClientRegistry;
 import io.github.codejinxz.yilian.practice.llm.LlmProperties;
+import io.github.codejinxz.yilian.practice.llm.LlmProviderKeys;
 import io.github.codejinxz.yilian.practice.llm.PromptRegistry;
+import io.github.codejinxz.yilian.practice.llm.TutorOverrides;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
 import io.github.codejinxz.yilian.practice.service.dto.LlmConfigUpdateRequest;
 import io.github.codejinxz.yilian.practice.service.vo.LlmConfigView;
@@ -100,6 +102,8 @@ class TutorServiceImplTest {
 
     @Mock private PromptRegistry promptRegistry;
 
+    @Mock private LlmProviderKeys providerKeys;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private TutorServiceImpl tutorService;
@@ -118,6 +122,10 @@ class TutorServiceImplTest {
         lenient()
                 .when(appSettingService.findValue(TutorServiceImpl.SETTING_KEY))
                 .thenReturn(Optional.of("{\"schemaVersion\":1,\"enabled\":true}"));
+        // tutor 密钥链：单测里无入库行（last4 投影为空），入库/清除行为由本类 028 用例与集成测试覆盖。
+        lenient()
+                .when(providerKeys.storedLast4(LlmProviderKeys.TUTOR_PROVIDER_ID))
+                .thenReturn(Optional.empty());
         // 注册表缺行：systemPrompt 走同文兜底常量（V13 缺行降级路径）。
         lenient().when(promptRegistry.load("ask")).thenReturn(new PromptRegistry.Absent());
         lenient()
@@ -133,6 +141,8 @@ class TutorServiceImplTest {
                         gradingDao,
                         llmUsageDao,
                         promptRegistry,
+                        new TutorOverrides(appSettingService, objectMapper),
+                        providerKeys,
                         objectMapper);
     }
 
@@ -375,7 +385,7 @@ class TutorServiceImplTest {
         verifyNoInteractions(llmChatClient);
     }
 
-    /** [AC-3] GET 配置：apiKey 不回读只回 hasKey；enabled 来自存储值；带 providerId/protocol/凭证齐备性。 */
+    /** [AC-3] GET 配置：apiKey 不回读只回 hasKey；enabled 来自存储值；带 providerId/protocol/凭证齐备性；env 态 source=env。 */
     @Test
     void getAdminConfigReturnsHasKeyInsteadOfKey_ac3() {
         LlmConfigView view = tutorService.getAdminConfig();
@@ -387,47 +397,203 @@ class TutorServiceImplTest {
         assertThat(view.providerId()).isEqualTo(LlmClientRegistry.LEGACY_PROVIDER_ID);
         assertThat(view.protocol()).isEqualTo("openai-chat");
         assertThat(view.credentialsComplete()).isTrue();
+        assertThat(view.source()).isEqualTo(LlmConfigView.SOURCE_ENV);
+        assertThat(view.keyLast4()).isNull();
     }
 
-    /** [AC-3] GET 配置：目录未激活/未配置（视图缺位）→ 元数据空串、providerId/protocol 为 null，不谎报。 */
+    /** [AC-1] GET 配置：legacy 形态逐字段「覆盖 > env」投影——覆盖端点/模型生效于视图与编辑回显，source=custom。 */
     @Test
-    void getAdminConfigReturnsEmptyViewWhenNothingUsable_ac3() {
-        when(llmClients.effectiveConfig()).thenReturn(Optional.empty());
+    void getAdminConfigProjectsOverridesOverEnv_ac1() {
+        when(appSettingService.findValue(TutorServiceImpl.SETTING_KEY))
+                .thenReturn(
+                        Optional.of(
+                                "{\"schemaVersion\":1,\"enabled\":true,"
+                                        + "\"baseUrl\":\"http://10.0.0.8:8080/v4\",\"model\":\"glm-5.3-flash\"}"));
+        // 目录空且覆盖轨缺密钥：轨道视图在（协议/齐备性如实）、句柄缺。
+        when(llmClients.effectiveConfig())
+                .thenReturn(
+                        Optional.of(
+                                new LlmClientRegistry.EffectiveConfig(
+                                        LlmClientRegistry.LEGACY_PROVIDER_ID,
+                                        "openai-chat",
+                                        "http://10.0.0.8:8080/v4",
+                                        "glm-5.3-flash",
+                                        false,
+                                        false)));
 
         LlmConfigView view = tutorService.getAdminConfig();
 
+        assertThat(view.baseUrl()).isEqualTo("http://10.0.0.8:8080/v4");
+        assertThat(view.model()).isEqualTo("glm-5.3-flash");
+        assertThat(view.source()).isEqualTo(LlmConfigView.SOURCE_CUSTOM);
+        assertThat(view.hasKey()).isFalse();
+        assertThat(view.credentialsComplete()).isFalse();
+        assertThat(view.providerId()).isEqualTo(LlmClientRegistry.LEGACY_PROVIDER_ID);
+    }
+
+    /** [AC-1] GET 配置：tutor 覆盖轨生效且密钥入库 → keyLast4 投影尾号；env 态密钥不投影 last4。 */
+    @Test
+    void getAdminConfigProjectsTutorKeyLast4_ac1() {
+        when(appSettingService.findValue(TutorServiceImpl.SETTING_KEY))
+                .thenReturn(
+                        Optional.of(
+                                "{\"schemaVersion\":1,\"enabled\":true,"
+                                        + "\"baseUrl\":\"http://10.0.0.8:8080/v4\",\"model\":null}"));
+        when(llmClients.effectiveConfig())
+                .thenReturn(
+                        Optional.of(
+                                new LlmClientRegistry.EffectiveConfig(
+                                        LlmClientRegistry.LEGACY_PROVIDER_ID,
+                                        "openai-chat",
+                                        "http://10.0.0.8:8080/v4",
+                                        "glm-4.7",
+                                        true,
+                                        true)));
+        when(providerKeys.storedLast4(LlmProviderKeys.TUTOR_PROVIDER_ID))
+                .thenReturn(Optional.of("8811"));
+
+        LlmConfigView view = tutorService.getAdminConfig();
+
+        assertThat(view.hasKey()).isTrue();
+        assertThat(view.keyLast4()).isEqualTo("8811");
+        assertThat(view.source()).isEqualTo(LlmConfigView.SOURCE_CUSTOM);
+        assertThat(view.model()).isEqualTo("glm-4.7");
+    }
+
+    /** [AC-3] GET 配置：目录未激活/未配置（视图缺位）→ 轨道真相为 null/false，但 baseUrl/model 按「覆盖>env」投影（缺省回落 env 值）。 */
+    @Test
+    void getAdminConfigReturnsEmptyViewWhenNothingUsable_ac3() {
+        when(llmClients.effectiveConfig()).thenReturn(Optional.empty());
+        // env 全空（未配置 YILIAN_LLM_*）：投影回落 env 的空端点与缺省模型名。
+        TutorServiceImpl unconfigured =
+                new TutorServiceImpl(
+                        llmClients,
+                        new LlmProperties("", "", null, null, null),
+                        appSettingService,
+                        practiceService,
+                        attemptDao,
+                        gradingDao,
+                        llmUsageDao,
+                        promptRegistry,
+                        new TutorOverrides(appSettingService, objectMapper),
+                        providerKeys,
+                        objectMapper);
+
+        LlmConfigView view = unconfigured.getAdminConfig();
+
+        // legacy 形态投影：env 端点为空串、env 模型缺省值（编辑输入框的缺省回显）。
         assertThat(view.baseUrl()).isEmpty();
-        assertThat(view.model()).isEmpty();
+        assertThat(view.model()).isEqualTo("glm-4.7");
         assertThat(view.hasKey()).isFalse();
         assertThat(view.providerId()).isNull();
         assertThat(view.protocol()).isNull();
         assertThat(view.credentialsComplete()).isFalse();
+        assertThat(view.source()).isEqualTo(LlmConfigView.SOURCE_ENV);
+        assertThat(view.keyLast4()).isNull();
     }
 
-    /** [AC-3] PUT 拒收 apiKey/baseUrl/model（40000，密钥不入库），不动存储。 */
+    /** [AC-1] PUT 覆盖落库：非空白 baseUrl/model（trim 后）写 llm.tutor JSON，返回视图 source=custom。 */
     @Test
-    void updateRejectsKeyAndEndpointOverrides_ac3() {
+    void updateStoresOverridesAndReturnsCustomSource_ac1() {
+        when(appSettingService.upsert(
+                        eq(TutorServiceImpl.SETTING_KEY), anyString(), anyString(), eq(1L)))
+                .thenReturn("");
+
+        tutorService.updateAdminConfig(
+                new LlmConfigUpdateRequest(
+                        false, " http://10.0.0.8:8080/v4 ", " glm-5.3-flash ", null, null), 1L);
+
+        ArgumentCaptor<String> value = ArgumentCaptor.forClass(String.class);
+        verify(appSettingService)
+                .upsert(eq(TutorServiceImpl.SETTING_KEY), value.capture(), anyString(), eq(1L));
+        TutorOverrides.Stored stored = objectMapper.readValue(value.getValue(), TutorOverrides.Stored.class);
+        assertThat(stored.enabled()).isFalse();
+        assertThat(stored.baseUrl()).isEqualTo("http://10.0.0.8:8080/v4");
+        assertThat(stored.model()).isEqualTo("glm-5.3-flash");
+    }
+
+    /** [AC-1] PUT 清除覆盖：空白/缺省的 baseUrl/model 落 null（生效值回退 env）。 */
+    @Test
+    void updateClearsOverridesOnBlankFields_ac1() {
+        // 预置既有覆盖，验证空串清除。
+        when(appSettingService.findValue(TutorServiceImpl.SETTING_KEY))
+                .thenReturn(
+                        Optional.of(
+                                "{\"schemaVersion\":1,\"enabled\":false,"
+                                        + "\"baseUrl\":\"http://10.0.0.8:8080/v4\",\"model\":\"glm-5.3-flash\"}"));
+        when(appSettingService.upsert(
+                        eq(TutorServiceImpl.SETTING_KEY), anyString(), anyString(), eq(1L)))
+                .thenReturn("");
+
+        tutorService.updateAdminConfig(
+                new LlmConfigUpdateRequest(false, "  ", null, null, null), 1L);
+
+        ArgumentCaptor<String> value = ArgumentCaptor.forClass(String.class);
+        verify(appSettingService)
+                .upsert(eq(TutorServiceImpl.SETTING_KEY), value.capture(), anyString(), eq(1L));
+        TutorOverrides.Stored stored = objectMapper.readValue(value.getValue(), TutorOverrides.Stored.class);
+        assertThat(stored.baseUrl()).isNull();
+        assertThat(stored.model()).isNull();
+    }
+
+    /** [AC-1]/[AC-3] PUT apiKey 写-only：非空白=加密 upsert 到 tutor 预留行；clearKey=true=删行；无行不投影明文。 */
+    @Test
+    void updateUpsertsAndClearsTutorKey_ac1() {
+        when(appSettingService.upsert(
+                        eq(TutorServiceImpl.SETTING_KEY), anyString(), anyString(), eq(1L)))
+                .thenReturn("");
+
+        tutorService.updateAdminConfig(
+                new LlmConfigUpdateRequest(false, null, null, " sk-tutor-plaintext-8811 ", null),
+                1L);
+        verify(providerKeys).upsert(LlmProviderKeys.TUTOR_PROVIDER_ID, "sk-tutor-plaintext-8811");
+
+        tutorService.updateAdminConfig(
+                new LlmConfigUpdateRequest(false, null, null, null, true), 1L);
+        verify(providerKeys).delete(LlmProviderKeys.TUTOR_PROVIDER_ID);
+
+        // 留空=不变更：不触发 upsert/delete 之外的额外密钥写。
+        tutorService.updateAdminConfig(
+                new LlmConfigUpdateRequest(false, null, null, "   ", false), 1L);
+        verify(providerKeys, never()).upsert(eq(LlmProviderKeys.TUTOR_PROVIDER_ID), eq("   "));
+    }
+
+    /** [AC-1] PUT 覆盖校验拒绝：URL 形状（非 http(s)）与超长 baseUrl/model 40000，先于任何写路径。 */
+    @Test
+    void updateRejectsInvalidOverrideShapes_ac1() {
+        // baseUrl 非 http(s) 前缀。
         assertThatThrownBy(
                         () ->
                                 tutorService.updateAdminConfig(
-                                        new LlmConfigUpdateRequest(true, null, null, "sk-new"), 1L))
+                                        new LlmConfigUpdateRequest(
+                                                false, "ftp://10.0.0.8", null, null, null), 1L))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception -> {
                             assertThat(exception.apiCode()).isEqualTo(ApiCode.VALIDATION_FAILED);
-                            assertThat(exception.getMessage()).contains("YILIAN_LLM_API_KEY");
+                            assertThat(exception.getMessage()).contains("http:// 或 https://");
                         });
+        // baseUrl 超长（trim 后 501）。
         assertThatThrownBy(
                         () ->
                                 tutorService.updateAdminConfig(
-                                        new LlmConfigUpdateRequest(true, "https://x", null, null),
+                                        new LlmConfigUpdateRequest(
+                                                false, "https://x/" + "a".repeat(492), null, null, null),
                                         1L))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
-                        exception ->
-                                assertThat(exception.apiCode())
-                                        .isEqualTo(ApiCode.VALIDATION_FAILED));
+                        exception -> assertThat(exception.getMessage()).contains("baseUrl 最长 500 字符"));
+        // model 超长（trim 后 2049）。
+        assertThatThrownBy(
+                        () ->
+                                tutorService.updateAdminConfig(
+                                        new LlmConfigUpdateRequest(
+                                                false, null, "m".repeat(2049), null, null), 1L))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.getMessage()).contains("model 最长 2048 字符"));
         verify(appSettingService, never()).upsert(anyString(), anyString(), anyString(), eq(1L));
+        verifyNoInteractions(providerKeys);
     }
 
     /** [AC-3] PUT enabled=true 且无可用客户端：40000 拒绝（开不了没有弹药的功能）。 */
@@ -439,12 +605,45 @@ class TutorServiceImplTest {
         assertThatThrownBy(
                         () ->
                                 tutorService.updateAdminConfig(
-                                        new LlmConfigUpdateRequest(true, null, null, null), 1L))
+                                        new LlmConfigUpdateRequest(true, null, null, null, null), 1L))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception ->
                                 assertThat(exception.apiCode())
                                         .isEqualTo(ApiCode.VALIDATION_FAILED));
+    }
+
+    /** [AC-2] PUT enabled=true 被拒的定向文案：tutor 覆盖轨缺密钥 → 指向卡内录入（即时生效）或 env。 */
+    @Test
+    void updateEnableBlockedMessagePointsToCardKeyInOverrideRail_ac2() {
+        when(llmClients.chatHandle()).thenReturn(Optional.empty());
+        when(llmClients.directoryMode()).thenReturn(false);
+        when(appSettingService.findValue(TutorServiceImpl.SETTING_KEY))
+                .thenReturn(
+                        Optional.of(
+                                "{\"schemaVersion\":1,\"enabled\":false,"
+                                        + "\"baseUrl\":\"http://10.0.0.8:8080/v4\",\"model\":null}"));
+        when(llmClients.effectiveConfig())
+                .thenReturn(
+                        Optional.of(
+                                new LlmClientRegistry.EffectiveConfig(
+                                        LlmClientRegistry.LEGACY_PROVIDER_ID,
+                                        "openai-chat",
+                                        "http://10.0.0.8:8080/v4",
+                                        "glm-4.7",
+                                        false,
+                                        false)));
+
+        assertThatThrownBy(
+                        () ->
+                                tutorService.updateAdminConfig(
+                                        new LlmConfigUpdateRequest(true, null, null, null, null), 1L))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.getMessage())
+                                        .contains("「答疑 LLM」卡录入 API 密钥")
+                                        .contains("YILIAN_LLM_API_KEY"));
     }
 
     /** [AC-3] PUT enabled=true 被拒的定向文案：目录模式缺 env key → 指向 YILIAN_LLM_KEY_&lt;大写ID&gt;（连字符→下划线）。 */
@@ -466,7 +665,7 @@ class TutorServiceImplTest {
         assertThatThrownBy(
                         () ->
                                 tutorService.updateAdminConfig(
-                                        new LlmConfigUpdateRequest(true, null, null, null), 1L))
+                                        new LlmConfigUpdateRequest(true, null, null, null, null), 1L))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         exception ->
@@ -497,7 +696,7 @@ class TutorServiceImplTest {
                                         true)));
         when(appSettingService.upsert(
                         eq(TutorServiceImpl.SETTING_KEY),
-                        eq("{\"schemaVersion\":1,\"enabled\":true}"),
+                        eq("{\"schemaVersion\":1,\"enabled\":true,\"baseUrl\":null,\"model\":null}"),
                         anyString(),
                         eq(1L)))
                 .thenReturn("{\"schemaVersion\":1,\"enabled\":true}");
@@ -511,17 +710,20 @@ class TutorServiceImplTest {
                         gradingDao,
                         llmUsageDao,
                         promptRegistry,
+                        new TutorOverrides(appSettingService, objectMapper),
+                        providerKeys,
                         objectMapper);
 
         LlmConfigView view =
                 gatewayBacked.updateAdminConfig(
-                        new LlmConfigUpdateRequest(true, null, null, null), 1L);
+                        new LlmConfigUpdateRequest(true, null, null, null, null), 1L);
 
         assertThat(view.enabled()).isTrue();
         assertThat(view.hasKey()).isFalse();
         assertThat(view.baseUrl()).isEqualTo("http://127.0.0.1:47860/gateway/zcode");
         assertThat(view.model()).isEqualTo("glm-5.3");
         assertThat(view.credentialsComplete()).isTrue();
+        assertThat(view.source()).isEqualTo(LlmConfigView.SOURCE_ENV);
     }
 
     /** [AC-3] PUT 合法开关：写 app_settings 键 llm.tutor（schemaVersion=1），返回更新后视图。 */
@@ -529,7 +731,7 @@ class TutorServiceImplTest {
     void updateStoresEnabledFlagAndReturnsView_ac3() {
         when(appSettingService.upsert(
                         eq(TutorServiceImpl.SETTING_KEY),
-                        eq("{\"schemaVersion\":1,\"enabled\":false}"),
+                        eq("{\"schemaVersion\":1,\"enabled\":false,\"baseUrl\":null,\"model\":null}"),
                         anyString(),
                         eq(1L)))
                 .thenReturn("{\"schemaVersion\":1,\"enabled\":false}");
@@ -538,14 +740,14 @@ class TutorServiceImplTest {
 
         LlmConfigView view =
                 tutorService.updateAdminConfig(
-                        new LlmConfigUpdateRequest(false, null, null, null), 1L);
+                        new LlmConfigUpdateRequest(false, null, null, null, null), 1L);
 
         assertThat(view.enabled()).isFalse();
         assertThat(view.hasKey()).isTrue();
         verify(appSettingService)
                 .upsert(
                         eq(TutorServiceImpl.SETTING_KEY),
-                        eq("{\"schemaVersion\":1,\"enabled\":false}"),
+                        eq("{\"schemaVersion\":1,\"enabled\":false,\"baseUrl\":null,\"model\":null}"),
                         anyString(),
                         eq(1L));
     }

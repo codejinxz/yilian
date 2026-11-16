@@ -39,8 +39,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * 管理端 LLM 配置端点（API §8.11）的 HTTP 层切片测试 [AC-3]：鉴权矩阵（匿名 401 / 非管理员 403）、 GET 形状（hasKey 不回读 key）、PUT
- * 透传与 40000 校验、审计注解口径（写 LLM_CONFIG_UPDATE、读不标）； 服务层分支由 {@code TutorServiceImplTest} 覆盖。
+ * 管理端 LLM 配置端点（API §8.14）的 HTTP 层切片测试 [AC-1]：鉴权矩阵（匿名 401 / 非管理员 403）、 GET 形状（hasKey/keyLast4 投影、无
+ * apiKey 回显）、PUT 透传（覆盖/密钥/清除全字段）与 40000 信封、审计注解口径（写 LLM_CONFIG_UPDATE、读不标）； 服务层分支由 {@code
+ * TutorServiceImplTest} 覆盖。
  */
 @WebMvcTest(controllers = AdminLlmConfigController.class)
 @Import({
@@ -71,9 +72,9 @@ class AdminLlmConfigControllerTest {
         OperationLogContext.clear();
     }
 
-    /** [AC-3] 匿名访问：GET/PUT 都是 401 信封（code=40100），不触达 Service。 */
+    /** [AC-1] 匿名访问：GET/PUT 都是 401 信封（code=40100），不触达 Service。 */
     @Test
-    void configEndpointsRejectAnonymousWith401_ac3() throws Exception {
+    void configEndpointsRejectAnonymousWith401_ac1() throws Exception {
         mockMvc.perform(get("/api/admin/llm/config"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value(ApiCode.AUTH_REQUIRED.code()));
@@ -87,9 +88,9 @@ class AdminLlmConfigControllerTest {
         verifyNoInteractions(tutorService);
     }
 
-    /** [AC-3] 非 ADMIN 登录用户：403 信封（code=40300），权限在服务端。 */
+    /** [AC-1] 非 ADMIN 登录用户：403 信封（code=40300），权限在服务端。 */
     @Test
-    void configEndpointsRejectNonAdminWith403_ac3() throws Exception {
+    void configEndpointsRejectNonAdminWith403_ac1() throws Exception {
         mockMvc.perform(
                         get("/api/admin/llm/config")
                                 .with(
@@ -112,19 +113,24 @@ class AdminLlmConfigControllerTest {
         verifyNoInteractions(tutorService);
     }
 
-    /** [AC-3] GET：200 信封 data 为 {enabled, baseUrl, model, hasKey}，无 apiKey 字段回显。 */
+    /**
+     * [AC-1] GET：200 信封 data 为 {enabled, baseUrl, model, hasKey, providerId, protocol, credentialsComplete,
+     * source, keyLast4}，无 apiKey 字段回显（写-only 红线）。
+     */
     @Test
-    void getConfigReturnsHasKeyWithoutSecret_ac3() throws Exception {
+    void getConfigReturnsProjectionWithoutSecret_ac1() throws Exception {
         when(tutorService.getAdminConfig())
                 .thenReturn(
                         new LlmConfigView(
                                 true,
-                                "https://open.bigmodel.cn/api/paas/v4",
-                                "glm-4.7",
+                                "http://10.0.0.8:8080/v4",
+                                "glm-5.3-flash",
                                 true,
                                 "legacy",
                                 "openai-chat",
-                                true));
+                                true,
+                                "custom",
+                                "8811"));
 
         mockMvc.perform(
                         get("/api/admin/llm/config")
@@ -135,25 +141,32 @@ class AdminLlmConfigControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.enabled").value(true))
-                .andExpect(jsonPath("$.data.baseUrl").value("https://open.bigmodel.cn/api/paas/v4"))
-                .andExpect(jsonPath("$.data.model").value("glm-4.7"))
+                .andExpect(jsonPath("$.data.baseUrl").value("http://10.0.0.8:8080/v4"))
+                .andExpect(jsonPath("$.data.model").value("glm-5.3-flash"))
                 .andExpect(jsonPath("$.data.hasKey").value(true))
+                .andExpect(jsonPath("$.data.source").value("custom"))
+                .andExpect(jsonPath("$.data.keyLast4").value("8811"))
                 .andExpect(jsonPath("$.data.apiKey").doesNotExist());
     }
 
-    /** [AC-3] PUT：合法开关透传 Service 并返回更新后的视图。 */
+    /** [AC-1] PUT：覆盖 + 密钥 + 清除全字段透传 Service（请求体整形状），返回更新后的视图。 */
     @Test
-    void putConfigUpdatesEnabledFlag_ac3() throws Exception {
-        when(tutorService.updateAdminConfig(new LlmConfigUpdateRequest(true, null, null, null), 1L))
+    void putConfigPassesThroughFullBody_ac1() throws Exception {
+        when(tutorService.updateAdminConfig(
+                        new LlmConfigUpdateRequest(
+                                true, "http://10.0.0.8:8080/v4", "glm-5.3-flash", "sk-x", null),
+                        1L))
                 .thenReturn(
                         new LlmConfigView(
                                 true,
-                                "https://open.bigmodel.cn/api/paas/v4",
-                                "glm-4.7",
+                                "http://10.0.0.8:8080/v4",
+                                "glm-5.3-flash",
                                 true,
                                 "legacy",
                                 "openai-chat",
-                                true));
+                                true,
+                                "custom",
+                                "sk-x"));
 
         mockMvc.perform(
                         put("/api/admin/llm/config")
@@ -163,17 +176,47 @@ class AdminLlmConfigControllerTest {
                                                         ADMIN, null, "ROLE_ADMIN")))
                                 .with(csrf())
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content("{\"enabled\":true}"))
+                                .content(
+                                        "{\"enabled\":true,\"baseUrl\":\"http://10.0.0.8:8080/v4\","
+                                                + "\"model\":\"glm-5.3-flash\",\"apiKey\":\"sk-x\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.data.enabled").value(true));
+                .andExpect(jsonPath("$.data.enabled").value(true))
+                .andExpect(jsonPath("$.data.source").value("custom"));
         verify(tutorService)
-                .updateAdminConfig(new LlmConfigUpdateRequest(true, null, null, null), 1L);
+                .updateAdminConfig(
+                        new LlmConfigUpdateRequest(
+                                true, "http://10.0.0.8:8080/v4", "glm-5.3-flash", "sk-x", null),
+                        1L);
     }
 
-    /** [AC-3] PUT：enabled 缺失（40000）与 Service 拒收 apiKey（40000）都以信封返回。 */
+    /** [AC-1] PUT：clearKey=true 透传（删 tutor 密钥行语义由 Service 层锁定）。 */
     @Test
-    void putConfigValidationAndServiceRejections_ac3() throws Exception {
+    void putConfigPassesClearKeyFlag_ac1() throws Exception {
+        when(tutorService.updateAdminConfig(
+                        new LlmConfigUpdateRequest(false, null, null, null, true), 1L))
+                .thenReturn(
+                        new LlmConfigView(
+                                false, "", "", false, null, null, false, "env", null));
+
+        mockMvc.perform(
+                        put("/api/admin/llm/config")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"enabled\":false,\"clearKey\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+        verify(tutorService)
+                .updateAdminConfig(new LlmConfigUpdateRequest(false, null, null, null, true), 1L);
+    }
+
+    /** [AC-1] PUT：enabled 缺失（40000）与 Service 校验/拒绝（40000）都以信封返回。 */
+    @Test
+    void putConfigValidationAndServiceRejections_ac1() throws Exception {
         mockMvc.perform(
                         put("/api/admin/llm/config")
                                 .with(
@@ -189,8 +232,7 @@ class AdminLlmConfigControllerTest {
         when(tutorService.updateAdminConfig(any(), eq(1L)))
                 .thenThrow(
                         new BusinessException(
-                                ApiCode.VALIDATION_FAILED,
-                                "API Key 只能通过环境变量 YILIAN_LLM_API_KEY 配置"));
+                                ApiCode.VALIDATION_FAILED, "baseUrl 需以 http:// 或 https:// 开头"));
         mockMvc.perform(
                         put("/api/admin/llm/config")
                                 .with(
@@ -199,15 +241,33 @@ class AdminLlmConfigControllerTest {
                                                         ADMIN, null, "ROLE_ADMIN")))
                                 .with(csrf())
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content("{\"enabled\":true,\"apiKey\":\"sk-x\"}"))
+                                .content("{\"enabled\":false,\"baseUrl\":\"ftp://x\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(ApiCode.VALIDATION_FAILED.code()))
-                .andExpect(jsonPath("$.message").value("API Key 只能通过环境变量 YILIAN_LLM_API_KEY 配置"));
+                .andExpect(jsonPath("$.message").value("baseUrl 需以 http:// 或 https:// 开头"));
+
+        when(tutorService.updateAdminConfig(any(), eq(1L)))
+                .thenThrow(
+                        new BusinessException(
+                                ApiCode.VALIDATION_FAILED,
+                                "答疑凭证不齐：请在管理端模型页「答疑 LLM」卡录入 API 密钥（保存即时生效），"
+                                        + "或设置环境变量 YILIAN_LLM_API_KEY"));
+        mockMvc.perform(
+                        put("/api/admin/llm/config")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"enabled\":true}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ApiCode.VALIDATION_FAILED.code()));
     }
 
-    /** [AC-3] 审计口径：PUT 标 @OperationLog(LLM_CONFIG_UPDATE)，GET 不标。 */
+    /** [AC-1] 审计口径：PUT 标 @OperationLog(LLM_CONFIG_UPDATE)，GET 不标。 */
     @Test
-    void writeCarriesAuditAndReadDoesNot_ac3() throws Exception {
+    void writeCarriesAuditAndReadDoesNot_ac1() throws Exception {
         OperationLog put =
                 AdminLlmConfigController.class
                         .getDeclaredMethod(
