@@ -23,7 +23,7 @@ public interface LlmClientRegistry {
     Optional<ChatHandle> chatHandle();
 
     /**
-     * 取当前生效配置的管理端视图：目录模式返回激活条目元数据 + env 密钥存在性（即使凭证不齐也返回，便于管理员 看到「差什么」）；legacy
+     * 取当前生效配置的管理端视图：目录模式返回激活条目元数据 + 密钥可用性（027B 解析链：入库密钥或 env 任一；即使凭证不齐也返回，便于管理员 看到「差什么」）；legacy
      * 轨返回环境变量生效值；两者皆无（目录未激活/为空且 legacy 未配置）时为空。
      *
      * @return 生效配置视图
@@ -40,7 +40,7 @@ public interface LlmClientRegistry {
     /** 一次可用调用的句柄。 */
     record ChatHandle(LlmChatClient client, String providerId, String model) {}
 
-    /** 管理端生效配置视图（密钥只回 hasKey 布尔，不回读）。 */
+    /** 管理端生效配置视图（密钥只回 hasKey 布尔——入库可解密或 env 任一，不回读）。 */
     record EffectiveConfig(
             String providerId,
             String protocol,

@@ -2,8 +2,8 @@ package io.github.codejinxz.yilian.practice.llm;
 
 /**
  * provider 目录条目：CC Switch 式多 provider 的元数据（name/protocol/baseURL/model），<strong>不含
- * apiKey</strong>——密钥按 id 走环境变量 {@code YILIAN_LLM_KEY_<大写ID>} 索引（密钥不入库），一次配置 （env 配一轮）+ UI
- * 随时切换（激活）。
+ * apiKey</strong>——目录只存元数据；密钥解析链（027B）见 {@code LlmProviderKeys}：入库密文解密 &gt; env {@code
+ * YILIAN_LLM_KEY_<大写ID>} &gt; legacy，UI 随时切换（激活）。
  *
  * @param id 目录内唯一标识；{@value #ID_PATTERN}（小写字母/数字/连字符），env 变量名按连字符→下划线大写映射
  * @param name 展示名（管理端列表卡）
@@ -40,7 +40,7 @@ public record LlmProviderDescriptor(
     /**
      * 密钥齐备口径（按协议分）：anthropic-messages 轨 key 可空（网关本机无鉴权），openai 两轨必填；端点一律必填。
      *
-     * @param hasEnvKey 该 provider 的环境变量密钥是否已配置
+     * @param hasEnvKey 该 provider 是否有可用密钥（027B 解析链口径：入库密钥或 env 任一）
      * @return 凭证齐备返回 true
      */
     public boolean hasCredentials(boolean hasEnvKey) {
