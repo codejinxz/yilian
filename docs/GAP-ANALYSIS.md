@@ -2,6 +2,8 @@
 
 ## 当前状态
 
+- **029 双 skill 第一轮消缺批完成（2026-11-17，计划 [docs/plans/029-dual-skill-round1-fixes.md](plans/029-dual-skill-round1-fixes.md)，提交 `094b507`(AC-1 终审并发原子门)+`c411f20`(AC-2 复核并发串行化)+`4cc94aa`(AC-3 申诉前端超时)+`97d0a24`(AC-4 UNAVAILABLE 回执态+C-01 注释如实化)+`558a9e8`(AC-5 README 契约修正)+AC-7 本行随收口提交）**：双 skill 轮巡（[code-review-full-20261117](analysis/code-review-full-20261117/00-评审汇总.md) + [test-audit-full-20261117](analysis/test-audit-full-20261117/00-测试体检报告.md)，P0×0/P1×2/P2×5/P3×7）P1/P2 可修项一次消缺，P3 与依赖侧登记（见「029 轮巡余量」）。①A-01(P1)：申诉终审 UPDATE WHERE 携带 `status='PENDING'` 条件（并发原子门），行数=0 改判 40900「该申诉已被终审」——并发双管理员裁决恰一人 200、先到者结论不被覆盖、admin_audit_log 两行都在；②A-02(P2)：reviewAttempt 事务化（READ_COMMITTED）+ attempts 父行悲观锁串行化——并发复核 MODEL 行恰一条、模型只调一次（幂等回读语义不变），llm_usage 旁路记账改 REQUIRES_NEW 独立事务（降级回滚不再丢记账行，三终态契约保持）；③A-03(P2)：appealAnnotation 前端超时 35s（补齐 024 REVIEW_TIMEOUT_MS 同算术先例）；④F-01(P2)：初裁不可用回执态以存储 decision JSON 为真相三方对齐——占位回执 verdict="UNAVAILABLE" 如实发送，「AI 初裁暂不可用」分支转活，AC-7 测试夹具改与集成断言同形（mock 漂移修正）；⑤F-02(P2)：README 密钥双通道/Prompt 注册表 V13 落地/里程碑 020-028 契约修正+命令逐字校验；⑥C-01(P2) 注释部分：PromptRegistryImpl「负条目短 TTL」如实化；⑦DEF-01(P1 依赖侧)实测处置：**不改预算**——实测证明网关不生效 top-level system 字段（回复必为自由文本、strict JSON 解析必败，与超时预算无关），根因+修复方向登记 029 轮巡余量。质量门禁实测：后端 `YILIAN_TEST_DB_NAME=yilian_test_029 mvnw test` **847 run / 0 Failures / 0 Errors**（基线 840，+7：AC-1 并发集成 2+单测 2、AC-2 并发集成 2、AC-4 回执 1、AC-3 vitest 1）+ `fmt:check` 0 不合规 + JaCoCo 门禁过；前端 `vitest run` **191/191**（基线 190，+1）+ `tsc --noEmit` 0 错误 + `vite build` 成功 + `biome check` 0 问题（src/mocks 存量 warning 不变）；黑盒复跑 **304/304**（015 套件，验证码开+操作员读图原生模式，7/7 读码命中 0 降级，0 缺陷 0 信封违例）。
+
 - **028 答疑 LLM legacy 态全字段可编辑完成（2026-11-17，计划 [docs/plans/028-tutor-config-editable.md](plans/028-tutor-config-editable.md)，提交 `3051409`(server 覆盖轨+tutor 密钥预留行)+`a41bb29`(切片/单测/集成用例)+`a23b4a0`(web 编辑态)+`70fa7bc`(API v1.7/DATA-MODEL v0.4 同步)+`0330a01`(格式归一)+`5c44ccd`(覆盖轨投影与轨道一致修复)，合并态 HEAD `5c44ccd`）**：答疑 LLM legacy 态全字段可编辑——覆盖轨（目录激活>覆盖>env）+ tutor 密钥复用 `llm_provider_keys` 预留 id + 来源徽标（环境变量/自定义/目录）+ 即时生效；40000 env-only 语义废除（§3.4 演进链 017→027B→028）。质量门禁实测：后端 `mvnw test` **840 run / 0 Failures / 0 Errors**（基线 816，+20+R1 4）、前端 `vitest run` **190/190**（基线 184，+5+R1 1）、S4 隔离审查 **6/6 PASS、BLOCKER=0**（R1 一轮增量解除）。
 - **027B provider API 密钥管理端加密入库完成（2026-11-17，计划 [docs/plans/027b-provider-key-vault.md](plans/027b-provider-key-vault.md)，提交 `1579094`(server V14+加密+解析链)+`02ec7e9`(五端点写-only+模型页录入)+`37bf417`(缺密钥文案双通道)）**：provider API 密钥管理端加密入库——V14 建 `llm_provider_keys` 表+AES-256-GCM 加解密（主密钥 env `YILIAN_SECRET_MASTER_KEY`，prod 缺失 fail-fast）+解析链 DB>env>legacy；provider 目录五端点写-only `apiKey`（响应只投影 `keyLast4`，不回显明文）+模型页密钥录入即时生效。质量门禁实测：后端 `mvnw test` **816 run / 0 Failures / 0 Errors**（基线 794，+22）、前端 `vitest run` **184/184**（基线 181，+3）、S4 隔离审查 **6/6 PASS、BLOCKER=0**（1 轮增量：GAP 行补齐+构造器注释对齐后解除）。
 - **025 申诉 LLM 裁决两级闭环完成（2026-11-06，计划 [docs/plans/025-appeal-llm-adjudication.md](plans/025-appeal-llm-adjudication.md)，提交 `79d017b`(server)+`3272177`(web)+`4de03e0`(API/DATA-MODEL 同步)）**：申诉裁决两级闭环——①同步 AI 初裁：`submitAppeal` 落库后同步调 LLM 产「AI 意见」（verdict+reason 落 decision/decision_reason/decided_by=LLM/decided_at/model_snapshot/prompt_version_id，**status 保持 PENDING** 不自动判分），失败/非法输出（重试 1 次）与限流（独立 scene appeal-adjudication 5 次/分钟）落 UNAVAILABLE 占位不阻塞提交，`llm_usage` scene=appeal 三终态双写；②管理端「申诉」第十页签（`GET /api/admin/appeals`+`POST /api/admin/appeals/{id}/decision`，仅 PENDING 可裁决否则 40900，必填终审理由，审计 APPEAL_DECIDE）人工终审 ACCEPTED/REJECTED；③ACCEPTED 进判分 overlay：本句 ACCEPTED APPEAL 的 (chunk_index,proposed_answer) 追加为该槽额外可接受答案（CLOZE norm-1 同口径，DISPUTE 排除语义不变，不物理改题目）；④V13 迁移建 `prompt_versions` 注册表（ask/review/appeal 三首版种子幂等，唯一 (name,version)），PromptRegistry 按 name 取 ACTIVE 版本（Caffeine/写后失效/缺行兜底常量），答疑/复核/申诉三链路 prompt_version_id 落值；⑤用户端透明度：批注行按回执分化展示「AI 意见:…/初裁不可用/等待人工终审/已加入可接受答案」。质量门禁实测：后端 `mvnw test` **794 run / 0 Failures / 0 Errors**（基线 761，+33）、前端 `vitest run` **181/181**（基线 168，+13）、S4 隔离审查 **9/9 PASS、BLOCKER=0**。
@@ -49,6 +51,27 @@
 01#01 业务日志明文 userId（MDC 脱敏被消息体参数绕过）；01#03 today 逐 attempt N+1；01#04 wrongPool 每卡 3 次 N+1；01#05 FSRS 优化器同步 SGD 阻塞请求线程；02#01 同值编辑不幂等无条件新增版本行；02#02 批量移动批内指纹互撞预检不覆盖；02#03 移动目标库未排除 DISABLED/ARCHIVED；02#04 编辑 tags 无数量/长度校验；02#05 题库列表逐行 COUNT N+1；02#06 admin 直接依赖 upload dto；03#02 邀请码校验前返回占用错误；03#03 恢复账号被 DTO 强制 reason；03#04 图形验证码未收录 API.md；03#07 LOGIN 审计恒记 SYSTEM 无账号维度；04#03 @Idempotent 整套 AOP 死代码（删除或冻结预留需裁决）；05#02 external_key/level/source/license 无长度校验 + 40904 误翻译；05#03 commit 不收可选 reason + CommitImportRequest 死 DTO；05#04 回滚响应缺 rolledBackAt/By/Reason 三字段；05#05 commit 失败补偿 markFailed 无锁重读；05#07 导入逐行指纹查重 + 逐条 save；06#02 Checkstyle Javadoc 门禁未落实；06#03 CI action 未 pin SHA。
 
 （误报 2 条不修：04#01 ULID 字母表、05#06 utf8mb4 连接charset——判定与证据见 review-verify-2 §三。）
+
+## 029 轮巡余量（双 skill 第一轮消缺批登记入册，2026-11-17）
+
+来源：[code-review-full-20261117](analysis/code-review-full-20261117/00-评审汇总.md)（P3×7）与 [test-audit-full-20261117](analysis/test-audit-full-20261117/00-测试体检报告.md)（DEF-02/02-01/U-01/黑盒扩套件）+ 029 AC-6 实测（DEF-01）。预披露裁决：P3 与依赖侧只登记不修；CI 配置（保护路径）不动；黑盒扩套件不入 029 批。**F-03 已随 029 AC-1/AC-2 闭合**（终审/复核并发用例落地），登记备查不重复排期；C-01 本批已修注释部分（如实化），余量如下：
+
+| 来源条目 | 一句话 | 级别 |
+|---|---|---|
+| code-review 01 · A-04 | appeal/dispute 两端点无端点级 @RateLimit，写入口限流口径与 practice-attempt/model-review 不齐（申诉行写入上限只靠 uk_appeal_annotation 兜底） | P3 |
+| code-review 02 · B-01 | 目录读-改-写并发（已文档化取舍）在 027B 后最坏情形扩为「目录条目在而密钥行被并发删」——解析链 fail-safe 回退 env，后果可控，注释补记或乐观收敛 | P3 |
+| code-review 02 · B-02 | 主密钥「原始口令」形态单次 SHA-256 派生无 KDF 拉伸——公网部署前部署文档应强制 hex/base64 或 ≥32 字节随机口令 | P3 |
+| code-review 03 · C-01 余量 | prompt_versions 治理链路只有读半边：evictAll 零生产调用（预留 API）、无应用内写路径/管理入口，版本流转走手工 SQL 无 SOP——写路径+@OperationLog+回归门禁另行排期（本批已如实化「短 TTL」注释） | P2 余量 |
+| code-review 04 · D-01 | registry 每次解析现算密钥状态指纹（llm_provider_keys 全行读）+ 027B/028 扩大「旧客户端不 close」取舍作用面——量级可忽略，防未来误修 | P3 |
+| code-review 05 · E-01 | LlmProviderKeys 构造器 @param crypto 描述串位（写成了 clock 的职责） | P3 |
+| code-review 05 · E-02 | application-local.yml.example 未同步 027B provider-key 段，示例模板落后实际 local 配置 | P3 |
+| code-review 06 · F-03 | 终审/复核并发用例——**已随 029 AC-1/AC-2 闭合**（AppealFinalDecisionConcurrencyIntegrationTest / PracticeModelReviewConcurrencyIntegrationTest），备查 | P3 已闭合 |
+| test-audit 06 · DEF-01（029 AC-6 实测修订） | 复核/初裁在现网降级的确定性根因=网关不生效 top-level system 字段：受控实验 A 组（system top-level，与产品 SDK 同 wire 形状）2/2 回自由文本、strict JSON 解析必败（响应 11.1s/13.6s 均在预算内），B 组（同文指令并入用户消息）2/2 干净 JSON（5.3s/8.3s）；复核量级直探 2×502@30s（网关上游超时）+一次 200@25.7s 长尾；产品侧 llm_usage 5 次 15s 超时——15s 预算确实被部分调用击穿，但**提至 30s 不改变成功率**（<15s 的响应同样解析必败），故不改预算。修复方向：①复核/初裁 strict JSON 指令并入用户消息（产品侧可修，涉及 V13 种子/prompt builder 契约/API.md，需独立批次）；②网关侧 system 字段支持与上游超时（依赖侧）。实测数据：.workflow/runtime/029/def01-*.json（本机资产）；覆盖轨只读核验未破坏（source=custom/anthropic-messages/glm-5.3-flash） | P1 依赖侧 |
+| test-audit 06 · DEF-02 | 复核端点一次裸 500 无信封响应（1/3 次观测，非破坏性复测未复现）——再现时抓 8080 服务端日志定因，留意复核链路异常分支 @ExceptionHandler 覆盖 | P3 |
+| test-audit 02 · 02-01 | 前端覆盖率无 CI 级阈值（vite coverage 无 thresholds、CI web job 不采集覆盖，gates.json 增量门禁为流程级）——现有口径为有意设计，登记为公网化/加固时的技术护栏候选项 | P3 |
+| test-audit 00/06 · 黑盒扩套件 | 015 套件基于 v0.1.1 时代契约，024/025/027B/028 新端点不在其内（本次靠 S/C 组临时脚本补位）——扩套件 6（review/appeal 链：复核落行/幂等/429、申诉 40900/终审/overlay 判对）登记 backlog，主人点单 | P3 |
+| test-audit 00 · U-01 | CI 平台运行历史（server/web job 是否绿、是否真拦过失败）本机无 gh CLI 未核——push 后核验 | 未决项 |
+
 
 ## P0：上线前必须补
 
