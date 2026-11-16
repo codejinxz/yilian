@@ -93,19 +93,23 @@ public interface AppealJpaRepository extends JpaRepository<Appeal, Long> {
      * 定向 UPDATE 落人工终审结果：只碰 status/decision_reason/decided_by/decided_at， decision JSON 保留初裁「AI
      * 意见」不覆盖。
      *
+     * <p>WHERE 携带 status='PENDING' 条件（029 并发原子门）：终审是 PENDING 的唯一出口，应用层预检与 UPDATE 之间存在并发窗口，
+     * 两位管理员同时裁决时后到者的 UPDATE 必须失配（受影响行数=0）而不是覆盖先到者的终审理由与时间—— 状态迁移的最后防线放在数据库层 （AGENTS
+     * §3「幂等以数据库唯一约束为准」同款纪律）， 与复核的 uk_grading_attempt_sequence、申诉提交的 uk_appeal_annotation 兜底同构。
+     *
      * @param id 记录 id
      * @param status 终审状态（ACCEPTED / REJECTED）
      * @param decisionReason 终审理由（必填）
      * @param decidedBy 裁决者（恒 ADMIN）
      * @param decidedAt 终审时间
-     * @return 受影响行数
+     * @return 受影响行数；0 = 记录不存在或已被并发终审（调用方按 40900 冲突处理）
      */
     @Modifying
     @Query(
             "UPDATE Appeal a"
                     + " SET a.status = :status, a.decisionReason = :decisionReason,"
                     + " a.decidedBy = :decidedBy, a.decidedAt = :decidedAt"
-                    + " WHERE a.id = :id")
+                    + " WHERE a.id = :id AND a.status = 'PENDING'")
     int updateFinalDecision(
             @Param("id") long id,
             @Param("status") String status,
