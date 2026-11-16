@@ -26,7 +26,7 @@
 - 数据库 MySQL 8：全 UTC 存储，展示用用户 IANA 时区；日界用 `LocalDate.now(ZoneId)`。
 - 迁移用 Flyway；禁止手改生产库；迁移前自动快照。
 - 判分 append-only：`attempts` 绑定 normalizer / rubric / prompt / model 版本；改判写新记录。
-- 密钥只进环境变量或 secret，不入库、不进 git、不出现在日志；唯一例外是 local 的 `application-local.yml`，只允许本机开发值且禁止复用。
+- 密钥只进环境变量、secret、或经管理端加密后入库（存储用 AES-256-GCM 密文，主密钥只来自环境变量且 prod 缺失启动失败；密文不回显、不进 git、不出现在日志）；唯一例外是 local 的 `application-local.yml`，只允许本机开发值且禁止复用。
 - 缓存分层：**Caffeine 一级 + Redis 二级**；Redis 同时承担限流计数；refresh 会话存 Spring Session JDBC。
 - 不引入消息队列、K8s、多副本；需要时先写决策记录。
 - Spring Boot 4.1.x（若锁 3.5，用 3.5.16 并安排升级）；Java 21。
