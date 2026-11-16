@@ -26,8 +26,10 @@ public interface TutorService {
     LlmConfigView getAdminConfig();
 
     /**
-     * 更新答疑开关（管理端）：写 {@code app_settings} 键 {@code llm.tutor}；baseUrl/model/apiKey 是 环境变量只读项，传非空值一律
-     * 40000 拒绝（密钥不入库）。
+     * 更新答疑 LLM 配置（管理端，028）：开关与 legacy 形态覆盖写 {@code app_settings} 键 {@code llm.tutor}，
+     * 密钥加密 upsert 到 llm_provider_keys 预留 id=tutor（027B 基建）。baseUrl/model 非空白=落覆盖、
+     * 空/缺省=清除覆盖；apiKey 写-only（非空白=加密入库，空/缺省=不变更）；clearKey=true 删 tutor 密钥行。
+     * enabled=true 且无可用客户端时 40000 拒绝，本次全部变更回滚。
      *
      * @param request 更新请求（enabled 必填）
      * @param operatorId 操作管理员 id，写审计字段

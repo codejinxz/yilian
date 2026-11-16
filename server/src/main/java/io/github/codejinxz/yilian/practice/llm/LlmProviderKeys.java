@@ -18,12 +18,20 @@ import java.util.Optional;
  *
  * <p>fail-safe 口径：DB 行存在但解密失败（主密钥被换/密文被篡改）时该条目密钥<strong>视为不存在</strong> （回退 env），只记 warn
  * 不抛——密钥坏了不该把目录读与答疑装配一并打挂；hasKey 口径 = 「本链能解析出密钥」（DB 可解密或 env 任一），与实际生效密钥恒一致。密钥不进任何缓存 （AGENTS
- * §3.8），每次解析现读现解；llm_provider_keys 量级 = 目录条目数，代价可忽略。
+ * §3.8），每次解析现读现解；llm_provider_keys 量级 = 目录条目数 + 1 行答疑预留行（{@link #TUTOR_PROVIDER_ID}），代价可忽略。
  *
  * <p>明文只在 {@link #upsert} 加密前与 {@link #resolve} 解密后的内存短暂存在；本类不打印任何 含明文/密文的日志。
  */
 @Component
 public class LlmProviderKeys {
+
+    /**
+     * llm_provider_keys 的预留 id（028）：答疑 LLM 自身的密钥行——不属于任何目录条目，目录增删/激活切换
+     * 不会触碰本行；它只在 legacy 形态（目录空）的 tutor 覆盖轨里生效（见 {@code LlmClientRegistryImpl}
+     * 的覆盖轨装配：本行密文解密 &gt; {@code YILIAN_LLM_API_KEY} env）。复用本表而非新建表是 028 预披露
+     * 裁决：加密基建（{@link ProviderKeyCrypto}）、last4 投影与状态指纹全部同源。
+     */
+    public static final String TUTOR_PROVIDER_ID = "tutor";
 
     private static final Logger log = LoggerFactory.getLogger(LlmProviderKeys.class);
 

@@ -15,7 +15,9 @@ import io.github.codejinxz.yilian.practice.llm.LlmChatClient;
 import io.github.codejinxz.yilian.practice.llm.LlmClientRegistry;
 import io.github.codejinxz.yilian.practice.llm.LlmProperties;
 import io.github.codejinxz.yilian.practice.llm.LlmProtocol;
+import io.github.codejinxz.yilian.practice.llm.LlmProviderKeys;
 import io.github.codejinxz.yilian.practice.llm.PromptRegistry;
+import io.github.codejinxz.yilian.practice.llm.TutorOverrides;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
 import io.github.codejinxz.yilian.practice.service.TutorService;
 import io.github.codejinxz.yilian.practice.service.dto.LlmConfigUpdateRequest;
@@ -26,6 +28,7 @@ import io.github.codejinxz.yilian.system.service.AppSettingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
@@ -37,13 +40,14 @@ import java.util.Optional;
 /**
  * 题目答疑实现：被动一问一答，不判分、不改批注、不进学习闭环（PRD §5.4）。
  *
- * <p>配置选型：LLM 客户端经 {@link LlmClientRegistry} 按 provider 目录（app_settings 键 {@code
- * llm.providers}/{@code llm.active}）的激活条目装配，密钥按 provider id 走环境变量 {@code YILIAN_LLM_KEY_*}
- * 索引（密钥不入库）；目录为空时回退 legacy 环境变量轨（{@code YILIAN_LLM_*}）。 后台 PUT 只改 {@code app_settings} 键 {@code
- * llm.tutor} 里的 {@code enabled} 开关；baseUrl/model/apiKey 在请求体中
- * 保留字段形状但传非空值一律拒绝。三态：无可用客户端=功能不存在（40400、前端隐藏入口）；配了未开=40304；开了=可用。 客户端实现按激活 provider 的 protocol
- * 三选一（anthropic-messages / openai-chat / openai-responses），共用同一 降级语义、护栏（maxTokens 2048 / 15s / SDK
- * 重试 0）与免责标注。
+ * <p>配置选型（028）：LLM 客户端经 {@link LlmClientRegistry} 按「目录激活条目 &gt; tutor 覆盖轨 &gt; legacy 环境变量轨」
+ * 三级解析装配——目录激活条目语义不变（022，高于一切 legacy 形态）；覆盖轨的 baseUrl/model 存
+ * {@code app_settings} 键 {@code llm.tutor}（{@link TutorOverrides}），密钥存 llm_provider_keys 预留 id=tutor
+ * （027B 加密基建）。后台 PUT 管理开关 + 覆盖 + 密钥：baseUrl/model 非空白=落覆盖、空/缺省=清除覆盖；
+ * apiKey 写-only（非空白=加密 upsert）；clearKey=true 删 tutor 密钥行；enabled=true 且无可用客户端时
+ * 40000 拒绝（写操作整体回滚，不留「开关开了弹药没跟上」的中间态）。三态：无可用客户端=功能不存在（40400、前端隐藏入口）；配了未开=40304；开了=可用。
+ * 客户端实现按生效轨的 protocol 三选一（anthropic-messages / openai-chat / openai-responses），共用同一 降级语义、护栏（maxTokens 2048 /
+ * 15s / SDK 重试 0）与免责标注。
  *
  * <p>安全边界：提示词只包含题目中文、考点标签与该用户本人最近一次批注（与其在页面上看到的一致）， 不喂参考译文与解析全文；用户问题用显式定界符包裹并限制 500
  * 字符，系统提示声明定界区内是数据不是 指令——LLM 无工具、无判分权限，注入的最坏后果只是得到一条带免责标注的低质量回答。
@@ -56,14 +60,11 @@ public class TutorServiceImpl implements TutorService {
 
     private static final Logger log = LoggerFactory.getLogger(TutorServiceImpl.class);
 
-    /** app_settings 配置键：答疑开关（值 JSON：{"schemaVersion":1,"enabled":bool}）。 */
-    static final String SETTING_KEY = "llm.tutor";
+    /** app_settings 配置键：答疑开关 + legacy 形态覆盖值（028 起形状见 {@link TutorOverrides}）。 */
+    static final String SETTING_KEY = TutorOverrides.SETTING_KEY;
 
     /** 常驻免责标注：每条回答必带。 */
     static final String DISCLAIMER = "AI 生成，可能有误";
-
-    /** 存储值当前结构版本；解析遇到其他版本按关闭处理（fail-closed）。 */
-    static final int SCHEMA_VERSION = 1;
 
     /** 用量账本的场景标识；与结构化日志的 scene 字段同源，llm_usage.scene 取此值。 */
     static final String SCENE = "tutor-ask";
@@ -93,20 +94,24 @@ public class TutorServiceImpl implements TutorService {
     private final AttemptGradingDao gradingDao;
     private final LlmUsageDao llmUsageDao;
     private final PromptRegistry promptRegistry;
+    private final TutorOverrides tutorOverrides;
+    private final LlmProviderKeys providerKeys;
     private final ObjectMapper objectMapper;
 
     /**
-     * 注入依赖；LLM 客户端由 {@link LlmClientRegistry} 按激活 provider 运行时解析，未配置时句柄为空。
+     * 注入依赖；LLM 客户端由 {@link LlmClientRegistry} 按「目录激活 &gt; 覆盖 &gt; env」运行时解析，未配置时句柄为空。
      *
-     * @param llmClients LLM 客户端注册表（目录 + legacy 兼容轨）
-     * @param legacyProperties legacy 环境变量配置（目录为空时的兼容轨；也用于开启被拒时的 legacy 定向文案）
+     * @param llmClients LLM 客户端注册表（目录 + tutor 覆盖轨 + legacy 兼容轨）
+     * @param legacyProperties legacy 环境变量配置（兼容轨与覆盖轨的协议/超时/缺省模型同源；也用于开启被拒时的 legacy 定向文案）
      * @param appSettingService 系统配置存取
      * @param practiceService 练习用例服务（复用 016 可见性口径）
      * @param attemptDao 提交 Dao（取本人最近批注）
      * @param gradingDao 判分 Dao
      * @param llmUsageDao LLM 用量账本 Dao（落库旁路，失败不阻塞答疑）
      * @param promptRegistry Prompt 版本注册表（系统提示取 ACTIVE 版本，缺行回退兜底常量）
-     * @param objectMapper JSON 解析（判分结果与配置值）
+     * @param tutorOverrides 答疑覆盖配置存取（app_settings 键 llm.tutor 的共享解析口，028）
+     * @param providerKeys provider 密钥解析链（tutor 预留行的存取与 last4 投影，028）
+     * @param objectMapper JSON 解析（判分结果）
      */
     public TutorServiceImpl(
             LlmClientRegistry llmClients,
@@ -117,6 +122,8 @@ public class TutorServiceImpl implements TutorService {
             AttemptGradingDao gradingDao,
             LlmUsageDao llmUsageDao,
             PromptRegistry promptRegistry,
+            TutorOverrides tutorOverrides,
+            LlmProviderKeys providerKeys,
             ObjectMapper objectMapper) {
         this.llmClients = llmClients;
         this.legacyProperties = legacyProperties;
@@ -126,11 +133,10 @@ public class TutorServiceImpl implements TutorService {
         this.gradingDao = gradingDao;
         this.llmUsageDao = llmUsageDao;
         this.promptRegistry = promptRegistry;
+        this.tutorOverrides = tutorOverrides;
+        this.providerKeys = providerKeys;
         this.objectMapper = objectMapper;
     }
-
-    /** 答疑开关的存储结构（app_settings 值 JSON）。 */
-    record StoredSettings(int schemaVersion, boolean enabled) {}
 
     @Override
     public TutorAskView ask(Long userId, String sentenceId, String question) {
@@ -275,68 +281,117 @@ public class TutorServiceImpl implements TutorService {
 
     @Override
     public LlmConfigView getAdminConfig() {
-        LlmClientRegistry.EffectiveConfig config = llmClients.effectiveConfig().orElse(null);
+        TutorOverrides.Stored stored = storedSettings();
+        Optional<LlmClientRegistry.EffectiveConfig> effective = llmClients.effectiveConfig();
+        boolean directoryActive =
+                effective.isPresent()
+                        && !LlmClientRegistry.LEGACY_PROVIDER_ID.equals(
+                                effective.get().providerId());
+        if (directoryActive) {
+            // 目录激活态（022 语义不变）：生效值来自激活条目，覆盖处于休眠（source=env，前端以目录徽标优先）。
+            LlmClientRegistry.EffectiveConfig config = effective.get();
+            return new LlmConfigView(
+                    stored.enabled(),
+                    config.baseUrl(),
+                    config.model(),
+                    config.hasKey(),
+                    config.providerId(),
+                    config.protocol(),
+                    config.credentialsComplete(),
+                    LlmConfigView.SOURCE_ENV,
+                    null);
+        }
+        // legacy 形态（目录空或存在未激活）：baseUrl/model 逐字段按「覆盖 > env」投影生效值，
+        // 供卡片编辑输入框回显；轨道真相（协议/凭证齐备性/hasKey）以注册表解析为准——覆盖存而目录
+        // 未激活时轨道仍 fail-closed（022 语义），投影值只说明「legacy 形态会用什么」。
+        String baseUrl = stored.hasBaseUrl() ? stored.baseUrl().trim() : legacyProperties.baseUrl();
+        String model = stored.hasModel() ? stored.model().trim() : legacyProperties.model();
+        boolean tutorRail = stored.hasBaseUrl() && effective.isPresent();
         return new LlmConfigView(
-                storedSettings().enabled(),
-                config == null ? "" : config.baseUrl(),
-                config == null ? "" : config.model(),
-                config != null && config.hasKey(),
-                config == null ? null : config.providerId(),
-                config == null ? null : config.protocol(),
-                config != null && config.credentialsComplete());
+                stored.enabled(),
+                baseUrl,
+                model,
+                effective.isPresent() && effective.get().hasKey(),
+                effective.map(LlmClientRegistry.EffectiveConfig::providerId).orElse(null),
+                effective.map(LlmClientRegistry.EffectiveConfig::protocol).orElse(null),
+                effective.isPresent() && effective.get().credentialsComplete(),
+                stored.hasOverride() ? LlmConfigView.SOURCE_CUSTOM : LlmConfigView.SOURCE_ENV,
+                // tutor 密钥行的 last4 投影：只作录入辨识（写-only，明文永不回读）；env 态密钥无行。
+                tutorRail ? providerKeys.storedLast4(LlmProviderKeys.TUTOR_PROVIDER_ID).orElse(null) : null);
     }
 
     @Override
+    @Transactional
     public LlmConfigView updateAdminConfig(LlmConfigUpdateRequest request, Long operatorId) {
-        // 选型：密钥不入库；base-url/model 属部署环境配置。三者传非空一律显式拒绝，
-        // 不做静默忽略——静默忽略会让管理员误以为配置已生效。
-        if (request.apiKey() != null && !request.apiKey().isBlank()) {
-            throw new BusinessException(
-                    ApiCode.VALIDATION_FAILED, "API Key 只能通过环境变量 YILIAN_LLM_API_KEY 配置");
+        // 028：legacy 形态全字段可编辑。baseUrl/model 为状态型字段（非空白=落覆盖、空/缺省=清除覆盖），
+        // apiKey 为写-only 字段（非空白=加密 upsert、空/缺省=不变更）。覆盖（app_settings）与密钥行
+        // （llm_provider_keys）是零物理外键的两张表，与 027B 目录写入同口径：整体同事务，任何失败一并回滚。
+        String baseUrl = normalizeOverride(request.baseUrl(), 500, "baseUrl", true);
+        String model = normalizeOverride(request.model(), 2048, "model", false);
+        if (request.hasApiKey()) {
+            // 加密失败上抛让整个事务回滚（主密钥异常时显式失败，不留半截状态）。
+            providerKeys.upsert(LlmProviderKeys.TUTOR_PROVIDER_ID, request.apiKey().trim());
         }
-        boolean hasEndpointOverride =
-                (request.baseUrl() != null && !request.baseUrl().isBlank())
-                        || (request.model() != null && !request.model().isBlank());
-        if (hasEndpointOverride) {
-            throw new BusinessException(
-                    ApiCode.VALIDATION_FAILED,
-                    "base-url/model 只能通过环境变量 YILIAN_LLM_BASE_URL / YILIAN_LLM_MODEL 配置");
+        if (Boolean.TRUE.equals(request.clearKey())) {
+            // 删 tutor 密钥行（无行幂等返回 false）；与覆盖写同事务。
+            providerKeys.delete(LlmProviderKeys.TUTOR_PROVIDER_ID);
         }
+        appSettingService.upsert(
+                SETTING_KEY,
+                tutorOverrides.write(
+                        new TutorOverrides.Stored(
+                                TutorOverrides.SCHEMA_VERSION, request.enabled(), baseUrl, model)),
+                "题目答疑开关与 legacy 覆盖（017 起，028 扩覆盖与密钥）",
+                operatorId);
         if (request.enabled() && llmClients.chatHandle().isEmpty()) {
-            // 开不了没有弹药的功能：提示文案按配置形态分口径（目录 → env key 索引；legacy → 环境变量文案）。
+            // 开不了没有弹药的功能：提示文案按配置形态分口径（目录 → 条目密钥/激活；覆盖轨 → 卡内密钥录入；
+            // legacy env → 环境变量文案）。事务回滚，本次全部编辑不落库。
             throw new BusinessException(ApiCode.VALIDATION_FAILED, enableBlockedMessage());
         }
-        String value =
-                objectMapper.writeValueAsString(
-                        new StoredSettings(SCHEMA_VERSION, request.enabled()));
-        appSettingService.upsert(SETTING_KEY, value, "题目答疑开关（017）", operatorId);
         return getAdminConfig();
     }
 
     /**
-     * 读取存储的开关状态；键不存在、JSON 损坏或版本不识别一律按关闭处理（fail-closed）。
+     * 归一覆盖字段：null/空白=清除（返回 null）；非空白 trim 后校验长度与（端点）URL 形状（宽松：
+     * http(s):// 前缀且无空白）。校验失败 40000，先于任何写路径。
      *
-     * @return 存储设置
+     * @param raw 请求原值（可空）
+     * @param max trim 后最大长度
+     * @param field 字段名（错误文案用）
+     * @param urlShape 是否校验 URL 形状
+     * @return 归一后的覆盖值；清除时为 null
      */
-    private StoredSettings storedSettings() {
-        Optional<String> raw = appSettingService.findValue(SETTING_KEY);
-        if (raw.isEmpty()) {
-            return new StoredSettings(SCHEMA_VERSION, false);
+    private static String normalizeOverride(String raw, int max, String field, boolean urlShape) {
+        if (raw == null) {
+            return null;
         }
-        try {
-            StoredSettings parsed = objectMapper.readValue(raw.get(), StoredSettings.class);
-            if (parsed.schemaVersion() != SCHEMA_VERSION) {
-                return new StoredSettings(SCHEMA_VERSION, false);
-            }
-            return parsed;
-        } catch (JacksonException exception) {
-            return new StoredSettings(SCHEMA_VERSION, false);
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty()) {
+            return null;
         }
+        if (trimmed.length() > max) {
+            throw new BusinessException(
+                    ApiCode.VALIDATION_FAILED, field + " 最长 " + max + " 字符");
+        }
+        if (urlShape && !trimmed.matches("https?://\\S+")) {
+            throw new BusinessException(
+                    ApiCode.VALIDATION_FAILED, field + " 需以 http:// 或 https:// 开头");
+        }
+        return trimmed;
     }
 
     /**
-     * 开启答疑被拒（无可用客户端）的定向文案：目录模式指向激活 provider 的 env key 索引，legacy 轨沿用 YILIAN_LLM_* 两件套文案（anthropic 轨
-     * key 可空、只差端点）。
+     * 读取存储的开关与覆盖状态；键不存在、JSON 损坏或版本不识别一律按「关闭 + 无覆盖」处理（fail-closed）。
+     *
+     * @return 存储设置
+     */
+    private TutorOverrides.Stored storedSettings() {
+        return tutorOverrides.read();
+    }
+
+    /**
+     * 开启答疑被拒（无可用客户端）的定向文案：目录模式指向激活 provider 的密钥录入/激活入口；legacy 族按轨道
+     * 分口径——覆盖轨缺密钥指向卡片录入（即时生效），env 轨沿用 YILIAN_LLM_* 两件套文案（anthropic 轨 key 可空、只差端点）。
      *
      * @return 提示文案
      */
@@ -365,6 +420,20 @@ public class TutorServiceImpl implements TutorService {
                     + "」缺少密钥：请在管理端模型页编辑该条目录入 API 密钥（即时生效），"
                     + "或设置环境变量 YILIAN_LLM_KEY_"
                     + config.providerId().replace('-', '_').toUpperCase(java.util.Locale.ROOT);
+        }
+        // legacy 族（目录空）：覆盖轨在尝试中 → 按轨缺什么定向（028 卡内编辑即时生效）。
+        TutorOverrides.Stored stored = storedSettings();
+        if (stored.hasBaseUrl()) {
+            Optional<LlmClientRegistry.EffectiveConfig> rail = llmClients.effectiveConfig();
+            boolean keyMissing =
+                    rail.isPresent()
+                            && !rail.get().credentialsComplete()
+                            && !rail.get().hasKey();
+            if (keyMissing) {
+                return "答疑凭证不齐：请在管理端模型页「答疑 LLM」卡录入 API 密钥（保存即时生效），"
+                        + "或设置环境变量 YILIAN_LLM_API_KEY";
+            }
+            return "答疑无法启用：请检查「答疑 LLM」卡的端点与模型配置（保存即时生效，无需重启）";
         }
         return legacyProperties.provider() == LlmProperties.LlmProvider.ANTHROPIC
                 ? "尚未配置 YILIAN_LLM_BASE_URL，无法开启答疑（anthropic 轨无需 API Key）"
