@@ -120,7 +120,7 @@ pnpm --dir web biome:check    # 前端 lint
 - **黑盒套件**：`docs/analysis/api-test-015/blackbox-runner.py`（本机工作流资产，未入库）对 8080 真实后端跑 304 条全 API 用例；另有 JMeter 性能基线（015 波次，虚拟线程已因 P0 崩溃关闭）。
 - **集成测试**：登录 → 拉题 → 提交 → 批改端到端主链路有真实 HTTP 集成测试（016 DoD）；后端另有 JaCoCo 覆盖率门禁（LINE ≥ 85 / BRANCH ≥ 65，报告在 `target/site/jacoco/`），前端 `pnpm --dir web test:coverage`。
 
-CI（`.github/workflows/ci.yml`）在 push 时自动执行后端测试与前端构建。
+CI（`.github/workflows/ci.yml`）在 push 与 PR 时自动执行后端测试与 google-java-format 校验、前端构建/测试与 biome 校验。
 
 ## 里程碑状态
 
@@ -134,11 +134,12 @@ CI（`.github/workflows/ci.yml`）在 push 时自动执行后端测试与前端�
 | 015 | 全量 API 测试：黑盒 304 用例 + JMeter 性能基线 + 白盒审查 | ✅ 已收口 |
 | 016 | 外部评审消化：112 条 P0/P1 修复、P2 择要、端到端集成测试 | ✅ 已收口 |
 | 017 | 题目答疑 AI 机器人（管理员启停，OpenAI 兼容协议接智谱套餐） | ✅ 已收口（2026-11-04） |
-| 018 | 二轮评审修复 + 原型小项批次 + 重置密码与删除账号端点 | ✅ 已收口 |
+| 018 | 二轮评审修复 + 原型小项批次 + 重置密码与删除账号端点 | ✅ 已收口（2026-11-04） |
 | 019 | 统一模型配置状态中心（ModelsPage 状态卡 + 答疑联动） | ✅ 已收口（2026-11-05） |
 | 020 | 练习选题功能：题库句列表端点 + 练习页选题面板 | ✅ 已收口（2026-11-05） |
 | 021 | LLM provider 抽象 + ZCode 本地网关适配（anthropic 协议轨） | ✅ 已收口（2026-11-05） |
 | 022 | AI 配置升级：CC Switch 式 provider 目录 + 三协议 + 答疑 Markdown 渲染 | ✅ 已收口（2026-11-05） |
+| 023 | 全仓双 skill consolidation 修复批：挂起 P2×4/DEF 缺陷修复 + JWT 过期反向测试 + 黑盒期望同步 + 文档四断点收口 | ✅ 已收口（2026-11-05） |
 | 024 | 模型复核接后端：`grader=MODEL` 判分行追加 + 幂等回读 + 限流 + 排程隔离 + 35s 超时 | ✅ 已收口（2026-11-06） |
 | 025 | 申诉 LLM 裁决两级闭环：同步 AI 初裁 + 管理端终审 + 判分 overlay + V13 Prompt 注册表 | ✅ 已收口（2026-11-06） |
 | 026 | 管理页错误态 admin 变体收口 + 死查询清理 | ✅ 已收口（2026-11-06） |
