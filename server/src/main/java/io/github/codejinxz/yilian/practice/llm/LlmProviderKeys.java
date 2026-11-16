@@ -37,8 +37,7 @@ public class LlmProviderKeys {
      *
      * @param keyDao 密钥行存取（llm_provider_keys）
      * @param catalog provider 目录（env 索引 {@code YILIAN_LLM_KEY_<大写ID>} 在其上）
-     * @param crypto AES-256-GCM 加解密
-     * @param clock UTC 时钟（updated_at 留痕）
+     * @param crypto AES-256-GCM 加解密（UTC 时钟在构造器内部创建，用于 updated_at 留痕）
      */
     public LlmProviderKeys(
             LlmProviderKeyDao keyDao, LlmProviderCatalog catalog, ProviderKeyCrypto crypto) {
