@@ -70,7 +70,7 @@
 | test-audit 06 · DEF-02 | 复核端点一次裸 500 无信封响应（1/3 次观测，非破坏性复测未复现）——再现时抓 8080 服务端日志定因，留意复核链路异常分支 @ExceptionHandler 覆盖 | P3 |
 | test-audit 02 · 02-01 | 前端覆盖率无 CI 级阈值（vite coverage 无 thresholds、CI web job 不采集覆盖，gates.json 增量门禁为流程级）——现有口径为有意设计，登记为公网化/加固时的技术护栏候选项 | P3 |
 | test-audit 00/06 · 黑盒扩套件 | 015 套件基于 v0.1.1 时代契约，024/025/027B/028 新端点不在其内（本次靠 S/C 组临时脚本补位）——扩套件 6（review/appeal 链：复核落行/幂等/429、申诉 40900/终审/overlay 判对）登记 backlog，主人点单 | P3 |
-| test-audit 00 · U-01 | CI 平台运行历史（server/web job 是否绿、是否真拦过失败）本机无 gh CLI 未核——push 后核验 | 未决项 |
+| test-audit 00 · U-01 | CI 平台运行历史——**已闭环（2026-11-17，run 43981034284）**：push 38 笔（175d90f→048a2e1）触发 CI，server+web 双 job success 总时长 3m00s（Server 2m58s 跑满=全量测试真实执行完），0 失败无重跑；核验证据 .workflow/runtime/u01-ci-verify/（本机资产） | 已闭合 |
 | code-review 07 第二轮 · R2-01 | 初裁落列 `updateAdjudication` WHERE 仅按 id（AppealJpaRepository:77-82）——申诉落库后 ~31.5s LLM 窗口内该行 PENDING 可见于管理端，若管理员窗口内合法终审，随后到达的初裁会覆盖终审理由与 decided_by 且不可自愈（status 已非 PENDING）；「预检代替守卫」同型第三实例（终审已修、复核已修、此为初裁侧），一处 JPQL 加 status 谓词+窗口竞态测试即可 | P2 |
 | code-review 07 第二轮 · R2-02 | 复核事务持连接+attempts 行锁贯穿外呼（~31.5s）——≥10 跨账号并发复核触达连接池上限/第 3+ 等待者撞 InnoDB 50s 锁等待超时，均有已捕获降级路径；取舍已留痕（代码注释+API.md），量化登记防未来误修 | P3 |
 
