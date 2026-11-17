@@ -2866,7 +2866,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     return { id: db.auditLogs[0]?.id ?? "" };
   }
 
-  // ---- 管理端 LLM 配置与本月用量（API §8.14/§8.16，033 契约形状） ----
+  // ---- 管理端 LLM 配置与本月用量（API §8.14/§8.17，033 契约形状） ----
   if (pathname === "/admin/llm/config" && method === "GET") {
     requireAdmin(db);
     return db.llmConfig;
@@ -2875,11 +2875,16 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     const admin = requireAdmin(db);
     const input = asObject(body);
     // 状态型字段语义与真实服务端一致：非空=落值，空/缺省=清除；预算/定价先校验后落（40000 信封）。
+    // 数值域上限与 TutorServiceImpl 同款（预算 ≤1e9 元、单价 ≤1e6 元/每百万 token）：演示态与服务端
+    // 同拒，避免 mock 放行服务端拒绝的形状造成前端 40000 语义漂移。
     const monthlyBudget = input.monthlyBudgetCny;
     if (monthlyBudget !== undefined && monthlyBudget !== null) {
       const parsed = Number(monthlyBudget);
       if (!Number.isFinite(parsed) || parsed <= 0) {
         fail(400, 40000, "monthlyBudgetCny 必须为正数（0/负数不合法）");
+      }
+      if (parsed > 1_000_000_000) {
+        fail(400, 40000, "monthlyBudgetCny 超出上限（最大 1000000000 元）");
       }
     }
     const pricingInput = input.pricing;
@@ -2898,6 +2903,9 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
           outputPrice <= 0
         ) {
           fail(400, 40000, "pricing 单价必须为正数");
+        }
+        if (inputPrice > 1_000_000 || outputPrice > 1_000_000) {
+          fail(400, 40000, "pricing 单价超出上限（每百万 token 最大 1000000 元）");
         }
         pricing[model.trim()] = {
           inputPerMillionCny: inputPrice,
@@ -2935,7 +2943,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
 }
 
 /**
- * 组装演示态本月用量视图（API §8.16 形状）：预算三态按 mock 配置投影，已用金额用确定性演示值。
+ * 组装演示态本月用量视图（API §8.17 形状）：预算三态按 mock 配置投影，已用金额用确定性演示值。
  * @returns 用量视图 data
  */
 function buildLlmUsageDemo(): LlmUsage {

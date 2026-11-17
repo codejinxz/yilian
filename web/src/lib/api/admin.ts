@@ -748,11 +748,11 @@ export async function updateLlmConfig(input: LlmConfigUpdateInput): Promise<LlmC
 }
 
 // ---------------------------------------------------------------------------
-// 本月用量视图（033 预算护栏，API §8.16）：UTC 自然月口径的已用/预算/百分比/三态
+// 本月用量视图（033 预算护栏，API §8.17）：UTC 自然月口径的已用/预算/百分比/三态
 // 与分场景小计。只读端点，管理端 ModelsPage 用量卡片的数据源。
 // ---------------------------------------------------------------------------
 
-/** 管理端本月用量视图（API §8.16）：status 三态 UNSET=未设预算（护栏不生效）。 */
+/** 管理端本月用量视图（API §8.17）：status 三态 UNSET=未设预算（护栏不生效）。 */
 export const llmUsageSchema = z.object({
   monthUtc: z.string(),
   /** 月度预算（元）；null=未设预算。 */

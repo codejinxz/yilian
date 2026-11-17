@@ -170,7 +170,8 @@ function stubAdminLlmFetch(
       const model = typeof body.model === "string" ? body.model : "";
       const apiKeyGiven = typeof body.apiKey === "string" && body.apiKey !== "";
       const clearKey = body.clearKey === true;
-      // 033 预算护栏：状态型字段语义（非空=落值，空/缺省=清除）；0/负预算服务端 40000。
+      // 033 预算护栏：状态型字段语义（非空=落值，空/缺省=清除）；0/负预算与超上限（服务端 R1 同款：
+      // 预算 ≤1e9 元、单价 ≤1e6 元/每百万 token）服务端 40000。
       const monthlyBudget = body.monthlyBudgetCny;
       let nextBudget: number | null = current.monthlyBudgetCny;
       if (monthlyBudget !== undefined) {
@@ -181,6 +182,12 @@ function stubAdminLlmFetch(
           if (!Number.isFinite(parsed) || parsed <= 0) {
             return jsonResponse(
               { code: 40000, message: "monthlyBudgetCny 必须为正数（0/负数不合法）" },
+              400,
+            );
+          }
+          if (parsed > 1_000_000_000) {
+            return jsonResponse(
+              { code: 40000, message: "monthlyBudgetCny 超出上限（最大 1000000000 元）" },
               400,
             );
           }
@@ -206,6 +213,12 @@ function stubAdminLlmFetch(
               outputPrice <= 0
             ) {
               return jsonResponse({ code: 40000, message: "pricing 单价必须为正数" }, 400);
+            }
+            if (inputPrice > 1_000_000 || outputPrice > 1_000_000) {
+              return jsonResponse(
+                { code: 40000, message: "pricing 单价超出上限（每百万 token 最大 1000000 元）" },
+                400,
+              );
             }
             pricing[key.trim()] = {
               inputPerMillionCny: inputPrice,
@@ -1275,5 +1288,24 @@ describe("ModelsPage 本月用量与预算护栏（033）", () => {
     // 输入保留：预算与定价行未丢。
     expect(screen.getByLabelText("月度预算（元）")).toHaveValue("80");
     expect(screen.getByLabelText("定价行 1 模型名")).toHaveValue("glm-4.7");
+  });
+
+  it("033 AC-7: 服务端 40000 预算超上限（≤1e9 元）文案透出为提示，表单按服务端值重新对齐", async () => {
+    const observed = stubAdminLlmFetch(CONFIGURED_ON, { usage: USAGE_WARN });
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    const budgetInput = await screen.findByLabelText("月度预算（元）");
+    // 超上限值前端不拦（只拦非正数），PUT 照发，由服务端 40000 拒绝——演示态 mock 同款校验镜像。
+    await user.type(budgetInput, "1000000001");
+    await user.click(screen.getByRole("button", { name: "保存预算与定价" }));
+
+    await waitFor(() => expect(observed.putBodies).toHaveLength(1));
+    expect(observed.putBodies[0]).toHaveProperty("monthlyBudgetCny", 1000000001);
+    // 服务端拒绝文案如实透出（错误信封 message 直达 toast）。
+    expect(await screen.findByRole("status")).toHaveTextContent(/monthlyBudgetCny 超出上限/);
+    // 提交即解除 dirty：拒绝后表单按服务端值重新对齐（未设预算 → 空输入），不残留超限值。
+    await waitFor(() => expect(screen.getByLabelText("月度预算（元）")).toHaveValue(""));
   });
 });

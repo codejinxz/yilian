@@ -86,6 +86,23 @@ class LlmCostCalculatorTest {
                 .isEqualTo(80L);
     }
 
+    /**
+     * [AC-3] 负 token 防御性钳为 0：provider 侧理论不可能出负值，但脏数据若进入不应放大成负成本或溢出反向 扭曲账本——负输入与负输出（含混合负值）一律按 0 计。
+     */
+    @Test
+    @DisplayName("[AC-3] 负 token 防御性钳为 0")
+    void negativeTokensAreClampedToZero_ac3() {
+        assertThat(LlmCostCalculator.estimateMicroCny("glm-4.7", -5, 10, PRICING_MAP))
+                .isEqualTo(80L);
+        assertThat(LlmCostCalculator.estimateMicroCny("glm-4.7", 100, -20, PRICING_MAP))
+                .isEqualTo(200L);
+        assertThat(LlmCostCalculator.estimateMicroCny("glm-4.7", -1, -1, PRICING_MAP))
+                .isEqualTo(0L);
+        // 钳制后成本不可能为负：任何负输入组合的最坏结果都是 0。
+        assertThat(LlmCostCalculator.estimateMicroCny("glm-4.7", Integer.MIN_VALUE, 0, PRICING_MAP))
+                .isEqualTo(0L);
+    }
+
     /** [AC-3] 定价表键区分大小写（与 llm_usage.model 快照精确匹配），未命中按无定价处理。 */
     @Test
     @DisplayName("[AC-3] 模型名精确匹配区分大小写")

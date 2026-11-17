@@ -40,7 +40,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * 管理端 LLM 配置端点（API §8.14）的 HTTP 层切片测试 [AC-1]：鉴权矩阵（匿名 401 / 非管理员 403）、 GET 形状（hasKey/keyLast4 投影、无
+ * 管理端 LLM 配置端点（API §8.14）的 HTTP 层切片测试 [AC-2]：鉴权矩阵（匿名 401 / 非管理员 403）、 GET 形状（hasKey/keyLast4 投影、无
  * apiKey 回显）、PUT 透传（覆盖/密钥/清除全字段）与 40000 信封、审计注解口径（写 LLM_CONFIG_UPDATE、读不标）； 服务层分支由 {@code
  * TutorServiceImplTest} 覆盖。
  */
@@ -73,7 +73,7 @@ class AdminLlmConfigControllerTest {
         OperationLogContext.clear();
     }
 
-    /** [AC-1] 匿名访问：GET/PUT 都是 401 信封（code=40100），不触达 Service。 */
+    /** [AC-2] 匿名访问：GET/PUT 都是 401 信封（code=40100），不触达 Service。 */
     @Test
     void configEndpointsRejectAnonymousWith401_ac1() throws Exception {
         mockMvc.perform(get("/api/admin/llm/config"))
@@ -89,7 +89,7 @@ class AdminLlmConfigControllerTest {
         verifyNoInteractions(tutorService);
     }
 
-    /** [AC-1] 非 ADMIN 登录用户：403 信封（code=40300），权限在服务端。 */
+    /** [AC-2] 非 ADMIN 登录用户：403 信封（code=40300），权限在服务端。 */
     @Test
     void configEndpointsRejectNonAdminWith403_ac1() throws Exception {
         mockMvc.perform(
@@ -115,7 +115,7 @@ class AdminLlmConfigControllerTest {
     }
 
     /**
-     * [AC-1] GET：200 信封 data 为 {enabled, baseUrl, model, hasKey, providerId, protocol,
+     * [AC-2] GET：200 信封 data 为 {enabled, baseUrl, model, hasKey, providerId, protocol,
      * credentialsComplete, source, keyLast4}，无 apiKey 字段回显（写-only 红线）。
      */
     @Test
@@ -150,7 +150,7 @@ class AdminLlmConfigControllerTest {
                 .andExpect(jsonPath("$.data.apiKey").doesNotExist());
     }
 
-    /** [AC-1] PUT：覆盖 + 密钥 + 清除全字段透传 Service（请求体整形状），返回更新后的视图。 */
+    /** [AC-2] PUT：覆盖 + 密钥 + 清除全字段透传 Service（请求体整形状），返回更新后的视图。 */
     @Test
     void putConfigPassesThroughFullBody_ac1() throws Exception {
         when(tutorService.updateAdminConfig(
@@ -191,7 +191,7 @@ class AdminLlmConfigControllerTest {
                         1L);
     }
 
-    /** [AC-1] PUT：clearKey=true 透传（删 tutor 密钥行语义由 Service 层锁定）。 */
+    /** [AC-2] PUT：clearKey=true 透传（删 tutor 密钥行语义由 Service 层锁定）。 */
     @Test
     void putConfigPassesClearKeyFlag_ac1() throws Exception {
         when(tutorService.updateAdminConfig(
@@ -214,7 +214,7 @@ class AdminLlmConfigControllerTest {
                 .updateAdminConfig(new LlmConfigUpdateRequest(false, null, null, null, true), 1L);
     }
 
-    /** [AC-1] PUT：enabled 缺失（40000）与 Service 校验/拒绝（40000）都以信封返回。 */
+    /** [AC-2] PUT：enabled 缺失（40000）与 Service 校验/拒绝（40000）都以信封返回。 */
     @Test
     void putConfigValidationAndServiceRejections_ac1() throws Exception {
         mockMvc.perform(
@@ -265,7 +265,7 @@ class AdminLlmConfigControllerTest {
                 .andExpect(jsonPath("$.code").value(ApiCode.VALIDATION_FAILED.code()));
     }
 
-    /** [AC-1] 审计口径：PUT 标 @OperationLog(LLM_CONFIG_UPDATE)，GET 不标。 */
+    /** [AC-2] 审计口径：PUT 标 @OperationLog(LLM_CONFIG_UPDATE)，GET 不标。 */
     @Test
     void writeCarriesAuditAndReadDoesNot_ac1() throws Exception {
         OperationLog put =

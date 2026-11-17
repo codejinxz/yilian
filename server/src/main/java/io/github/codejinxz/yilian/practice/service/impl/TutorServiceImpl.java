@@ -81,6 +81,21 @@ public class TutorServiceImpl implements TutorService {
     static final String PROMPT_NAME = "ask";
 
     /**
+     * 月度预算上限（元）：护栏判定的整数域安全上限 + 业务荒谬值拦截。下界换算 1e9 元 × 1e6 = 1e15 微元， 远低于 {@code budgetMicroCny} 的
+     * {@code longValueExact} 溢出点（Long.MAX ≈ 9.22e18 微元 ≈ 9.22e12 元）—— 无上限时 ≥9.22e12 元的预算会在三链路
+     * pre-call 判定时抛 ArithmeticException 全部打成 500。
+     */
+    static final BigDecimal MAX_MONTHLY_BUDGET_CNY = new BigDecimal("1000000000");
+
+    /**
+     * 定价单价上限（元/每百万 token）：保证成本计算不可能溢出。微元成本 = 单价 × token 数（除以与乘回 1e6 相消），token 为 INT 列上限 2^31 ≈
+     * 2.1e9，单价 ≤1e6 时单次成本 ≤ (1e6+1e6) × 2.1e9 ≈ 4.3e15 微元 &lt;&lt; Long.MAX 9.2e18——无上限时荒谬单价 × 大
+     * token 会溢出 {@code LlmCostCalculator} 的 {@code longValueExact}，异常被记账旁路 try 吞掉导致整行 usage
+     * 不落（append-only 账本失真）。
+     */
+    static final BigDecimal MAX_PRICE_PER_MILLION_CNY = new BigDecimal("1000000");
+
+    /**
      * 系统提示兜底常量：与 V13 种子（name=ask, version=1）逐字同文， 注册表缺行/读取失败时回退使用，答疑链路降级不中断。改动需同步 V13 种子与 PRD §5.4
      * 的定位声明。 公开可见供 V13 schema 集成测试做「种子与兜底同文」的一致性锁定。
      */
@@ -401,7 +416,7 @@ public class TutorServiceImpl implements TutorService {
     }
 
     /**
-     * 归一月度预算：null=清除（护栏不生效）；非 null 必须为正数（0/负=40000，先于任何写路径）。
+     * 归一月度预算：null=清除（护栏不生效）；非 null 必须为正数且 ≤{@link #MAX_MONTHLY_BUDGET_CNY} （0/负或超限=40000，先于任何写路径）。
      *
      * @param raw 请求原值（可空）
      * @return 归一后的预算；清除时为 null
@@ -414,12 +429,17 @@ public class TutorServiceImpl implements TutorService {
             throw new BusinessException(
                     ApiCode.VALIDATION_FAILED, "monthlyBudgetCny 必须为正数（0/负数不合法）");
         }
+        if (raw.compareTo(MAX_MONTHLY_BUDGET_CNY) > 0) {
+            throw new BusinessException(
+                    ApiCode.VALIDATION_FAILED,
+                    "monthlyBudgetCny 超出上限（最大 " + MAX_MONTHLY_BUDGET_CNY.toPlainString() + " 元）");
+        }
         return raw;
     }
 
     /**
      * 归一模型定价表：null/空表=清除（成本不计入预算）；非空表整体替换——模型名 trim 后非空白且 ≤128 字符（与 llm_usage.model 列同宽）、单价非 null 且
-     * > 0，任一违规 40000，先于任何写路径。
+     * > 0 且 ≤{@link #MAX_PRICE_PER_MILLION_CNY}（上限见常量注：防荒谬单价 × 大 token 溢出成本计算），任一违规 40000，先于任何写路径。
      *
      * @param raw 请求原值（可空）
      * @return 归一后的定价表（键已 trim）；清除时为 null
@@ -442,6 +462,16 @@ public class TutorServiceImpl implements TutorService {
                     if (pricing == null || !pricing.isValid()) {
                         throw new BusinessException(
                                 ApiCode.VALIDATION_FAILED, "pricing 单价必须为正数：模型 " + trimmedModel);
+                    }
+                    if (pricing.inputPerMillionCny().compareTo(MAX_PRICE_PER_MILLION_CNY) > 0
+                            || pricing.outputPerMillionCny().compareTo(MAX_PRICE_PER_MILLION_CNY)
+                                    > 0) {
+                        throw new BusinessException(
+                                ApiCode.VALIDATION_FAILED,
+                                "pricing 单价超出上限（每百万 token 最大 "
+                                        + MAX_PRICE_PER_MILLION_CNY.toPlainString()
+                                        + " 元）：模型 "
+                                        + trimmedModel);
                     }
                     normalized.put(trimmedModel, pricing);
                 });

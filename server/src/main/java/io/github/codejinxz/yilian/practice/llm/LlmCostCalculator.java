@@ -24,8 +24,8 @@ public final class LlmCostCalculator {
      * 估算一次调用的成本（微元整数）。
      *
      * @param model 当次模型名快照（与定价表键精确匹配）；null 视为无定价
-     * @param promptTokens 提示词 token；null 按 0 计（失败路径未取得用量）
-     * @param completionTokens 回复 token；null 按 0 计
+     * @param promptTokens 提示词 token；null 按 0 计（失败路径未取得用量），负数防御性钳为 0（provider 侧理论不可能，防脏数据放大成负成本）
+     * @param completionTokens 回复 token；null 按 0 计，负数防御性钳为 0
      * @param pricing 定价表（模型名 → 单价）；null 视为空表
      * @return 估算成本微元（ROUND_HALF_UP）；该模型无有效定价时为 null（不计入预算）
      */
@@ -41,8 +41,8 @@ public final class LlmCostCalculator {
         if (modelPricing == null || !modelPricing.isValid()) {
             return null;
         }
-        long prompt = promptTokens == null ? 0L : promptTokens.longValue();
-        long completion = completionTokens == null ? 0L : completionTokens.longValue();
+        long prompt = promptTokens == null ? 0L : Math.max(0, promptTokens.longValue());
+        long completion = completionTokens == null ? 0L : Math.max(0, completionTokens.longValue());
         // 微元 = 输入单价 × 输入token + 输出单价 × 输出token（见类注：成本(元)×1e6 的相消恒等式）。
         BigDecimal microCny =
                 modelPricing

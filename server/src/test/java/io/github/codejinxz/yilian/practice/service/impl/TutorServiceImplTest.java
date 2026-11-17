@@ -1134,6 +1134,92 @@ class TutorServiceImplTest {
         verify(appSettingService, never()).upsert(anyString(), anyString(), anyString(), eq(1L));
     }
 
+    /** [AC-2] 数值域上限：预算恰 1e9 元与单价恰 1e6 元/M 接受（边界含），写键并回显。 */
+    @Test
+    void updateAcceptsBudgetAndPricingAtUpperBound_ac2() {
+        when(appSettingService.upsert(anyString(), anyString(), anyString(), eq(1L)))
+                .thenReturn("");
+
+        tutorService.updateAdminConfig(
+                new LlmConfigUpdateRequest(
+                        false,
+                        null,
+                        null,
+                        null,
+                        null,
+                        new BigDecimal("1000000000"),
+                        Map.of(
+                                "glm-4.7",
+                                new LlmModelPricing(
+                                        new BigDecimal("1000000"), new BigDecimal("1000000")))),
+                1L);
+
+        ArgumentCaptor<String> budgetValue = ArgumentCaptor.forClass(String.class);
+        verify(appSettingService)
+                .upsert(
+                        eq(LlmBudgetSettings.SETTING_KEY),
+                        budgetValue.capture(),
+                        anyString(),
+                        eq(1L));
+        assertThat(budgetValue.getValue()).contains("\"monthlyBudgetCny\":1000000000");
+        assertThat(budgetValue.getValue()).contains("\"glm-4.7\"");
+
+        // GET 回显：上限值经 fail-closed 解析原样进入视图。
+        when(appSettingService.findValue(LlmBudgetSettings.SETTING_KEY))
+                .thenReturn(Optional.of(budgetValue.getValue()));
+        LlmConfigView view = tutorService.getAdminConfig();
+        assertThat(view.monthlyBudgetCny()).isEqualByComparingTo(new BigDecimal("1000000000"));
+        assertThat(view.pricing()).containsKey("glm-4.7");
+    }
+
+    /** [AC-2] 数值域上限拒绝：预算 >1e9 元、单价 >1e6 元/M 一律 40000（先于任何写路径）。 */
+    @Test
+    void updateRejectsBudgetAndPricingOverUpperBound_ac2() {
+        // 预算 1e9+1：40000「超出上限」。
+        assertThatThrownBy(
+                        () ->
+                                tutorService.updateAdminConfig(
+                                        new LlmConfigUpdateRequest(
+                                                false,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                new BigDecimal("1000000001"),
+                                                null),
+                                        1L))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> {
+                            assertThat(exception.apiCode()).isEqualTo(ApiCode.VALIDATION_FAILED);
+                            assertThat(exception.getMessage()).contains("monthlyBudgetCny 超出上限");
+                        });
+        // 单价 1e6+1：40000「超出上限」。
+        assertThatThrownBy(
+                        () ->
+                                tutorService.updateAdminConfig(
+                                        new LlmConfigUpdateRequest(
+                                                false,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                Map.of(
+                                                        "glm-4.7",
+                                                        new LlmModelPricing(
+                                                                new BigDecimal("1000001"),
+                                                                new BigDecimal("8")))),
+                                        1L))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> {
+                            assertThat(exception.apiCode()).isEqualTo(ApiCode.VALIDATION_FAILED);
+                            assertThat(exception.getMessage()).contains("pricing 单价超出上限");
+                        });
+        verify(appSettingService, never()).upsert(anyString(), anyString(), anyString(), eq(1L));
+    }
+
     /** [AC-6] 用量视图：未设预算 → status=UNSET、percent null；分场景三场景零值兜底 + 聚合行合并。 */
     @Test
     void getAdminUsageReturnsViewUnsetAndByScene_ac6() {
