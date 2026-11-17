@@ -128,7 +128,7 @@ CI（`.github/workflows/ci.yml`）在 push 与 PR 时自动执行后端测试与
 
 **第 1 步 · grading 层（CI 已含，本地复跑确认）：**
 
-```powershell
+```bash
 cd server
 YILIAN_TEST_DB_NAME=yilian_test_034 ./mvnw.cmd test "-Dtest=GoldenGradingSetTest"
 ```
@@ -137,7 +137,7 @@ YILIAN_TEST_DB_NAME=yilian_test_034 ./mvnw.cmd test "-Dtest=GoldenGradingSetTest
 
 **第 2 步 · LLM 三层（真实网关，需本机 ZCode 网关可达）：**
 
-```powershell
+```bash
 cd server
 YILIAN_TEST_DB_NAME=yilian_test_034 ./mvnw.cmd test "-Dtest=GoldenLlmSetTest" "-Dgolden.enabled=true"
 ```
