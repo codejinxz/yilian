@@ -2090,7 +2090,7 @@ provider 目录（022，CC Switch 式多 provider；027B 扩密钥录入）：�
 
 ---
 
-## 10. 实现状态总览（2026-10-31）
+## 10. 实现状态总览（2026-11-18）
 
 > 状态分级：**已实现** = 后端真实可用；**前端 mock** = 前端演示层已按本契约实现、服务端待开发（前端代码带 `TODO(mock)` 注释，接口落地后删除）；**未开发** = 契约在案、两侧均未实现。
 
@@ -2137,15 +2137,14 @@ provider 目录（022，CC Switch 式多 provider；027B 扩密钥录入）：�
 
 ### 10.4 未开发（契约在案）
 
-- §6.1 `sentenceId`/`errors`/`excludeIds`/`tag` 四个查询参数的服务端实现（M2.1，D7）。
 - Admin 剩余写接口（§8.7 `attempts/{id}/raw` 查看原文、§8 模型配置；审计/异常检索与出题导入/audit-events 已随 012 落地，用户管理与概览/邀请码已随 011-a 落地，题库管理与题目检索/批量/单题状态/行内编辑已随 011-b 落地）。模型/运维页签保留演示态（012 观察项，随模型域切片真实化）。
-- 深度批改（M3）、FSRS 排程真值（V2 字段已预留，M2.1 换函数体）、申诉 LLM 裁决（M3）。
+- 深度批改（M3）。
 - 017 观察项（V11 收口）：`llm_usage` 用量表已随 V11 建表并落库（DATA-MODEL §5.18，结构化日志+落库双写，内部表无端点）；`llm_providers`/`prompt_versions` 全量模型配置域（M3，当前经 provider 目录（§8.15，app_settings 单键）+ YILIAN_LLM_KEY_* 环境变量过渡）。
 
 ### 10.5 待收口
 
-- 登录「用户名或邮箱」语义：服务端需先查 `username` 再查 `email`。
-- 部分错误码待补齐：40302/40303、40404–40405、40901–40905、41300、42200（40004/40005 已随 banks 落地；40402/40403/40903 已随 practice 落地）。
+- 登录「用户名或邮箱」：语义已随基线实现（`JpaAppUserDao.findByLogin` 经 `findByUsernameOrEmail(login, login)` 单查询匹配用户名或邮箱，与 §4.2 契约一致），余项为补邮箱登录的接口级测试（现有集成测试仅覆盖用户名登录）。
+- 错误码补齐（已收口）：原登记的 40302/40303、40404–40405、40901–40905、41300、42200 已全量定义于 `ApiCode.java`（§1.3 错误码表同步在案），其中 40303/40404/40405/40904 有对应端点与接口级测试在用。
 - `docs/openapi.yaml` 导出（§12）。
 
 ---
@@ -2177,6 +2176,7 @@ provider 目录（022，CC Switch 式多 provider；027B 扩密钥录入）：�
 | 2026-11-17 | v1.6 | 027B provider 密钥管理端加密入库：V14 建 `llm_provider_keys`（DATA-MODEL §5.20；provider_id 主键/AES-256-GCM 密文/key_last4/updated_at，零物理外键）；新增主密钥 env `YILIAN_SECRET_MASTER_KEY`（prod 缺失 fail-fast、local 文档化 dev 值，AGENTS §3.4 修订随批次落地）；条目密钥解析链改 **DB 密文 > `YILIAN_LLM_KEY_<大写ID>` env > legacy**（解密失败按密钥不存在回退 env 不阻塞目录读，hasKey=DB 或 env 任一，credentialsComplete 同步）；§8.15.2/8.15.3 请求体增写-only 可选 apiKey（空/缺省=不变更、非空白=加密 upsert，明文不入日志/审计/响应）、§8.15.1 增 keyLast4（env 态 null）、§8.15.4 密钥行同事务删；§8.14 字段回溯与开答疑被拒文案双通道；§10.1 Admin 行测试引用同步 | 实现工程师 |
 | 2026-11-17 | v1.7 | 028 答疑 LLM legacy 态全字段可编辑：§8.14.2 PUT 扩 baseUrl/model 覆盖（非空白=落覆盖存 `app_settings` 键 `llm.tutor`，空/缺省=清除回 env；形状/长度校验 40000）、写-only apiKey（AES-256-GCM 加密 upsert 到 `llm_provider_keys` 预留 id=`tutor`，空/缺省=不变更）、clearKey=true 删 tutor 密钥行；**废除 017 的 40000 env-only 拒绝语义**（契约演进链 017→027B→028），enabled=true 无可用客户端仍 40000 且同事务回滚全部写入；§8.14.1 GET 增 source（custom\|env，legacy 形态取值来源）与 keyLast4（tutor 密钥行尾号），生效值改按「目录激活 > tutor 覆盖 > env」逐字段投影；解析链三级（022 语义不变：目录激活高于一切 legacy 形态，目录非空未激活仍 fail-closed），覆盖/密钥变更经注册表指纹即时换轨；§10.1 Admin 行同步；黑盒套件（docs/analysis/ai-tutor-test）A-04/A-05/A-06/C-05 期望同步并注明 | 实现工程师 |
 | 2026-11-17 | v1.8 | 029 双 skill 第一轮消缺：§6.13 复核并发语义修订（READ_COMMITTED 事务内锁 attempts 父行串行化，后到者幂等回读、模型只调一次、MODEL 行恰一条，uk_grading_attempt_sequence 降为兜底——命中即数据异常按 50000 降级回滚；llm_usage 旁路记账改 REQUIRES_NEW 独立事务不随主事务回滚丢失）；§6.4/§8.16 申诉语义收口（终审 UPDATE WHERE 携带 status='PENDING' 条件——并发双管理员裁决恰一人成功，后到者 40900「该申诉已被终审」；占位回执 verdict="UNAVAILABLE" 如实发送，与存储 decision JSON 同源，「初裁不可用」回执态真实可达）；§10.1 矩阵两行同步 | 实现工程师 |
+| 2026-11-18 | v1.9 | 030 过时声明修正：§10.4 删「§6.1 D7 四参数未开发」条目（已随 014 落地，§10.1 Practice 行在案）、删「FSRS 排程真值/申诉 LLM 裁决」（分别已随 014/025 落地，§8.13/§6.4/§8.16 在案，深度批改 M3 保留）；§10.5 错误码行改写为已落地口径（40302/40303、40404–40405、40901–40905、41300、42200 已全量定义于 `ApiCode.java`，40303/40404/40405/40904 有端点与测试在用）；登录「用户名或邮箱」条目按代码实态改写（语义已随基线经 `findByUsernameOrEmail` 单查询实现，余项收窄为补邮箱登录接口级测试）；§10 头部日期 2026-10-31→2026-11-18 | 实现工程师 |
 
 ---
 
