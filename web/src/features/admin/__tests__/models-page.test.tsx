@@ -31,7 +31,7 @@ interface LlmConfigFixture {
   pricing: Record<string, { inputPerMillionCny: number; outputPerMillionCny: number }> | null;
 }
 
-/** 服务端 LlmUsageView 的合法形状（API §8.16）。 */
+/** 服务端 LlmUsageView 的合法形状（API §8.17）。 */
 interface LlmUsageFixture {
   monthUtc: string;
   budgetCny: number | null;

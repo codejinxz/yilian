@@ -190,7 +190,7 @@ function formStateFor(provider?: LlmProvider): ProviderFormState {
 }
 
 /**
- * 本月用量卡片（033，API §8.16）：已用/预算/百分比指标 + 三态状态徽标 + 分场景小计。
+ * 本月用量卡片（033，API §8.17）：已用/预算/百分比指标 + 三态状态徽标 + 分场景小计。
  * 金额读元（服务端微元精度换算后下发），分场景成本以微元换算展示（未知场景原样键名）。
  * @param usage 用量视图
  * @returns 卡片内容
