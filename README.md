@@ -49,7 +49,7 @@
 
 **演示/预留态**（mock 数据或计划标注预留，代码带 `TODO(mock)` 标记）
 
-- 管理端模型页签：统一模型配置状态卡已真实（019 AC-1，LLM 凭证状态 / 答疑启停 / 功能清单联动）；Prompt 登记已随 V13 `prompt_versions` 注册表落地（ask/review/appeal 三链路系统提示按 ACTIVE 版本取用，缺行回退代码常量）、用量落库已随 V11 `llm_usage` 落地；**任务路由仍为 M3 预留示意**（Prompt 版本的写路径/管理入口与回归门禁未建，版本流转目前走手工 SQL，见 GAP 登记）
+- 管理端模型页签：统一模型配置状态卡已真实（019 AC-1，LLM 凭证状态 / 答疑启停 / 功能清单联动）；Prompt 登记已随 V13 `prompt_versions` 注册表落地（ask/review/appeal 三链路系统提示按 ACTIVE 版本取用，缺行回退代码常量），**034 起 Prompt 版本写路径/管理入口/激活换轨与黄金集回归门禁已建**（管理端「模型」页签 Prompt 模板区块：登记候选版本/激活换轨，见 [docs/API.md](docs/API.md) §8.18）；用量落库已随 V11 `llm_usage` 落地；**任务路由仍为 M3 预留示意**
 - 深度批改（M3）：整句模式当前仅本地要点覆盖粗判，不调模型
 
 ## 快速开始
@@ -121,6 +121,30 @@ pnpm --dir web biome:check    # 前端 lint
 - **集成测试**：登录 → 拉题 → 提交 → 批改端到端主链路有真实 HTTP 集成测试（016 DoD）；后端另有 JaCoCo 覆盖率门禁（LINE ≥ 85 / BRANCH ≥ 65，报告在 `target/site/jacoco/`），前端 `pnpm --dir web test:coverage`。
 
 CI（`.github/workflows/ci.yml`）在 push 与 PR 时自动执行后端测试与 google-java-format 校验、前端构建/测试与 biome 校验。
+
+### SOP：换模型 / 改 Prompt 前必跑黄金集（034）
+
+黄金集是分层回归资产（`server/src/test/resources/golden/`）：grading 层 31 条**确定性**用例（精确对拍本地判分主链，CI 常跑）+ review/appeal/ask 三层 LLM 用例（25/26/12 条，**只锁结构与方向约束，不锁逐字文本**——LLM 非确定性，预披露裁决；结论是「结构合规 + 方向一致」而非「语义完全等价」，SOP 如实写明该边界）。换模型、改 Prompt（登记/激活新版本）前，按以下两步执行并把结果记入本次变更的收口记录：
+
+**第 1 步 · grading 层（CI 已含，本地复跑确认）：**
+
+```powershell
+cd server
+YILIAN_TEST_DB_NAME=yilian_test_034 ./mvnw.cmd test "-Dtest=GoldenGradingSetTest"
+```
+
+期望输出尾行：`Tests run: 31, Failures: 0, Errors: 0, Skipped: 0`（BUILD SUCCESS）。任何一条红=本地判分语义漂移，先修再上线。
+
+**第 2 步 · LLM 三层（真实网关，需本机 ZCode 网关可达）：**
+
+```powershell
+cd server
+YILIAN_TEST_DB_NAME=yilian_test_034 ./mvnw.cmd test "-Dtest=GoldenLlmSetTest" "-Dgolden.enabled=true"
+```
+
+期望输出尾行：`Tests run: 63, Failures: 0, Errors: 0`（review 25 + appeal 26 + ask 12，BUILD SUCCESS）。双闸说明：未加 `-Dgolden.enabled=true` 或网关不可达（无可用客户端/探活失败）时整套件按 Assumptions 跳过（`Tests run: 0`），这是 CI 默认形态而非运行成功——**跳过 ≠ 通过**，第 2 步的结果必须实际跑出数字才算数。已知边界：网关不生效 top-level `system` 字段时 review/appeal 的 strict JSON 解析会失败（GAP 029 DEF-01 依赖侧登记），这正是黄金集要暴露的回归，出现时按用例 id 记录、走 DEF-01 修复方向而非放宽断言。
+
+结果记录位置：变更的收口记录（GAP-ANALYSIS 当前状态行或对应 PR 文档）写明四层各自「通过条数 / 总条数 / 失败用例 id / 网关与模型名快照」。
 
 ## 里程碑状态
 

@@ -1,0 +1,739 @@
+{
+  "layer": "grading",
+  "version": 1,
+  "baseline": "2026-11-18 现行实现基线：Grader.gradeCloze / gradeFree / gradeForReveal + Norm1Normalizer(norm-1)。期望值为逐条人工按判分语义推导复核（整块命中按规范答案词数计分、未全对按词位比对、归一化=NFKC/弯引号/全角/小写/压空白/去句末标点），非实现输出抄录。",
+  "source": "句式取样自 dev 题库（他越来越重视…系列的语块结构），脱敏后构造；考点标签沿用题库真实标签（代词/副词结构/搭配）。",
+  "cases": [
+    {
+      "id": "gc-001",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "全对：两槽各命中规范答案",
+      "rationale": "两槽整块命中各自第一可接受答案；hitCount=3+3=6；全对时 summary=全部命中，批注 message/minimalFix 均为 null。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [1, 2],
+        "answers": ["more and more", "pay attention to"]
+      },
+      "expectation": {
+        "score": 100,
+        "hitCount": 6,
+        "totalCount": 6,
+        "summary": "全部命中",
+        "annotations": [
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": true, "message": null, "minimalFix": null }
+        ]
+      }
+    },
+    {
+      "id": "gc-002",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "全对：命中第二可接受答案",
+      "rationale": "整块命中任一可接受答案即全对；规范答案词数口径不变（3+3），故 hitCount 仍为 6——锁定「命中第二译法按规范答案词数计分」。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [1, 2],
+        "answers": ["increasingly", "attach importance to"]
+      },
+      "expectation": {
+        "score": 100,
+        "hitCount": 6,
+        "totalCount": 6,
+        "summary": "全部命中",
+        "annotations": [
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": true, "message": null, "minimalFix": null }
+        ]
+      }
+    },
+    {
+      "id": "gc-003",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "全对：全角字母+全角句末标点经归一化后命中",
+      "rationale": "norm-1 全角转半角（Ｍ→M）、去句末标点（！/。），归一化后与答案一致 → 两槽整块命中 100——锁定与前端 grading.ts 同步的归一化口径。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [1, 2],
+        "answers": ["Ｍore and more！", "attach importance to。"]
+      },
+      "expectation": {
+        "score": 100,
+        "hitCount": 6,
+        "totalCount": 6,
+        "summary": "全部命中",
+        "annotations": [
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": true, "message": null, "minimalFix": null }
+        ]
+      }
+    },
+    {
+      "id": "gc-004",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "全对：大小写差异不影响命中",
+      "rationale": "norm-1 转小写后命中，100 分——大小写不参与判等。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [1, 2],
+        "answers": ["More AND More", "Pay Attention To"]
+      },
+      "expectation": {
+        "score": 100,
+        "hitCount": 6,
+        "totalCount": 6,
+        "summary": "全部命中",
+        "annotations": [
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": true, "message": null, "minimalFix": null }
+        ]
+      }
+    },
+    {
+      "id": "gc-005",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "部分命中：第二槽词形错误（attentions）",
+      "rationale": "槽1 整块命中(3)；槽2 未整块命中，逐词比对 pay==/attentions!=attention/to== 得 2；hitCount=5/6 → round(83.33)=83；批注「搭配错误」给 minimalFix=规范答案；summary=还差 1 处。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [1, 2],
+        "answers": ["more and more", "pay attentions to"]
+      },
+      "expectation": {
+        "score": 83,
+        "hitCount": 5,
+        "totalCount": 6,
+        "summary": "还差 1 处",
+        "annotations": [
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": false, "message": "搭配错误", "minimalFix": "pay attention to" }
+        ]
+      }
+    },
+    {
+      "id": "gc-006",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "部分命中+空槽：槽1 错词、槽2 未填写",
+      "rationale": "槽1 more and less 与 more and more 逐词比对命中 2（more/and）；槽2 空串计 0 且批注「未填写」；2/6=33.33→33；summary=还差 2 处。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [1, 2],
+        "answers": ["more and less", ""]
+      },
+      "expectation": {
+        "score": 33,
+        "hitCount": 2,
+        "totalCount": 6,
+        "summary": "还差 2 处",
+        "annotations": [
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": false, "message": "副词结构错误", "minimalFix": "more and more" },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": false, "message": "未填写", "minimalFix": "pay attention to" }
+        ]
+      }
+    },
+    {
+      "id": "gc-007",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "全错：语义相反的两槽",
+      "rationale": "语义相反但逐词位置比对仍命中 1 词（and==and），1/6 → round(16.67)=17 分——锁定「语义错但同位词对上仍计部分分」的口径，批注带考点标签与 minimalFix。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [1, 2],
+        "answers": ["less and less", "lose interest in"]
+      },
+      "expectation": {
+        "score": 17,
+        "hitCount": 1,
+        "totalCount": 6,
+        "summary": "还差 2 处",
+        "annotations": [
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": false, "message": "副词结构错误", "minimalFix": "more and more" },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": false, "message": "搭配错误", "minimalFix": "pay attention to" }
+        ]
+      }
+    },
+    {
+      "id": "gc-008",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "全错：answers 为 null（全部未作答）",
+      "rationale": "answers 缺省视为全部未填写，两槽批注「未填写」、0 分——锁定 null 答案列表不抛异常且按空处理。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [1, 2],
+        "answers": null
+      },
+      "expectation": {
+        "score": 0,
+        "hitCount": 0,
+        "totalCount": 6,
+        "summary": "还差 2 处",
+        "annotations": [
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": false, "message": "未填写", "minimalFix": "more and more" },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": false, "message": "未填写", "minimalFix": "pay attention to" }
+        ]
+      }
+    },
+    {
+      "id": "gc-009",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "空挖空：blank 为空数组",
+      "rationale": "无挖空即无批注、无计分项，0 分且 summary=没有需要判定的语块。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [],
+        "answers": []
+      },
+      "expectation": {
+        "score": 0,
+        "hitCount": 0,
+        "totalCount": 0,
+        "summary": "没有需要判定的语块",
+        "annotations": []
+      }
+    },
+    {
+      "id": "gc-010",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "语块缺失：blank 指向不存在的 chunk",
+      "rationale": "语块不存在批注「语块不存在」（tag=未分类、minimalFix=null）且不参与计分——totalCount 不含缺失槽。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [9],
+        "answers": ["anything"]
+      },
+      "expectation": {
+        "score": 0,
+        "hitCount": 0,
+        "totalCount": 0,
+        "summary": "还差 1 处",
+        "annotations": [
+          { "key": "slot:9", "chunkIndex": 9, "tag": "未分类", "correct": false, "message": "语块不存在", "minimalFix": null }
+        ]
+      }
+    },
+    {
+      "id": "gc-011",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "槽位顺序：blank=[2,1] 时答案按位置对齐语块",
+      "rationale": "blank 顺序即题面编号顺序，answers 按位置对应（position0→chunk2、position1→chunk1），两槽整块命中 100——锁定顺序语义。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [2, 1],
+        "answers": ["pay attention to", "more and more"]
+      },
+      "expectation": {
+        "score": 100,
+        "hitCount": 6,
+        "totalCount": 6,
+        "summary": "全部命中",
+        "annotations": [
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": true, "message": null, "minimalFix": null }
+        ]
+      }
+    },
+    {
+      "id": "gc-012",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "全对：多余空白（含制表符）经压缩后命中",
+      "rationale": "norm-1 连续空白压成单空格并 trim，两槽命中 100。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [1, 2],
+        "answers": ["  more   and  more  ", "pay attention\tto "]
+      },
+      "expectation": {
+        "score": 100,
+        "hitCount": 6,
+        "totalCount": 6,
+        "summary": "全部命中",
+        "annotations": [
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": true, "message": null, "minimalFix": null }
+        ]
+      }
+    },
+    {
+      "id": "gc-013",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "全对：半角句末标点（句号/逗号）剥离后命中",
+      "rationale": "句末标点剥离（. 与 ,）在引号保留规则之外，直接剥掉——归一化后命中 100。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [1, 2],
+        "answers": ["more and more.", "pay attention to,"]
+      },
+      "expectation": {
+        "score": 100,
+        "hitCount": 6,
+        "totalCount": 6,
+        "summary": "全部命中",
+        "annotations": [
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": true, "message": null, "minimalFix": null }
+        ]
+      }
+    },
+    {
+      "id": "gc-014",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "词序错位：and more more 只按位置命中 1 词",
+      "rationale": "逐词位置比对（不是多重集）：and!=more、more!=and、more==more → 1；hitCount=1+3=4/6 → round(66.67)=67。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [1, 2],
+        "answers": ["and more more", "pay attention to"]
+      },
+      "expectation": {
+        "score": 67,
+        "hitCount": 4,
+        "totalCount": 6,
+        "summary": "还差 1 处",
+        "annotations": [
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": false, "message": "副词结构错误", "minimalFix": "more and more" },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": true, "message": null, "minimalFix": null }
+        ]
+      }
+    },
+    {
+      "id": "gc-015",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "三槽全对（代词/副词结构/搭配）",
+      "rationale": "三槽各命中规范答案，hitCount=1+3+5=9、totalCount=9 → 100。",
+      "input": {
+        "chunks": [
+          { "index": 0, "zh": "他", "answers": ["he"], "tag": "代词", "note": null },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视环境保护", "answers": ["attaches importance to environmental protection", "pays attention to protecting the environment"], "tag": "搭配", "note": null }
+        ],
+        "blank": [0, 1, 2],
+        "answers": ["he", "more and more", "attaches importance to environmental protection"]
+      },
+      "expectation": {
+        "score": 100,
+        "hitCount": 9,
+        "totalCount": 9,
+        "summary": "全部命中",
+        "annotations": [
+          { "key": "slot:0", "chunkIndex": 0, "tag": "代词", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": true, "message": null, "minimalFix": null }
+        ]
+      }
+    },
+    {
+      "id": "gc-016",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "整块命中第二可接受答案（6 词译法）按规范答案 5 词计",
+      "rationale": "第三槽命中第二译法 pays attention to protecting the environment（6 词），但命中词数取规范答案词数（attaches importance to environmental protection=5）→ hitCount=9/9=100——锁定「整块命中按规范答案词数计分」防双倍计分。",
+      "input": {
+        "chunks": [
+          { "index": 0, "zh": "他", "answers": ["he"], "tag": "代词", "note": null },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视环境保护", "answers": ["attaches importance to environmental protection", "pays attention to protecting the environment"], "tag": "搭配", "note": null }
+        ],
+        "blank": [0, 1, 2],
+        "answers": ["he", "more and more", "pays attention to protecting the environment"]
+      },
+      "expectation": {
+        "score": 100,
+        "hitCount": 9,
+        "totalCount": 9,
+        "summary": "全部命中",
+        "annotations": [
+          { "key": "slot:0", "chunkIndex": 0, "tag": "代词", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": true, "message": null, "minimalFix": null }
+        ]
+      }
+    },
+    {
+      "id": "gc-017",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "第三槽部分命中（the environment 代替 environmental protection）",
+      "rationale": "逐词比对 attaches==/importance==/to==/the!=environmental/environment!=protection → 3；hitCount=1+3+3=7/9 → round(77.78)=78。",
+      "input": {
+        "chunks": [
+          { "index": 0, "zh": "他", "answers": ["he"], "tag": "代词", "note": null },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视环境保护", "answers": ["attaches importance to environmental protection", "pays attention to protecting the environment"], "tag": "搭配", "note": null }
+        ],
+        "blank": [0, 1, 2],
+        "answers": ["he", "more and more", "attaches importance to the environment"]
+      },
+      "expectation": {
+        "score": 78,
+        "hitCount": 7,
+        "totalCount": 9,
+        "summary": "还差 1 处",
+        "annotations": [
+          { "key": "slot:0", "chunkIndex": 0, "tag": "代词", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": false, "message": "搭配错误", "minimalFix": "attaches importance to environmental protection" }
+        ]
+      }
+    },
+    {
+      "id": "gc-018",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "三槽全空（answers null）",
+      "rationale": "全部未填写：0 分、三批注「未填写」、summary=还差 3 处。",
+      "input": {
+        "chunks": [
+          { "index": 0, "zh": "他", "answers": ["he"], "tag": "代词", "note": null },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视环境保护", "answers": ["attaches importance to environmental protection", "pays attention to protecting the environment"], "tag": "搭配", "note": null }
+        ],
+        "blank": [0, 1, 2],
+        "answers": null
+      },
+      "expectation": {
+        "score": 0,
+        "hitCount": 0,
+        "totalCount": 9,
+        "summary": "还差 3 处",
+        "annotations": [
+          { "key": "slot:0", "chunkIndex": 0, "tag": "代词", "correct": false, "message": "未填写", "minimalFix": "he" },
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": false, "message": "未填写", "minimalFix": "more and more" },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": false, "message": "未填写", "minimalFix": "attaches importance to environmental protection" }
+        ]
+      }
+    },
+    {
+      "id": "gc-019",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "仅首槽对：1/9 → 11 分",
+      "rationale": "slot0 命中 he(1)；其余两槽零命中 → round(1/9*100)=round(11.11)=11——锁定四舍五入口径。",
+      "input": {
+        "chunks": [
+          { "index": 0, "zh": "他", "answers": ["he"], "tag": "代词", "note": null },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视环境保护", "answers": ["attaches importance to environmental protection", "pays attention to protecting the environment"], "tag": "搭配", "note": null }
+        ],
+        "blank": [0, 1, 2],
+        "answers": ["he", "wrong", "wrong"]
+      },
+      "expectation": {
+        "score": 11,
+        "hitCount": 1,
+        "totalCount": 9,
+        "summary": "还差 2 处",
+        "annotations": [
+          { "key": "slot:0", "chunkIndex": 0, "tag": "代词", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": false, "message": "副词结构错误", "minimalFix": "more and more" },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": false, "message": "搭配错误", "minimalFix": "attaches importance to environmental protection" }
+        ]
+      }
+    },
+    {
+      "id": "gc-020",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "空白串槽：单个空格视为未填写",
+      "rationale": "第三槽空白串归一化后为空 → 未填写批注、计 0；hitCount=1(he)+3(more and more)+0=4/9 → round(44.44)=44；missed=1 → 还差 1 处。",
+      "input": {
+        "chunks": [
+          { "index": 0, "zh": "他", "answers": ["he"], "tag": "代词", "note": null },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视环境保护", "answers": ["attaches importance to environmental protection", "pays attention to protecting the environment"], "tag": "搭配", "note": null }
+        ],
+        "blank": [0, 1, 2],
+        "answers": ["he", "more and more", " "]
+      },
+      "expectation": {
+        "score": 44,
+        "hitCount": 4,
+        "totalCount": 9,
+        "summary": "还差 1 处",
+        "annotations": [
+          { "key": "slot:0", "chunkIndex": 0, "tag": "代词", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": false, "message": "未填写", "minimalFix": "attaches importance to environmental protection" }
+        ]
+      }
+    },
+    {
+      "id": "gc-021",
+      "layer": "grading",
+      "mode": "CLOZE",
+      "description": "答案缺位：answers 数量少于 blank 数量",
+      "rationale": "缺位槽视为未填写（answerAt 越界返回空串）：slot0 命中 1，slot1/slot2 未填写 → 1/9=11。",
+      "input": {
+        "chunks": [
+          { "index": 0, "zh": "他", "answers": ["he"], "tag": "代词", "note": null },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视环境保护", "answers": ["attaches importance to environmental protection", "pays attention to protecting the environment"], "tag": "搭配", "note": null }
+        ],
+        "blank": [0, 1, 2],
+        "answers": ["he"]
+      },
+      "expectation": {
+        "score": 11,
+        "hitCount": 1,
+        "totalCount": 9,
+        "summary": "还差 2 处",
+        "annotations": [
+          { "key": "slot:0", "chunkIndex": 0, "tag": "代词", "correct": true, "message": null, "minimalFix": null },
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "correct": false, "message": "未填写", "minimalFix": "more and more" },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "correct": false, "message": "未填写", "minimalFix": "attaches importance to environmental protection" }
+        ]
+      }
+    },
+    {
+      "id": "gc-022",
+      "layer": "grading",
+      "mode": "FREE",
+      "description": "整句完全一致：100 分无批注",
+      "rationale": "归一化后逐字相等 → exact 100、批注空、summary=全部命中。",
+      "input": {
+        "ref": "He is paying more and more attention.",
+        "text": "He is paying more and more attention."
+      },
+      "expectation": {
+        "score": 100,
+        "hitCount": 7,
+        "totalCount": 7,
+        "summary": "全部命中",
+        "annotations": []
+      }
+    },
+    {
+      "id": "gc-023",
+      "layer": "grading",
+      "mode": "FREE",
+      "description": "整句部分覆盖：要点覆盖 57%",
+      "rationale": "多重集覆盖 4/7（he/is/paying/attention 命中，more/and/more 缺）→ 57；批注 free:0 带 minimalFix=参考译文。",
+      "input": {
+        "ref": "He is paying more and more attention.",
+        "text": "He is paying increasingly attention."
+      },
+      "expectation": {
+        "score": 57,
+        "hitCount": 4,
+        "totalCount": 7,
+        "summary": "要点覆盖 57%",
+        "annotations": [
+          { "key": "free:0", "chunkIndex": 0, "tag": "整句", "expected": ["He is paying more and more attention."], "correct": false, "message": "与参考译文有差异", "minimalFix": "He is paying more and more attention." }
+        ]
+      }
+    },
+    {
+      "id": "gc-024",
+      "layer": "grading",
+      "mode": "FREE",
+      "description": "整句空答案：0 分、未作答",
+      "rationale": "FREE 不作答给 0 分、无批注、summary=未作答（与填空口径分化）。",
+      "input": {
+        "ref": "He is paying more and more attention.",
+        "text": ""
+      },
+      "expectation": {
+        "score": 0,
+        "hitCount": 0,
+        "totalCount": 7,
+        "summary": "未作答",
+        "annotations": []
+      }
+    },
+    {
+      "id": "gc-025",
+      "layer": "grading",
+      "mode": "FREE",
+      "description": "整句大小写+句末标点差异：归一化后完全一致",
+      "rationale": "小写+去句末标点后相等 → exact 100、批注空——归一化在 FREE 分支同样生效。",
+      "input": {
+        "ref": "He is paying attention.",
+        "text": "he is paying attention!"
+      },
+      "expectation": {
+        "score": 100,
+        "hitCount": 4,
+        "totalCount": 4,
+        "summary": "全部命中",
+        "annotations": []
+      }
+    },
+    {
+      "id": "gc-026",
+      "layer": "grading",
+      "mode": "FREE",
+      "description": "重复词多重集口径：more more more 只消耗两个 more",
+      "rationale": "expected=[more,and,more]，received 池逐 token 消费：more→、and 缺、more→ → hit=2/3 → 67——锁定多重集（非位置）口径。",
+      "input": {
+        "ref": "more and more",
+        "text": "more more more"
+      },
+      "expectation": {
+        "score": 67,
+        "hitCount": 2,
+        "totalCount": 3,
+        "summary": "要点覆盖 67%",
+        "annotations": [
+          { "key": "free:0", "chunkIndex": 0, "tag": "整句", "expected": ["more and more"], "correct": false, "message": "与参考译文有差异", "minimalFix": "more and more" }
+        ]
+      }
+    },
+    {
+      "id": "gc-027",
+      "layer": "grading",
+      "mode": "FREE",
+      "description": "整句语义相反：零覆盖 0 分",
+      "rationale": "they/lost/interest 与 he/is/paying/attention 无一命中 → 0 分、批注 free:0、summary=要点覆盖 0%。",
+      "input": {
+        "ref": "He is paying attention.",
+        "text": "They lost interest."
+      },
+      "expectation": {
+        "score": 0,
+        "hitCount": 0,
+        "totalCount": 4,
+        "summary": "要点覆盖 0%",
+        "annotations": [
+          { "key": "free:0", "chunkIndex": 0, "tag": "整句", "expected": ["He is paying attention."], "correct": false, "message": "与参考译文有差异", "minimalFix": "He is paying attention." }
+        ]
+      }
+    },
+    {
+      "id": "gc-028",
+      "layer": "grading",
+      "mode": "FREE",
+      "description": "整句空白差异：归一化后完全一致",
+      "rationale": "双空格/制表符压缩后相等 → 100。",
+      "input": {
+        "ref": "more and more",
+        "text": "more  and\tmore "
+      },
+      "expectation": {
+        "score": 100,
+        "hitCount": 3,
+        "totalCount": 3,
+        "summary": "全部命中",
+        "annotations": []
+      }
+    },
+    {
+      "id": "gc-029",
+      "layer": "grading",
+      "mode": "REVEAL",
+      "description": "看答案（两槽）：不计分，占位 totalCount=6",
+      "rationale": "REVEAL score=null、hitCount=0、批注空；totalCount=规范答案词数占位（3+3=6）供排程口径使用。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [1, 2]
+      },
+      "expectation": {
+        "score": null,
+        "hitCount": 0,
+        "totalCount": 6,
+        "summary": "已看答案，记为学习中",
+        "annotations": []
+      }
+    },
+    {
+      "id": "gc-030",
+      "layer": "grading",
+      "mode": "REVEAL",
+      "description": "看答案（三槽）：占位 totalCount=9",
+      "rationale": "三槽规范答案词数 1+3+5=9；score=null。",
+      "input": {
+        "chunks": [
+          { "index": 0, "zh": "他", "answers": ["he"], "tag": "代词", "note": null },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视环境保护", "answers": ["attaches importance to environmental protection", "pays attention to protecting the environment"], "tag": "搭配", "note": null }
+        ],
+        "blank": [0, 1, 2]
+      },
+      "expectation": {
+        "score": null,
+        "hitCount": 0,
+        "totalCount": 9,
+        "summary": "已看答案，记为学习中",
+        "annotations": []
+      }
+    },
+    {
+      "id": "gc-031",
+      "layer": "grading",
+      "mode": "REVEAL",
+      "description": "看答案语块缺失：占位 totalCount=0",
+      "rationale": "缺失语块 canonical 为空 → 0 词占位；score=null——锁定不抛异常。",
+      "input": {
+        "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构", "note": null },
+          { "index": 2, "zh": "重视", "answers": ["pay attention to", "attach importance to"], "tag": "搭配", "note": null }
+        ],
+        "blank": [7]
+      },
+      "expectation": {
+        "score": null,
+        "hitCount": 0,
+        "totalCount": 0,
+        "summary": "已看答案，记为学习中",
+        "annotations": []
+      }
+    }
+  ]
+}

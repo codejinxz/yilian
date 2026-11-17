@@ -67,6 +67,7 @@ import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.security.MessageDigest;
@@ -438,16 +439,20 @@ public class PracticeServiceImpl implements PracticeService {
                         requireAnnotationForAdjudication(attemptId, annotationKey),
                         proposedAnswer,
                         reason);
+        // 回执 status 取终态投影：正常路径恒 PENDING；窗口竞态（终审在初裁外呼窗口内
+        // 完成）按存储真相投影为终审态——回执不伪造「初裁成功、待终审」。
+        String receiptStatus = outcome == null ? "PENDING" : outcome.status();
         log.info(
-                "appeal_submitted userId={} attemptId={} key={} kind=APPEAL status=PENDING"
+                "appeal_submitted userId={} attemptId={} key={} kind=APPEAL status={}"
                         + " verdict={}",
                 userId,
                 attemptId,
                 annotationKey,
+                receiptStatus,
                 outcome == null ? "none" : outcome.verdict());
         return new AppealView(
                 appeal.getId(),
-                "PENDING",
+                receiptStatus,
                 Appeal.AppealKind.APPEAL.name(),
                 annotationKey,
                 outcome == null ? null : outcome.verdict(),
@@ -557,9 +562,18 @@ public class PracticeServiceImpl implements PracticeService {
         }
     }
 
-    /** 一次初裁的终态：落库列与回执视图共用的投影（verdict=UNAVAILABLE 表示初裁不可用占位，DISPUTE/未生成场景回执 verdict 为 null）。 */
+    /**
+     * 一次初裁的终态：落库列与回执视图共用的投影（verdict=UNAVAILABLE 表示初裁不可用占位，DISPUTE/未生成场景回执 verdict 为 null）。
+     *
+     * <p>status 是申诉行在回执时刻的真实状态：正常路径恒 PENDING（初裁不改 status）； 窗口竞态（终审在初裁外呼期间完成）按存储真相投影为
+     * ACCEPTED/REJECTED——回执不伪造「初裁成功」。
+     */
     private record AdjudicationOutcome(
-            String verdict, String decisionReason, String decidedBy, Instant decidedAt) {}
+            String status,
+            String verdict,
+            String decisionReason,
+            String decidedBy,
+            Instant decidedAt) {}
 
     /**
      * 申诉同步 LLM 初裁（预披露裁决：同步不引队列，申诉低频，≤15s 可接受）。
@@ -653,14 +667,26 @@ public class PracticeServiceImpl implements PracticeService {
             // decision 列落「裁决原文」：verdict/reason 两字段的规范 JSON（模型原文可能带围栏、
             // 多余空白或越界值，落库用解析校验后的干净值重排）。
             String decisionJson = normalizedDecisionJson(output);
-            appealDao.updateAdjudication(
-                    appeal.getId(),
-                    decisionJson,
-                    output.reason(),
-                    "LLM",
-                    decidedAt,
-                    modelSnapshot,
-                    promptVersionId);
+            int updated =
+                    appealDao.updateAdjudication(
+                            appeal.getId(),
+                            decisionJson,
+                            output.reason(),
+                            "LLM",
+                            decidedAt,
+                            modelSnapshot,
+                            promptVersionId);
+            if (updated == 0) {
+                // 初裁原子门：UPDATE 的 WHERE 携带 status='PENDING'，行数=0 说明初裁外呼窗口内
+                // 申诉已被管理员终审——初裁结果整体丢弃（不覆盖终审理由与 decided_by），回执按存储
+                // 真相（终审态）投影，留痕后返回。
+                log.info(
+                        "appeal_adjudication_superseded appealId={} userId={} verdict={}",
+                        appeal.getId(),
+                        appeal.getUserId(),
+                        output.verdict());
+                return supersededOutcome(appeal.getId());
+            }
             log.info(
                     "appeal_adjudicated appealId={} userId={} sentenceId={} verdict={}"
                             + " model={} latencyMs={}",
@@ -670,7 +696,8 @@ public class PracticeServiceImpl implements PracticeService {
                     output.verdict(),
                     modelSnapshot,
                     latencyMs);
-            return new AdjudicationOutcome(output.verdict(), output.reason(), "LLM", decidedAt);
+            return new AdjudicationOutcome(
+                    "PENDING", output.verdict(), output.reason(), "LLM", decidedAt);
         } catch (RuntimeException exception) {
             // 兜底收敛：初裁内部的任何未预期异常（含 JSON 拼装）都降级为占位，不阻塞申诉。
             log.warn(
@@ -717,22 +744,78 @@ public class PracticeServiceImpl implements PracticeService {
     /**
      * 落初裁占位（指定 decision JSON 与理由，通用内核）：预算门与通用不可用共用本路径， 占位写失败也不外抛（申诉已在库，管理端可无 AI 意见终审）。
      *
+     * <p>占位 UPDATE 同样被 WHERE status='PENDING' 原子门约束——行数=0 说明窗口内已终审， 占位不落列，回执按存储真相（终审态）投影。
+     *
      * @param appealId 申诉行 id
      * @param decisionJson 占位 decision JSON（UNAVAILABLE 形状，预算占位额外带 reason=BUDGET）
      * @param reason 占位理由（decision_reason 列与回执共用）
-     * @return 占位终态（verdict=UNAVAILABLE，decidedBy=null）
+     * @return 占位终态（verdict=UNAVAILABLE，decidedBy=null）；窗口竞态时为终审投影
      */
     private AdjudicationOutcome recordPlaceholder(
             long appealId, String decisionJson, String reason) {
         try {
-            appealDao.updateAdjudication(appealId, decisionJson, reason, null, null, null, null);
+            int updated =
+                    appealDao.updateAdjudication(
+                            appealId, decisionJson, reason, null, null, null, null);
+            if (updated == 0) {
+                return supersededOutcome(appealId);
+            }
         } catch (RuntimeException exception) {
             log.warn(
                     "appeal_adjudication_placeholder_failed appealId={} error={}",
                     appealId,
                     exception.getClass().getSimpleName());
         }
-        return new AdjudicationOutcome("UNAVAILABLE", reason, null, null);
+        return new AdjudicationOutcome("PENDING", "UNAVAILABLE", reason, null, null);
+    }
+
+    /**
+     * 窗口竞态（初裁落列前已被并发终审）的回执投影：重读申诉行按存储真相组装——status/裁决理由/裁决者/时间全部取库内值， 初裁结果已丢弃不落列。decision 列此刻为
+     * null（终审不改写初裁 JSON），verdict 投影为 null（与 DISPUTE/未生成场景同口径）， 回执由 decidedBy=ADMIN 表达「已终审」。
+     *
+     * <p>行已不存在（理论上仅在并发清理场景）时收敛为 UNAVAILABLE 占位投影，不外抛——初裁是增强， 任何路径都不能把已落库的申诉变成 5xx。
+     *
+     * @param appealId 申诉行 id
+     * @return 按存储真相组装的终态
+     */
+    private AdjudicationOutcome supersededOutcome(long appealId) {
+        return appealDao
+                .findById(appealId)
+                .map(
+                        stored ->
+                                new AdjudicationOutcome(
+                                        stored.getStatus(),
+                                        extractStoredVerdict(stored.getDecision()),
+                                        stored.getDecisionReason(),
+                                        stored.getDecidedBy(),
+                                        stored.getDecidedAt()))
+                .orElseGet(
+                        () ->
+                                new AdjudicationOutcome(
+                                        "PENDING",
+                                        "UNAVAILABLE",
+                                        APPEAL_ADJUDICATION_UNAVAILABLE_REASON,
+                                        null,
+                                        null));
+    }
+
+    /**
+     * 从存储的 decision JSON 抽 verdict 投影值：终审先于初裁落列时 decision 为 null， JSON 损坏按 null 处理（回执不伪造 AI 意见）。
+     *
+     * @param decision 存储 decision JSON，可空
+     * @return verdict 值；列空或解析失败为 null
+     */
+    private String extractStoredVerdict(String decision) {
+        if (decision == null || decision.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(decision);
+            JsonNode verdict = root == null ? null : root.get("verdict");
+            return verdict == null || !verdict.isString() ? null : verdict.stringValue();
+        } catch (JacksonException exception) {
+            return null;
+        }
     }
 
     /**

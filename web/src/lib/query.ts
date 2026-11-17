@@ -54,6 +54,8 @@ export const queryKeys = {
     llmProviders: ["admin", "llm-providers"] as const,
     /** 本月用量视图（033 预算护栏）：配置保存后连带失效（预算改变影响状态徽标）。 */
     llmUsage: ["admin", "llm-usage"] as const,
+    /** Prompt 版本治理（034）：登记/激活后按 key 失效。 */
+    prompts: ["admin", "prompts"] as const,
   },
 };
 

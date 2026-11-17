@@ -787,14 +787,23 @@ append-only 用量账本：每次 LLM 调用的**终态**写一行，只记元�
 > 全量模型配置域（`llm_providers`/`llm_models`/`prompt_templates`/`prompt_versions`）仍 M3 预留，
 > 届时如需成本核算可加列或另建映射，不回改本表已有行。
 
-### 5.19 `prompt_versions`（V13 已建）
+### 5.19 `prompt_versions`（V13 已建；034 起带应用内写路径）
 
-Prompt 版本注册表（025）：三条 LLM 链路的系统提示登记为版本快照，判分/裁决经
+Prompt 版本注册表（025 建表）：三条 LLM 链路的系统提示登记为版本快照，判分/裁决经
 `prompt_version_id` 可追溯到产生它的提示词版本。行内容（`name`/`version`/`content`）一经
 登记不改写（原地改写等于伪造历史快照）；新版本追加更高 `version`，启用态由 `label` 流转
 表达。运行时经 `PromptRegistry` 按 `name` 取 `label='ACTIVE'` 版本（L1 Caffeine 缓存，
 写后失效；缺行时调用方回退同文代码常量，主链路降级不中断）。内容是版本快照非密钥，
-无敏感数据；内部表，本批不暴露端点（管理端改版属 backlog）。
+无敏感数据。
+
+**写路径（034，API §8.18）**：应用内写入口为管理端三端点——登记（版本号服务端分配
+「现存最大 +1」、`label=CANDIDATE`，INSERT 只增不改；并发登记撞 `uk_prompt_name_version`
+按 40900 收敛）、激活（同事务「旧 ACTIVE 降 CANDIDATE → 新行置 ACTIVE →
+`PromptRegistry.evictAll()` 即时换轨」；对已 ACTIVE 行重复激活幂等返回；历史版本可再激活=
+回滚语义）与分页检索。label 流转只经定向 UPDATE（SET 面仅 `label` 一列，行内容三列在 SQL
+面不可达），无 DELETE 端点（历史快照不删）；写操作经 `@OperationLog` 审计
+（PROMPT_REGISTER/PROMPT_ACTIVATE）。`evictAll` 的零生产调用状态（GAP 029 余量 C-01）
+随激活端点接线解除。
 
 | 字段 | 类型 | 可空 | 默认 | 说明 |
 |---|---|---|---|---|

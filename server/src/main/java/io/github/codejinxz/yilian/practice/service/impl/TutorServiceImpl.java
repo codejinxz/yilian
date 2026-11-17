@@ -71,8 +71,13 @@ public class TutorServiceImpl implements TutorService {
     /** app_settings 配置键：答疑开关 + legacy 形态覆盖值（028 起形状见 {@link TutorOverrides}）。 */
     static final String SETTING_KEY = TutorOverrides.SETTING_KEY;
 
-    /** 常驻免责标注：每条回答必带。 */
-    static final String DISCLAIMER = "AI 生成，可能有误";
+    /**
+     * 常驻免责标注：每条回答必带。
+     *
+     * <p>公开可见供黄金集 ask 层做契约值锁定（与 {@link #ASK_SYSTEM_PROMPT_FALLBACK} 同先例）； 附加点在 {@code ask()}
+     * 的成功回执（TutorAskView 第二字段），服务层单测与控制器切片覆盖附加行为。
+     */
+    public static final String DISCLAIMER = "AI 生成，可能有误";
 
     /** 用量账本的场景标识；与结构化日志的 scene 字段同源，llm_usage.scene 取此值。 */
     static final String SCENE = "tutor-ask";

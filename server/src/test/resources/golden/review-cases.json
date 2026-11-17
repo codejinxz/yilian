@@ -1,0 +1,409 @@
+{
+  "layer": "review",
+  "version": 1,
+  "baseline": "2026-11-18 现行实现基线：ModelReviewPromptBuilder（系统提示取 prompt_versions name=review ACTIVE 版本，缺行回退 V13 同文常量；输出契约 {\"score\":0-100,\"reason\":中文≤200字}）。",
+  "acceptance": "LLM 非确定性，本层只锁结构与方向（预披露裁决，不做逐字对拍）：输出可被 ModelReviewPromptBuilder.parse 解析、score 在期望区间、reason 非空且 ≤200 字。direction=high 表示明显正确的提交复核应给高分（minScore），low 表示明显错误的提交应给低分（maxScore），null 仅锁区间。",
+  "source": "句式取样自 dev 题库（他越来越重视…系列），脱敏后构造。",
+  "cases": [
+    {
+      "id": "gr-001",
+      "layer": "review",
+      "description": "全对提交（本地 100）：复核应高分",
+      "rationale": "提交与参考语块逐字一致、本地批注为空——复核契约「核心语义与语法成立」应给高分；方向约束 ≥80。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention to this matter.", "tags": ["副词结构", "搭配"], "chunks": [
+          { "index": 0, "zh": "他", "answers": ["He is"], "tag": "代词" },
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构" },
+          { "index": 2, "zh": "重视这件事", "answers": ["paying attention to this matter"], "tag": "搭配" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 0, "value": "He is" }, { "chunkIndex": 1, "value": "more and more" }, { "chunkIndex": 2, "value": "paying attention to this matter" } ] },
+        "localResult": { "score": 100, "hitCount": 10, "totalCount": 10, "summary": "全部命中", "annotations": [] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": "high", "minScore": 80 }
+    },
+    {
+      "id": "gr-002",
+      "layer": "review",
+      "description": "全对但用第二可接受答案：复核应高分",
+      "rationale": "increasingly/attach importance to 都是题库登记的可接受译法，语义完整成立 → 高分；方向 ≥80。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention to this matter.", "tags": ["副词结构", "搭配"], "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more", "increasingly"], "tag": "副词结构" },
+          { "index": 2, "zh": "重视这件事", "answers": ["paying attention to this matter", "attaching importance to this matter"], "tag": "搭配" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 1, "value": "increasingly" }, { "chunkIndex": 2, "value": "attaching importance to this matter" } ] },
+        "localResult": { "score": 100, "hitCount": 9, "totalCount": 9, "summary": "全部命中", "annotations": [] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": "high", "minScore": 75 }
+    },
+    {
+      "id": "gr-003",
+      "layer": "review",
+      "description": "整句提交与参考一致：复核应高分",
+      "rationale": "FREE 模式整句与参考逐字一致，无批注 → 高分；方向 ≥85。",
+      "input": {
+        "detail": { "zh": "他越来越重视环境问题。", "ref": "He is paying more and more attention to environmental issues.", "tags": ["副词结构"], "chunks": [] },
+        "answer": { "text": "He is paying more and more attention to environmental issues." },
+        "localResult": { "score": 100, "hitCount": 10, "totalCount": 10, "summary": "全部命中", "annotations": [] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": "high", "minScore": 85 }
+    },
+    {
+      "id": "gr-004",
+      "layer": "review",
+      "description": "同义改写但语义完整（increasing attention）：复核应高分",
+      "rationale": "increasing attention 与 more and more attention 同义、无语法错误，虽词形覆盖只有 7/10，复核应识别语义等价给高分；方向 ≥75（允许低于全对一档）。",
+      "input": {
+        "detail": { "zh": "他越来越重视环境问题。", "ref": "He is paying more and more attention to environmental issues.", "tags": ["副词结构"], "chunks": [] },
+        "answer": { "text": "He is paying increasing attention to environmental issues." },
+        "localResult": { "score": 70, "hitCount": 7, "totalCount": 10, "summary": "要点覆盖 70%", "annotations": [
+          { "key": "free:0", "chunkIndex": 0, "tag": "整句", "expected": ["He is paying more and more attention to environmental issues."], "received": "He is paying increasing attention to environmental issues.", "correct": false, "message": "与参考译文有差异", "minimalFix": "He is paying more and more attention to environmental issues." }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": "high", "minScore": 75 }
+    },
+    {
+      "id": "gr-005",
+      "layer": "review",
+      "description": "拼写小瑕但一眼可懂（attension）：复核应中高分",
+      "rationale": "单处拼写错误不害义，整体可懂度成立；不应顶格也不应重罚——区间 60–92。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention to this matter.", "tags": ["搭配"], "chunks": [
+          { "index": 2, "zh": "重视这件事", "answers": ["paying attention to this matter"], "tag": "搭配" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 2, "value": "paying attension to this matter" } ] },
+        "localResult": { "score": 80, "hitCount": 4, "totalCount": 5, "summary": "还差 1 处", "annotations": [
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "expected": ["paying attention to this matter"], "received": "paying attension to this matter", "correct": false, "message": "搭配错误", "minimalFix": "paying attention to this matter" }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": null, "minScore": 60, "maxScore": 92 }
+    },
+    {
+      "id": "gr-006",
+      "layer": "review",
+      "description": "首字母小写无标点的全对提交：复核应高分",
+      "rationale": "大小写与标点不影响语义成立，本地已判 100；复核方向 ≥80。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention to this matter.", "tags": ["副词结构", "搭配"], "chunks": [
+          { "index": 0, "zh": "他", "answers": ["He is"], "tag": "代词" },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 0, "value": "he is" }, { "chunkIndex": 1, "value": "more and more" } ] },
+        "localResult": { "score": 100, "hitCount": 5, "totalCount": 5, "summary": "全部命中", "annotations": [] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": "high", "minScore": 80 }
+    },
+    {
+      "id": "gr-007",
+      "layer": "review",
+      "description": "三槽全对（受控长句）：复核应高分",
+      "rationale": "提交与语块结构逐字一致，本地 100；方向 ≥80。",
+      "input": {
+        "detail": { "zh": "他越来越重视环境保护。", "ref": "He attaches more and more importance to environmental protection.", "tags": ["代词", "副词结构", "搭配"], "chunks": [
+          { "index": 0, "zh": "他", "answers": ["he attaches"], "tag": "代词" },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构" },
+          { "index": 2, "zh": "重视环境保护", "answers": ["importance to environmental protection"], "tag": "搭配" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 0, "value": "he attaches" }, { "chunkIndex": 1, "value": "more and more" }, { "chunkIndex": 2, "value": "importance to environmental protection" } ] },
+        "localResult": { "score": 100, "hitCount": 8, "totalCount": 8, "summary": "全部命中", "annotations": [] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": "high", "minScore": 80 }
+    },
+    {
+      "id": "gr-008",
+      "layer": "review",
+      "description": "语法正确但用词朴素（pay attention to）：复核应高分",
+      "rationale": "pay attention to 是题库登记可接受答案且语义完整；朴素不扣大分——方向 ≥80。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention to this matter.", "tags": ["搭配"], "chunks": [
+          { "index": 2, "zh": "重视这件事", "answers": ["paying attention to this matter"], "tag": "搭配" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 2, "value": "paying attention to this matter" } ] },
+        "localResult": { "score": 100, "hitCount": 5, "totalCount": 5, "summary": "全部命中", "annotations": [] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": "high", "minScore": 80 }
+    },
+    {
+      "id": "gr-009",
+      "layer": "review",
+      "description": "语义相反（less and less / lose interest）：复核应低分",
+      "rationale": "提交与参考语义完全相反，本地 0；复核应给低分——方向 ≤30。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention to this matter.", "tags": ["副词结构", "搭配"], "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构" },
+          { "index": 2, "zh": "重视这件事", "answers": ["paying attention to this matter"], "tag": "搭配" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 1, "value": "less and less" }, { "chunkIndex": 2, "value": "losing interest in this matter" } ] },
+        "localResult": { "score": 38, "hitCount": 3, "totalCount": 8, "summary": "还差 2 处", "annotations": [
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "expected": ["more and more"], "received": "less and less", "correct": false, "message": "副词结构错误", "minimalFix": "more and more" },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "expected": ["paying attention to this matter"], "received": "losing interest in this matter", "correct": false, "message": "搭配错误", "minimalFix": "paying attention to this matter" }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": "low", "maxScore": 30 }
+    },
+    {
+      "id": "gr-010",
+      "layer": "review",
+      "description": "两槽未作答：复核应低分",
+      "rationale": "全部未填写无可懂内容 → 低分；方向 ≤25。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention to this matter.", "tags": ["副词结构", "搭配"], "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构" },
+          { "index": 2, "zh": "重视这件事", "answers": ["paying attention to this matter"], "tag": "搭配" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 1, "value": "" }, { "chunkIndex": 2, "value": "" } ] },
+        "localResult": { "score": 0, "hitCount": 0, "totalCount": 8, "summary": "还差 2 处", "annotations": [
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "expected": ["more and more"], "received": "", "correct": false, "message": "未填写", "minimalFix": "more and more" },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "expected": ["paying attention to this matter"], "received": "", "correct": false, "message": "未填写", "minimalFix": "paying attention to this matter" }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": "low", "maxScore": 25 }
+    },
+    {
+      "id": "gr-011",
+      "layer": "review",
+      "description": "整句语义相反但词形覆盖高：复核应修正为低分",
+      "rationale": "本地词形覆盖 7/10=70 分，但 less and less 与 more and more 语义相反——复核的价值正是修正本地粗判，应给低分；方向 ≤35。",
+      "input": {
+        "detail": { "zh": "他越来越不重视环境问题。", "ref": "He is paying more and more attention to environmental issues.", "tags": ["副词结构"], "chunks": [] },
+        "answer": { "text": "He is paying less and less attention to environmental issues." },
+        "localResult": { "score": 80, "hitCount": 8, "totalCount": 10, "summary": "要点覆盖 80%", "annotations": [
+          { "key": "free:0", "chunkIndex": 0, "tag": "整句", "expected": ["He is paying more and more attention to environmental issues."], "received": "He is paying less and less attention to environmental issues.", "correct": false, "message": "与参考译文有差异", "minimalFix": "He is paying more and more attention to environmental issues." }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": "low", "maxScore": 35 }
+    },
+    {
+      "id": "gr-012",
+      "layer": "review",
+      "description": "整句空答案：复核应低分",
+      "rationale": "未作答无可评内容 → 低分；方向 ≤25。",
+      "input": {
+        "detail": { "zh": "他越来越重视环境问题。", "ref": "He is paying more and more attention to environmental issues.", "tags": [], "chunks": [] },
+        "answer": { "text": "" },
+        "localResult": { "score": 0, "hitCount": 0, "totalCount": 10, "summary": "未作答", "annotations": [] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": "low", "maxScore": 25 }
+    },
+    {
+      "id": "gr-013",
+      "layer": "review",
+      "description": "词串乱序不可懂：复核应低分",
+      "rationale": "to attention pay 乱序无法成立 → 低分；方向 ≤30。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention to this matter.", "tags": ["搭配"], "chunks": [
+          { "index": 2, "zh": "重视这件事", "answers": ["paying attention to this matter"], "tag": "搭配" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 2, "value": "to attention pay this matter" } ] },
+        "localResult": { "score": 60, "hitCount": 3, "totalCount": 5, "summary": "还差 1 处", "annotations": [
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "expected": ["paying attention to this matter"], "received": "to attention pay this matter", "correct": false, "message": "搭配错误", "minimalFix": "paying attention to this matter" }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": "low", "maxScore": 30 }
+    },
+    {
+      "id": "gr-014",
+      "layer": "review",
+      "description": "时态崩溃（he pay 无谓语变化）：复核应中低分",
+      "rationale": "缺 be 动词谓语不成立但语义可辨认——中低分区间 25–65。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention to this matter.", "tags": ["代词", "副词结构"], "chunks": [
+          { "index": 0, "zh": "他", "answers": ["He is"], "tag": "代词" },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 0, "value": "he" }, { "chunkIndex": 1, "value": "pay more and more attention" } ] },
+        "localResult": { "score": 20, "hitCount": 1, "totalCount": 5, "summary": "还差 2 处", "annotations": [
+          { "key": "slot:0", "chunkIndex": 0, "tag": "代词", "expected": ["He is"], "received": "he", "correct": false, "message": "代词错误", "minimalFix": "He is" },
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "expected": ["more and more"], "received": "pay more and more attention", "correct": false, "message": "副词结构错误", "minimalFix": "more and more" }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": null, "minScore": 25, "maxScore": 65 }
+    },
+    {
+      "id": "gr-015",
+      "layer": "review",
+      "description": "单槽半对（丢 to）：复核应中高分",
+      "rationale": "丢小词不害整体可懂度，本地 83；复核区间 60–95。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention to this matter.", "tags": ["副词结构", "搭配"], "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构" },
+          { "index": 2, "zh": "重视这件事", "answers": ["paying attention to this matter"], "tag": "搭配" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 1, "value": "more and more" }, { "chunkIndex": 2, "value": "paying attention this matter" } ] },
+        "localResult": { "score": 63, "hitCount": 5, "totalCount": 8, "summary": "还差 1 处", "annotations": [
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "expected": ["paying attention to this matter"], "received": "paying attention this matter", "correct": false, "message": "搭配错误", "minimalFix": "paying attention to this matter" }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": null, "minScore": 60, "maxScore": 95 }
+    },
+    {
+      "id": "gr-016",
+      "layer": "review",
+      "description": "第三槽部分命中（the environment 代替 environmental protection）：复核应中高分",
+      "rationale": "词形偏离但语义可懂，本地 78；复核区间 55–95。",
+      "input": {
+        "detail": { "zh": "他越来越重视环境保护。", "ref": "He attaches more and more importance to environmental protection.", "tags": ["代词", "副词结构", "搭配"], "chunks": [
+          { "index": 0, "zh": "他", "answers": ["he attaches"], "tag": "代词" },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构" },
+          { "index": 2, "zh": "重视环境保护", "answers": ["importance to environmental protection"], "tag": "搭配" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 0, "value": "he attaches" }, { "chunkIndex": 1, "value": "more and more" }, { "chunkIndex": 2, "value": "importance to the environment" } ] },
+        "localResult": { "score": 78, "hitCount": 7, "totalCount": 9, "summary": "还差 1 处", "annotations": [
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "expected": ["importance to environmental protection"], "received": "importance to the environment", "correct": false, "message": "搭配错误", "minimalFix": "importance to environmental protection" }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": null, "minScore": 55, "maxScore": 95 }
+    },
+    {
+      "id": "gr-017",
+      "layer": "review",
+      "description": "整句部分覆盖（increasingly attention）：复核应中分",
+      "rationale": "要点覆盖 4/7，语义可懂但表达残缺——区间 45–90。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention.", "tags": [], "chunks": [] },
+        "answer": { "text": "He is paying increasingly attention." },
+        "localResult": { "score": 57, "hitCount": 4, "totalCount": 7, "summary": "要点覆盖 57%", "annotations": [
+          { "key": "free:0", "chunkIndex": 0, "tag": "整句", "expected": ["He is paying more and more attention."], "received": "He is paying increasingly attention.", "correct": false, "message": "与参考译文有差异", "minimalFix": "He is paying more and more attention." }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": null, "minScore": 45, "maxScore": 90 }
+    },
+    {
+      "id": "gr-018",
+      "layer": "review",
+      "description": "词形错配（attentions）：复核应中高分",
+      "rationale": "attentions 单复数错误但可懂，本地 83；复核区间 60–95。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention to this matter.", "tags": ["搭配"], "chunks": [
+          { "index": 2, "zh": "重视这件事", "answers": ["paying attention to this matter"], "tag": "搭配" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 2, "value": "paying attentions to this matter" } ] },
+        "localResult": { "score": 80, "hitCount": 4, "totalCount": 5, "summary": "还差 1 处", "annotations": [
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "expected": ["paying attention to this matter"], "received": "paying attentions to this matter", "correct": false, "message": "搭配错误", "minimalFix": "paying attention to this matter" }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": null, "minScore": 60, "maxScore": 95 }
+    },
+    {
+      "id": "gr-019",
+      "layer": "review",
+      "description": "中式直译半对（pay attention to protect environment）：复核应中分",
+      "rationale": "搭配与形态多处偏离但主干可懂，本地约 56；复核区间 40–85。",
+      "input": {
+        "detail": { "zh": "他越来越重视环境保护。", "ref": "He attaches more and more importance to environmental protection.", "tags": ["代词", "副词结构", "搭配"], "chunks": [
+          { "index": 0, "zh": "他", "answers": ["he attaches"], "tag": "代词" },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构" },
+          { "index": 2, "zh": "重视环境保护", "answers": ["importance to environmental protection"], "tag": "搭配" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 0, "value": "he" }, { "chunkIndex": 1, "value": "more and more" }, { "chunkIndex": 2, "value": "pay attention to protect environment" } ] },
+        "localResult": { "score": 44, "hitCount": 4, "totalCount": 9, "summary": "还差 2 处", "annotations": [
+          { "key": "slot:0", "chunkIndex": 0, "tag": "代词", "expected": ["he attaches"], "received": "he", "correct": false, "message": "代词错误", "minimalFix": "he attaches" },
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "expected": ["importance to environmental protection"], "received": "pay attention to protect environment", "correct": false, "message": "搭配错误", "minimalFix": "importance to environmental protection" }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": null, "minScore": 40, "maxScore": 85 }
+    },
+    {
+      "id": "gr-020",
+      "layer": "review",
+      "description": "词性错配（paying 作谓语缺 be）：复核应中低分",
+      "rationale": "he paying attention 无谓语 → 语法不成立但可懂——区间 30–75。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention to this matter.", "tags": ["副词结构", "搭配"], "chunks": [
+          { "index": 0, "zh": "他", "answers": ["He is"], "tag": "代词" },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构" },
+          { "index": 2, "zh": "重视这件事", "answers": ["paying attention to this matter"], "tag": "搭配" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 0, "value": "he" }, { "chunkIndex": 1, "value": "more and more" }, { "chunkIndex": 2, "value": "paying attention to this matter" } ] },
+        "localResult": { "score": 90, "hitCount": 9, "totalCount": 10, "summary": "还差 1 处", "annotations": [
+          { "key": "slot:0", "chunkIndex": 0, "tag": "代词", "expected": ["He is"], "received": "he", "correct": false, "message": "代词错误", "minimalFix": "He is" }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": null, "minScore": 30, "maxScore": 75 }
+    },
+    {
+      "id": "gr-021",
+      "layer": "review",
+      "description": "整句漏关键词（漏 more and more）：复核应中分",
+      "rationale": "「越来越」语义丢失但其余成立——区间 40–85。",
+      "input": {
+        "detail": { "zh": "他越来越重视环境问题。", "ref": "He is paying more and more attention to environmental issues.", "tags": ["副词结构"], "chunks": [] },
+        "answer": { "text": "He is paying attention to issues." },
+        "localResult": { "score": 60, "hitCount": 6, "totalCount": 10, "summary": "要点覆盖 60%", "annotations": [
+          { "key": "free:0", "chunkIndex": 0, "tag": "整句", "expected": ["He is paying more and more attention to environmental issues."], "received": "He is paying attention to issues.", "correct": false, "message": "与参考译文有差异", "minimalFix": "He is paying more and more attention to environmental issues." }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": null, "minScore": 40, "maxScore": 85 }
+    },
+    {
+      "id": "gr-022",
+      "layer": "review",
+      "description": "空第一槽（丢主语）：复核应中分",
+      "rationale": "丢主语语法不完整但谓语部分成立，本地 50——区间 35–80。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention to this matter.", "tags": ["代词", "副词结构"], "chunks": [
+          { "index": 0, "zh": "他", "answers": ["He is"], "tag": "代词" },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 0, "value": "" }, { "chunkIndex": 1, "value": "more and more" } ] },
+        "localResult": { "score": 60, "hitCount": 3, "totalCount": 5, "summary": "还差 1 处", "annotations": [
+          { "key": "slot:0", "chunkIndex": 0, "tag": "代词", "expected": ["He is"], "received": "", "correct": false, "message": "未填写", "minimalFix": "He is" }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": null, "minScore": 35, "maxScore": 80 }
+    },
+    {
+      "id": "gr-023",
+      "layer": "review",
+      "description": "仅对主干（第三槽对、其余空）：复核应中分",
+      "rationale": "长句主干成立但缺「越来越」，本地 67——区间 45–88。",
+      "input": {
+        "detail": { "zh": "他越来越重视环境保护。", "ref": "He attaches more and more importance to environmental protection.", "tags": ["代词", "副词结构", "搭配"], "chunks": [
+          { "index": 0, "zh": "他", "answers": ["he attaches"], "tag": "代词" },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构" },
+          { "index": 2, "zh": "重视环境保护", "answers": ["importance to environmental protection"], "tag": "搭配" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 0, "value": "" }, { "chunkIndex": 1, "value": "" }, { "chunkIndex": 2, "value": "importance to environmental protection" } ] },
+        "localResult": { "score": 44, "hitCount": 4, "totalCount": 9, "summary": "还差 2 处", "annotations": [
+          { "key": "slot:0", "chunkIndex": 0, "tag": "代词", "expected": ["he attaches"], "received": "", "correct": false, "message": "未填写", "minimalFix": "he attaches" },
+          { "key": "slot:1", "chunkIndex": 1, "tag": "副词结构", "expected": ["more and more"], "received": "", "correct": false, "message": "未填写", "minimalFix": "more and more" }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": null, "minScore": 45, "maxScore": 88 }
+    },
+    {
+      "id": "gr-024",
+      "layer": "review",
+      "description": "时态正确但代词错（she 代替 he）：复核应中高分",
+      "rationale": "性别代词偏离参考但语法语义自洽（无上下文强制 he）——区间 60–95，不按零容忍扣杀。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention to this matter.", "tags": ["代词"], "chunks": [
+          { "index": 0, "zh": "他", "answers": ["He is"], "tag": "代词" },
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 0, "value": "She is" }, { "chunkIndex": 1, "value": "more and more" } ] },
+        "localResult": { "score": 80, "hitCount": 4, "totalCount": 5, "summary": "还差 1 处", "annotations": [
+          { "key": "slot:0", "chunkIndex": 0, "tag": "代词", "expected": ["He is"], "received": "She is", "correct": false, "message": "代词错误", "minimalFix": "He is" }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": null, "minScore": 60, "maxScore": 95 }
+    },
+    {
+      "id": "gr-025",
+      "layer": "review",
+      "description": "半对但缺谓语动词（attention to this matter）：复核应中低分",
+      "rationale": "缺谓语属结构性语法错误，语义尚可辨认——区间 30–75。",
+      "input": {
+        "detail": { "zh": "他越来越重视这件事。", "ref": "He is paying more and more attention to this matter.", "tags": ["副词结构", "搭配"], "chunks": [
+          { "index": 1, "zh": "越来越", "answers": ["more and more"], "tag": "副词结构" },
+          { "index": 2, "zh": "重视这件事", "answers": ["paying attention to this matter"], "tag": "搭配" }
+        ] },
+        "answer": { "slots": [ { "chunkIndex": 1, "value": "more and more" }, { "chunkIndex": 2, "value": "attention to this matter" } ] },
+        "localResult": { "score": 38, "hitCount": 3, "totalCount": 8, "summary": "还差 1 处", "annotations": [
+          { "key": "slot:2", "chunkIndex": 2, "tag": "搭配", "expected": ["paying attention to this matter"], "received": "attention to this matter", "correct": false, "message": "搭配错误", "minimalFix": "paying attention to this matter" }
+        ] }
+      },
+      "expectation": { "requiredKeys": ["score", "reason"], "scoreRange": [0, 100], "reasonMaxChars": 200, "direction": null, "minScore": 30, "maxScore": 75 }
+    }
+  ]
+}

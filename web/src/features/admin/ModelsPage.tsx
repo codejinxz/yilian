@@ -4,15 +4,19 @@ import { ErrorState, LoadingBlock } from "@/components/feedback";
 import { ConfirmDialog } from "@/features/settings/confirm-dialog";
 import {
   activateLlmProvider,
+  activatePromptVersion,
   createLlmProvider,
   deleteLlmProvider,
   getLlmConfig,
   getLlmProviders,
   getLlmUsage,
+  getPromptVersions,
   type LlmConfig,
   type LlmProtocol,
   type LlmProvider,
   type LlmUsage,
+  type PromptVersion,
+  registerPromptVersion,
   updateLlmConfig,
   updateLlmProvider,
 } from "@/lib/api/admin";
@@ -40,30 +44,18 @@ const M3_ROUTES = [
   { task: "改写建议", model: "deepseek:deepseek-chat", note: "生成更地道的表达" },
 ] as const;
 
-/** Prompt 模板原型占位值；版本管理随 M3 prompt_versions 域落地，当前只读。 */
-const M3_PROMPTS = [
-  {
-    id: "cloze",
-    name: "语块填空批改",
-    version: 3,
-    updated: "10-21",
-    enabled: true,
-  },
-  {
-    id: "free",
-    name: "整句翻译批改",
-    version: 5,
-    updated: "10-19",
-    enabled: true,
-  },
-  {
-    id: "appeal",
-    name: "申诉裁决",
-    version: 2,
-    updated: "10-17",
-    enabled: true,
-  },
-] as const;
+/** Prompt 场景名的展示文案（与服务端注册表场景键同域；未知场景原样展示键名）。 */
+const PROMPT_NAME_LABELS: Record<string, string> = {
+  ask: "题目答疑",
+  review: "模型复核",
+  appeal: "申诉初裁",
+};
+
+/** 登记新版本对话框的可选场景（与服务端 name 白名单同源）。 */
+const PROMPT_SCENE_OPTIONS = ["ask", "review", "appeal"] as const;
+
+/** 登记内容的长度上限（与服务端校验同口径：20000 字符）。 */
+const PROMPT_CONTENT_MAX_CHARS = 20000;
 
 /** AI 功能清单的将来功能插槽：只做占位展示，落地排期随 M3 计划。 */
 const M3_FEATURES = [
@@ -331,7 +323,8 @@ function ProviderCard({
  * 模型页签：统一模型配置状态卡（激活 provider 生效态）、Provider 目录管理（022，
  * CC Switch 式多 provider：列表/新增/编辑/删除/激活）、AI 功能清单按激活 provider 联动；
  * 下半区本月用量（真实用量视图）与预算护栏编辑（预算 + 模型定价，保存即时生效）；
- * 任务路由/Prompt 模板仍为 M3 占位（原型参照，只读）。
+ * Prompt 版本治理（034，API §8.18）：版本列表/登记新版本/激活换轨（append-only + label 流转）；
+ * 任务路由仍为 M3 占位（原型参照，只读）。
  * @returns 页签内容
  */
 export function ModelsPage() {
@@ -351,6 +344,11 @@ export function ModelsPage() {
     queryKey: queryKeys.admin.llmUsage,
     queryFn: ({ signal }) => getLlmUsage(signal),
   });
+  // Prompt 版本治理（034）：独立查询——失败只降级为区块内提示（首页一屏取全量，size 上限 100）。
+  const promptsQuery = useQuery({
+    queryKey: queryKeys.admin.prompts,
+    queryFn: ({ signal }) => getPromptVersions({ page: 1, size: 100 }, signal),
+  });
 
   // 表单与删除确认的本地态；form 为 null 时抽屉关闭。
   const [form, setForm] = useState<{ mode: "create" | "edit"; state: ProviderFormState } | null>(
@@ -368,6 +366,10 @@ export function ModelsPage() {
   const pricingRowSeqRef = useRef(0);
   // 「重置为环境默认」的确认弹窗：清端点/模型覆盖 + 删 tutor 密钥行，生效值回退环境变量。
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  // Prompt 登记抽屉（034）：null=关闭；表单含场景选择与内容编辑。
+  const [promptForm, setPromptForm] = useState<{ name: string; content: string } | null>(null);
+  // Prompt 激活确认弹窗（034）：null=关闭；仅 CANDIDATE 行可发起。
+  const [activating, setActivating] = useState<PromptVersion | null>(null);
 
   // 非编辑态下表单与服务端保持一致：config 首次到位时以生效值回填；目录删除/激活等外部变更
   // 引起 config 更新时同样回填（编辑态不回填，见 dirty 守卫）。函数式更新 + 值相等短路——
@@ -572,6 +574,37 @@ export function ModelsPage() {
       // 激活中不可删等业务文案原样透出；确认框保持打开便于改选其他激活条目。
       toast(error instanceof Error ? error.message : "操作失败，请稍后重试");
     },
+  });
+
+  /** Prompt 版本列表失效：登记/激活成功后回读服务端真相（label 流转）。 */
+  function invalidatePromptsQuery() {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.admin.prompts });
+  }
+
+  // 登记 Prompt 新版本（034）：版本号服务端分配，登记后为 CANDIDATE 不自动激活。
+  const registerPromptMutation = useMutation({
+    mutationFn: registerPromptVersion,
+    onSuccess: (prompt) => {
+      invalidatePromptsQuery();
+      setPromptForm(null);
+      toast(
+        `「${PROMPT_NAME_LABELS[prompt.name] ?? prompt.name}」v${prompt.version} 已登记为候选版本，激活后生效`,
+      );
+    },
+    onError,
+  });
+
+  // 激活 Prompt 版本（034）：旧 ACTIVE 同事务降级 + 注册表缓存失效，三条 LLM 链路即时换轨。
+  const activatePromptMutation = useMutation({
+    mutationFn: activatePromptVersion,
+    onSuccess: (prompt) => {
+      invalidatePromptsQuery();
+      setActivating(null);
+      toast(
+        `「${PROMPT_NAME_LABELS[prompt.name] ?? prompt.name}」已切换到 v${prompt.version}，即时生效`,
+      );
+    },
+    onError,
   });
 
   if (configQuery.isPending || providersQuery.isPending) {
@@ -962,23 +995,70 @@ export function ModelsPage() {
         </p>
       </AdminSection>
 
-      <AdminSection title="Prompt 模板" action={<StatePill tone="muted">M3 预留</StatePill>}>
-        <RowList>
-          {M3_PROMPTS.map((prompt) => (
-            <Row key={prompt.id}>
-              <RowText main={prompt.name} meta={`v${prompt.version} · 更新于 ${prompt.updated}`} />
-              <StatePill tone={prompt.enabled ? "ok" : "muted"}>
-                {prompt.enabled ? "启用" : "停用"}
-              </StatePill>
-              <span className="truncate text-right font-mono text-[11px] text-ink-faint">
-                随 M3 prompt_versions 落地
-              </span>
-            </Row>
-          ))}
-        </RowList>
-        <p className="mt-3.5 font-mono text-[11px] leading-[1.7] tracking-[0.06em] text-ink-faint">
-          变量在调用时注入；保存即新版本，可回滚。用户答案一律当数据，不当指令。
-        </p>
+      <AdminSection
+        title="Prompt 模板"
+        action={
+          <button
+            type="button"
+            className="btn ghost"
+            aria-label="登记 Prompt 新版本"
+            onClick={() => setPromptForm({ name: "review", content: "" })}
+          >
+            登记 Prompt 新版本
+          </button>
+        }
+      >
+        {promptsQuery.isPending ? (
+          <LoadingBlock />
+        ) : promptsQuery.isError || !promptsQuery.data ? (
+          <div>
+            <p className="text-[13px] text-ink-muted">Prompt 版本加载失败，其余配置不受影响。</p>
+            <button
+              type="button"
+              className="btn ghost mt-2"
+              onClick={() => void promptsQuery.refetch()}
+            >
+              重试
+            </button>
+          </div>
+        ) : (
+          <>
+            <RowList>
+              {promptsQuery.data.items.map((prompt) => (
+                <Row key={prompt.id}>
+                  <RowText
+                    main={`${PROMPT_NAME_LABELS[prompt.name] ?? prompt.name}（${prompt.name}）`}
+                    meta={`v${prompt.version} · 登记于 ${prompt.createdAt.slice(0, 10)}`}
+                  />
+                  <StatePill tone={prompt.label === "ACTIVE" ? "ok" : "muted"}>
+                    {prompt.label === "ACTIVE" ? "启用中" : "候选"}
+                  </StatePill>
+                  <span
+                    className="max-w-[280px] truncate text-right font-mono text-[11px] text-ink-faint"
+                    title={prompt.content}
+                  >
+                    {prompt.content.split("\n")[0]}
+                  </span>
+                  {prompt.label === "CANDIDATE" ? (
+                    <button
+                      type="button"
+                      className="btn ghost"
+                      disabled={activatePromptMutation.isPending}
+                      aria-label={`激活 Prompt ${prompt.name} v${prompt.version}`}
+                      onClick={() => setActivating(prompt)}
+                    >
+                      激活
+                    </button>
+                  ) : null}
+                </Row>
+              ))}
+            </RowList>
+            <p className="mt-3.5 font-mono text-[11px] leading-[1.7] tracking-[0.06em] text-ink-faint">
+              版本一经登记不改写（append-only）；登记后为候选，激活即时换轨（旧启用版本降为候选，
+              可再激活回滚）。换模型或改 Prompt 前先跑黄金集回归（见 README SOP）。
+            </p>
+          </>
+        )}
       </AdminSection>
 
       <AdminSection title="本月用量" action={<StatePill tone="muted">UTC 自然月</StatePill>}>
@@ -1381,6 +1461,104 @@ export function ModelsPage() {
           });
         }}
         onCancel={() => setResetConfirmOpen(false)}
+      />
+
+      {/* 登记新版本抽屉（034）：场景白名单 + 内容非空 ≤20000 字符（与服务端校验同口径）。 */}
+      <Drawer
+        open={promptForm !== null}
+        onClose={() => setPromptForm(null)}
+        kicker="Prompt 模板"
+        title="登记 Prompt 新版本"
+        meta="版本号由服务端分配（该场景现存最大 +1）；登记后为候选版本，激活后才对线上生效。行内容一经登记不可改写。"
+      >
+        {promptForm ? (
+          <form
+            className="mt-6"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!PROMPT_SCENE_OPTIONS.some((scene) => scene === promptForm.name)) {
+                toast("请选择场景");
+                return;
+              }
+              if (promptForm.content.trim() === "") {
+                toast("Prompt 内容不能为空");
+                return;
+              }
+              if ([...promptForm.content].length > PROMPT_CONTENT_MAX_CHARS) {
+                toast("Prompt 内容超出长度限制（≤20000 字符）");
+                return;
+              }
+              registerPromptMutation.mutate({
+                name: promptForm.name as "ask" | "review" | "appeal",
+                content: promptForm.content,
+              });
+            }}
+          >
+            <AdminField
+              label="场景"
+              hint="三条 LLM 链路各维护自己的版本序列；切换场景保留已填内容。"
+            >
+              <select
+                aria-label="Prompt 场景"
+                className="rounded-sm border border-rule bg-transparent px-2.5 py-[7px] text-xs text-ink-muted outline-none transition focus:border-ink-faint"
+                value={promptForm.name}
+                onChange={(event) => setPromptForm({ ...promptForm, name: event.target.value })}
+              >
+                {PROMPT_SCENE_OPTIONS.map((scene) => (
+                  <option key={scene} value={scene}>
+                    {PROMPT_NAME_LABELS[scene]}（{scene}）
+                  </option>
+                ))}
+              </select>
+            </AdminField>
+            <AdminField
+              label="系统提示全文"
+              hint="整段提示一次登记为一个版本快照；变量在调用时注入，用户答案一律当数据不当指令。"
+            >
+              <textarea
+                aria-label="Prompt 系统提示全文"
+                rows={12}
+                className="w-full border border-rule bg-transparent p-3 font-mono text-[12px] leading-[1.8] text-ink outline-none transition focus:border-vermilion"
+                placeholder="输入系统提示全文…"
+                value={promptForm.content}
+                onChange={(event) => setPromptForm({ ...promptForm, content: event.target.value })}
+              />
+              <p className="mt-1.5 font-mono text-[10px] text-ink-faint">
+                {[...promptForm.content].length} / {PROMPT_CONTENT_MAX_CHARS} 字符
+              </p>
+            </AdminField>
+            <div className="mt-8 flex items-center gap-4">
+              <button
+                type="submit"
+                className="btn primary"
+                disabled={registerPromptMutation.isPending}
+              >
+                登记为候选版本
+              </button>
+              <button type="button" className="btn ghost" onClick={() => setPromptForm(null)}>
+                取消
+              </button>
+            </div>
+          </form>
+        ) : null}
+      </Drawer>
+
+      {/* 激活确认（034）：仅 CANDIDATE 可发起；激活即时换轨且旧启用版本降为候选（可回滚再激活）。 */}
+      <ConfirmDialog
+        open={activating !== null}
+        title="激活 Prompt 版本"
+        description={
+          activating
+            ? `把「${PROMPT_NAME_LABELS[activating.name] ?? activating.name}」切换到 v${activating.version}？当前启用版本将降为候选；激活即时生效，无需重启。改动写入操作日志。`
+            : ""
+        }
+        confirmLabel="激活"
+        onConfirm={() => {
+          if (activating) {
+            activatePromptMutation.mutate(activating.id);
+          }
+        }}
+        onCancel={() => setActivating(null)}
       />
 
       {toastNode}

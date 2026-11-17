@@ -68,7 +68,8 @@ public interface AppealDao {
      * @param decidedAt 裁决时间（占位为 null）
      * @param modelSnapshot 模型快照（占位为 null）
      * @param promptVersionId prompt 注册表版本 id（占位为 null）
-     * @return 受影响行数（0=记录不存在）
+     * @return 受影响行数（0=记录不存在或已被并发终审——初裁 UPDATE 的 WHERE 携带 status='PENDING'，
+     *     窗口内已终审的行不再落初裁列，调用方按存储真相投影回执）
      */
     int updateAdjudication(
             long id,

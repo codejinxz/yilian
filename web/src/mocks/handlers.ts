@@ -2939,6 +2939,85 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     return buildLlmUsageDemo();
   }
 
+  // ---- 管理端 Prompt 版本治理（034，API §8.18）：检索/登记/激活 ----
+  if (pathname === "/admin/prompts" && method === "GET") {
+    requireAdmin(db);
+    const name = params.get("name");
+    const label = params.get("label");
+    if (name && !["ask", "review", "appeal"].includes(name)) {
+      fail(400, 40000, "name 只能为 ask、review 或 appeal");
+    }
+    if (label && !["ACTIVE", "CANDIDATE"].includes(label)) {
+      fail(400, 40000, "label 取值不合法");
+    }
+    const filtered = db.prompts.filter((prompt) => {
+      if (name && prompt.name !== name) {
+        return false;
+      }
+      if (label && prompt.label !== label) {
+        return false;
+      }
+      return true;
+    });
+    const { page, size } = pagination(params);
+    const rows = [...filtered]
+      .sort((a, b) => a.name.localeCompare(b.name) || b.version - a.version)
+      .slice((page - 1) * size, (page - 1) * size + size);
+    return paginate(rows, page, size);
+  }
+  if (pathname === "/admin/prompts" && method === "POST") {
+    requireAdmin(db);
+    const input = asObject(body);
+    const name = String(input.name ?? "");
+    const content = String(input.content ?? "");
+    if (!["ask", "review", "appeal"].includes(name)) {
+      fail(400, 40000, "name 只能为 ask、review 或 appeal");
+    }
+    if (content.trim() === "") {
+      fail(400, 40000, "content 不能为空");
+    }
+    if ([...content].length > 20000) {
+      fail(400, 40000, "content 超出长度限制（≤20000 字符）");
+    }
+    const nextVersion =
+      db.prompts
+        .filter((prompt) => prompt.name === name)
+        .reduce((max, prompt) => Math.max(max, prompt.version), 0) + 1;
+    const row = {
+      id: Number(nextMockId()),
+      name: name as "ask" | "review" | "appeal",
+      version: nextVersion,
+      label: "CANDIDATE" as const,
+      content,
+      createdAt: new Date().toISOString(),
+    };
+    db.prompts.push(row);
+    appendAudit(db, requireAdmin(db), "PROMPT_REGISTER", "PROMPT_VERSION", String(row.id), null);
+    persistMockDb();
+    return row;
+  }
+  if (/^\/admin\/prompts\/\d+\/activate$/.test(pathname) && method === "POST") {
+    requireAdmin(db);
+    const id = Number(pathname.split("/")[3]);
+    const target = db.prompts.find((prompt) => prompt.id === id);
+    if (!target) {
+      fail(404, 40400, "请求的资源不存在");
+    }
+    if (target.label === "ACTIVE") {
+      // 幂等口径：对当前 ACTIVE 行重复激活返回现值，不重复降级。
+      return target;
+    }
+    for (const prompt of db.prompts) {
+      if (prompt.name === target.name && prompt.label === "ACTIVE") {
+        prompt.label = "CANDIDATE";
+      }
+    }
+    target.label = "ACTIVE";
+    appendAudit(db, requireAdmin(db), "PROMPT_ACTIVATE", "PROMPT_VERSION", String(target.id), null);
+    persistMockDb();
+    return target;
+  }
+
   return fail(404, 40400, "请求的资源不存在");
 }
 

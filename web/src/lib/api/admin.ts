@@ -948,3 +948,59 @@ export async function decideAdminAppeal(
   );
   return parseData(adminAppealSchema, data);
 }
+
+// ---------------------------------------------------------------------------
+// Prompt 版本治理（034，API §8.18）：prompt_versions 注册表写半边的管理端入口。
+// 版本行 append-only（name/version/content 一经登记不改写），启用态由 label 流转；
+// 激活同事务完成「旧 ACTIVE 降 CANDIDATE → 新行 ACTIVE → 注册表缓存失效」即时换轨。
+// ---------------------------------------------------------------------------
+
+/** Prompt 版本行（API §8.18.1）：content 全文回读给管理员（版本快照非密钥）。 */
+export const promptVersionSchema = z.object({
+  id: z.number(),
+  name: z.enum(["ask", "review", "appeal"]),
+  version: z.number(),
+  label: z.enum(["ACTIVE", "CANDIDATE"]),
+  content: z.string(),
+  createdAt: z.string(),
+});
+
+/** Prompt 版本行类型。 */
+export type PromptVersion = z.infer<typeof promptVersionSchema>;
+
+/**
+ * Prompt 版本行分页检索。
+ * @param params 分页与 name/label 过滤
+ * @param signal 取消信号
+ * @returns 分页版本行（name 升序 + version 倒序）
+ */
+export async function getPromptVersions(
+  params: { page?: number; size?: number; name?: string; label?: string } = {},
+  signal?: AbortSignal,
+): Promise<PageResponse<PromptVersion>> {
+  const data = await apiRequest<unknown>(`/admin/prompts${toQueryString(params)}`, { signal });
+  return parseData(pageResponseSchema(promptVersionSchema), data);
+}
+
+/**
+ * 登记 Prompt 新版本：版本号服务端分配（现存最大 +1），登记后为 CANDIDATE 待激活。
+ * @param input 场景名与系统提示全文（≤20000 字符）
+ * @returns 已登记的版本行
+ */
+export async function registerPromptVersion(input: {
+  name: "ask" | "review" | "appeal";
+  content: string;
+}): Promise<PromptVersion> {
+  const data = await jsonRequest<unknown>("/admin/prompts", "POST", input);
+  return parseData(promptVersionSchema, data);
+}
+
+/**
+ * 激活 Prompt 版本：仅 CANDIDATE 可激活（已 ACTIVE 幂等返回）；激活即时换轨无需重启。
+ * @param id 版本行 id
+ * @returns 激活后的版本行
+ */
+export async function activatePromptVersion(id: number): Promise<PromptVersion> {
+  const data = await jsonRequest<unknown>(`/admin/prompts/${id}/activate`, "POST");
+  return parseData(promptVersionSchema, data);
+}

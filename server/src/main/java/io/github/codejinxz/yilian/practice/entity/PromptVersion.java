@@ -56,6 +56,28 @@ public class PromptVersion {
     }
 
     /**
+     * 登记一个新版本行（管理端写路径）：行内容三列只在创建时赋值，此后经定向 UPDATE 改 label， 不经实体改写（append-only 纪律——本类不提供
+     * name/version/content 的 setter）。
+     *
+     * @param name 场景名（ask / review / appeal）
+     * @param version 版本号（同 name 内现存最大 +1，由服务端分配）
+     * @param content 系统提示全文（版本快照）
+     * @param label 初始标签（登记恒 CANDIDATE）
+     * @param now 登记时间（UTC，服务端时钟）
+     * @return 未持久化的版本行
+     */
+    public static PromptVersion create(
+            String name, int version, String content, PromptLabel label, Instant now) {
+        PromptVersion row = new PromptVersion();
+        row.name = name;
+        row.version = version;
+        row.content = content;
+        row.label = label;
+        row.createdAt = now;
+        return row;
+    }
+
+    /**
      * 主键。
      *
      * @return 自增 id

@@ -53,6 +53,16 @@ interface LlmProviderFixture {
   active: boolean;
 }
 
+/** 服务端 PromptVersionView 的合法形状（API §8.18，034）。 */
+interface PromptVersionFixture {
+  id: number;
+  name: "ask" | "review" | "appeal";
+  version: number;
+  label: "ACTIVE" | "CANDIDATE";
+  content: string;
+  createdAt: string;
+}
+
 /** legacy 直配且开启的缺省夹具（019 用例形态，目录为空、纯 env）；用例按需覆盖字段。 */
 const CONFIGURED_ON: LlmConfigFixture = {
   enabled: true,
@@ -91,6 +101,37 @@ const ZHIPU: LlmProviderFixture = {
   keyLast4: null,
   active: false,
 };
+
+/** Prompt 版本注册表缺省夹具（034，V13 种子形状：三条链路各一条 ACTIVE v1）。 */
+const DEFAULT_PROMPTS: PromptVersionFixture[] = [
+  {
+    id: 1,
+    name: "ask",
+    version: 1,
+    label: "ACTIVE",
+    content:
+      "你是「译练」的题目答疑助手，面向中文母语者的中译英刻意练习。请遵守：\n1. 只回答与给出的句子、考点、批注有关的问题；",
+    createdAt: "2026-11-06T00:00:00Z",
+  },
+  {
+    id: 2,
+    name: "review",
+    version: 1,
+    label: "ACTIVE",
+    content:
+      "你是「译练」的中译英批改复核模型，面向中文母语者的刻意练习。请遵守：\n1. 综合参考译文、语块答案结构与本地批注，重新打一个 0–100 的整数分；",
+    createdAt: "2026-11-06T00:00:00Z",
+  },
+  {
+    id: 3,
+    name: "appeal",
+    version: 1,
+    label: "ACTIVE",
+    content:
+      "你是「译练」的申诉初裁模型，面向中文母语者的中译英刻意练习。请遵守：\n1. 综合题目中文、语块参考答案、用户提交与本地批注，判断申诉主张是否成立；",
+    createdAt: "2026-11-06T00:00:00Z",
+  },
+];
 
 /**
  * 构造一个带 headers/json/text 的最小 Response（与 admin-shell 用例同构）。
@@ -133,17 +174,25 @@ function stubAdminLlmFetch(
     providersMode?: "ok" | "delete-active-rejected";
     usage?: LlmUsageFixture;
     usageMode?: "ok" | "error";
+    prompts?: PromptVersionFixture[];
+    promptsMode?: "ok" | "error";
+    promptsPostMode?: "ok" | "reject";
   } = {},
 ) {
   let current = initial;
   const providers = [...(options.providers ?? [])];
+  // Prompt 版本注册表演示态（034）：缺省给 V13 种子形状（三条 ACTIVE v1），用例按需覆盖。
+  const prompts = [...(options.prompts ?? DEFAULT_PROMPTS)];
   const observed = {
     getCalls: 0,
     usageGets: 0,
+    promptsGets: 0,
     putBodies: [] as Array<Record<string, unknown>>,
     providerPosts: [] as Array<Record<string, unknown>>,
     providerPuts: [] as Array<{ path: string; body: Record<string, unknown> | null }>,
     providerDeletes: [] as string[],
+    promptPosts: [] as Array<Record<string, unknown>>,
+    promptActivations: [] as number[],
   };
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -276,6 +325,77 @@ function stubAdminLlmFetch(
     if (url.endsWith("/api/admin/llm/providers") && method === "GET") {
       observed.getCalls += 1;
       return jsonResponse(successEnvelope({ items: providers }));
+    }
+    // Prompt 版本治理（034，API §8.18）：GET 列表（带分页 query）/ POST 登记 / POST activate。
+    const promptListMatch = url.match(/\/api\/admin\/prompts(\?.*)?$/);
+    if (promptListMatch && method === "GET") {
+      observed.promptsGets += 1;
+      if (options.promptsMode === "error") {
+        return jsonResponse({ code: 50000, message: "服务响应异常，请稍后重试" }, 500);
+      }
+      const query = new URLSearchParams(promptListMatch[1] ?? "");
+      const name = query.get("name");
+      const label = query.get("label");
+      const filtered = prompts.filter((row) => {
+        if (name && row.name !== name) {
+          return false;
+        }
+        if (label && row.label !== label) {
+          return false;
+        }
+        return true;
+      });
+      const sorted = [...filtered].sort(
+        (a, b) => a.name.localeCompare(b.name) || b.version - a.version,
+      );
+      return jsonResponse(
+        successEnvelope({
+          items: sorted,
+          page: 1,
+          size: 100,
+          total: sorted.length,
+          totalPages: 1,
+          hasNext: false,
+        }),
+      );
+    }
+    if (url.endsWith("/api/admin/prompts") && method === "POST") {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      observed.promptPosts.push(body);
+      if (options.promptsPostMode === "reject") {
+        return jsonResponse({ code: 40000, message: "name 只能为 ask、review 或 appeal" }, 400);
+      }
+      const name = String(body.name);
+      const content = String(body.content);
+      const nextVersion =
+        prompts
+          .filter((row) => row.name === name)
+          .reduce((max, row) => Math.max(max, row.version), 0) + 1;
+      const created: PromptVersionFixture = {
+        id: 100 + prompts.length,
+        name: name as PromptVersionFixture["name"],
+        version: nextVersion,
+        label: "CANDIDATE",
+        content,
+        createdAt: "2026-11-18T08:00:00Z",
+      };
+      prompts.push(created);
+      return jsonResponse(successEnvelope(created));
+    }
+    const promptActivateMatch = url.match(/\/api\/admin\/prompts\/(\d+)\/activate$/);
+    if (promptActivateMatch && method === "POST") {
+      const id = Number(promptActivateMatch[1]);
+      observed.promptActivations.push(id);
+      const target = prompts.find((row) => row.id === id);
+      if (!target) {
+        return jsonResponse({ code: 40400, message: "请求的资源不存在" }, 404);
+      }
+      prompts.forEach((row) => {
+        if (row.name === target.name) {
+          row.label = row.id === id ? "ACTIVE" : "CANDIDATE";
+        }
+      });
+      return jsonResponse(successEnvelope({ ...target, label: "ACTIVE" }));
     }
     if (url.endsWith("/api/admin/llm/providers") && method === "POST") {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -410,8 +530,9 @@ describe("ModelsPage 统一模型配置状态中心", () => {
 
     renderModelsPage();
 
-    // 凭证与开关联动：卡内答疑关联与 AI 功能清单两处都应为「启用中」。
-    expect(await screen.findAllByText("启用中")).toHaveLength(2);
+    // 凭证与开关联动：卡内答疑关联与 AI 功能清单两处都应为「启用中」；
+    // 034 起 Prompt 区块每条 ACTIVE 版本行也带「启用中」徽标（3 条种子行，合计 5）。
+    expect(await screen.findAllByText("启用中")).toHaveLength(5);
     expect(screen.getByText("已配置")).toBeInTheDocument();
     // 028：legacy 态当前模型为 inline 输入（默认回显生效值），不再是纯文本。
     expect(screen.getByLabelText("当前模型")).toHaveValue("glm-4.7");
@@ -483,8 +604,8 @@ describe("ModelsPage 统一模型配置状态中心", () => {
 
     renderModelsPage();
 
-    // 答疑关联与 AI 功能清单两处联动位都是「启用中」。
-    expect(await screen.findAllByText("启用中")).toHaveLength(2);
+    // 答疑关联与 AI 功能清单两处联动位都是「启用中」；034 起另有 Prompt 区块 3 条 ACTIVE 行同徽标（合计 5）。
+    expect(await screen.findAllByText("启用中")).toHaveLength(5);
     // 不出现缺凭证形态：无「未生效（缺凭证）」、无环境变量指引块、无对称说明行。
     expect(screen.queryByText("未生效（缺凭证）")).not.toBeInTheDocument();
     expect(screen.queryByText(/开关已开启但未生效/)).not.toBeInTheDocument();
@@ -1307,5 +1428,139 @@ describe("ModelsPage 本月用量与预算护栏（033）", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(/monthlyBudgetCny 超出上限/);
     // 提交即解除 dirty：拒绝后表单按服务端值重新对齐（未设预算 → 空输入），不残留超限值。
     await waitFor(() => expect(screen.getByLabelText("月度预算（元）")).toHaveValue(""));
+  });
+});
+
+describe("ModelsPage Prompt 版本治理（034）", () => {
+  beforeEach(() => {
+    resetApiState();
+    // biome-ignore lint/suspicious/noDocumentCookie: 测试需要写入可读的 CSRF cookie
+    document.cookie = "XSRF-TOKEN=test-token; path=/";
+  });
+
+  it("034 AC-7: 版本列表渲染——场景名/版本/时间/标签与内容摘要，启用中不出现激活按钮", async () => {
+    const observed = stubAdminLlmFetch(CONFIGURED_ON);
+
+    renderModelsPage();
+
+    expect(observed.promptsGets).toBeGreaterThanOrEqual(1);
+    // 三条种子行都渲染：场景中文名 + 键名 + 版本号。
+    expect(await screen.findByText("题目答疑（ask）")).toBeInTheDocument();
+    expect(screen.getByText("模型复核（review）")).toBeInTheDocument();
+    expect(screen.getByText("申诉初裁（appeal）")).toBeInTheDocument();
+    expect(screen.getAllByText("v1 · 登记于 2026-11-06")).toHaveLength(3);
+    // label 徽标：ACTIVE → 启用中（行内断言，避免与答疑关联的同文案徽标串扰），无候选行即无「激活」按钮。
+    for (const name of ["题目答疑（ask）", "模型复核（review）", "申诉初裁（appeal）"]) {
+      const row = screen.getByText(name).closest("li");
+      expect(row?.textContent).toContain("启用中");
+    }
+    expect(screen.queryByRole("button", { name: /激活 Prompt/ })).not.toBeInTheDocument();
+    // 内容摘要：首行文本进入 DOM（视觉截断靠 CSS），三条各有其一。
+    expect(
+      screen.getByText("你是「译练」的题目答疑助手，面向中文母语者的中译英刻意练习。请遵守："),
+    ).toBeInTheDocument();
+  });
+
+  it("034 AC-7: 候选行显示激活按钮；激活确认后 POST activate 并刷新标签流转", async () => {
+    const withCandidate: PromptVersionFixture[] = [
+      ...DEFAULT_PROMPTS,
+      {
+        id: 4,
+        name: "review",
+        version: 2,
+        label: "CANDIDATE",
+        content: "复核提示词 v2 候选正文",
+        createdAt: "2026-11-18T08:00:00Z",
+      },
+    ];
+    const observed = stubAdminLlmFetch(CONFIGURED_ON, { prompts: withCandidate });
+
+    renderModelsPage();
+
+    const activateButton = await screen.findByRole("button", {
+      name: "激活 Prompt review v2",
+    });
+    expect(screen.getByText("候选")).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(activateButton);
+    // 确认对话框出现且描述讲清降级语义。
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent(/切换到 v2/);
+    expect(dialog).toHaveTextContent(/降为候选/);
+    await user.click(screen.getByRole("button", { name: "激活" }));
+
+    await waitFor(() => expect(observed.promptActivations).toEqual([4]));
+    // 流转：review v1 降候选、v2 启用——列表失效回读后徽标与摘要更新（启用中仍为 3 行 + 答疑关联 2 处）。
+    expect(await screen.findAllByText("启用中")).toHaveLength(5);
+    expect(screen.getByText("候选")).toBeInTheDocument();
+    expect(screen.getByText("复核提示词 v2 候选正文")).toBeInTheDocument();
+    // 候选行只剩一条（v1 降级后）：v2 行不再有激活按钮。
+    expect(screen.queryByRole("button", { name: "激活 Prompt review v2" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "激活 Prompt review v1" })).toBeInTheDocument();
+  });
+
+  it("034 AC-7: 登记对话框——场景选择、内容校验（空拦截不发请求）、成功后 CANDIDATE 入列", async () => {
+    const observed = stubAdminLlmFetch(CONFIGURED_ON);
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "登记 Prompt 新版本" }));
+    const drawer = await screen.findByRole("dialog");
+    expect(drawer).toHaveTextContent(/登记 Prompt 新版本/);
+    expect(screen.getByLabelText("Prompt 场景")).toHaveValue("review");
+
+    // 空内容前端拦截：不发出 POST。
+    await user.click(screen.getByRole("button", { name: "登记为候选版本" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/Prompt 内容不能为空/);
+    expect(observed.promptPosts).toHaveLength(0);
+
+    // 合法提交：POST 体透传 name/content，回执为 CANDIDATE。
+    await user.type(screen.getByLabelText("Prompt 系统提示全文"), "复核提示词 v2 候选正文");
+    expect(screen.getByLabelText("Prompt 系统提示全文")).toHaveValue("复核提示词 v2 候选正文");
+    await user.click(screen.getByRole("button", { name: "登记为候选版本" }));
+
+    await waitFor(() => expect(observed.promptPosts).toHaveLength(1));
+    expect(observed.promptPosts[0]).toEqual({
+      name: "review",
+      content: "复核提示词 v2 候选正文",
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent(/已登记为候选版本/);
+    // 列表回读：新候选行出现，版本号 = 该场景现存最大 + 1。
+    expect(screen.getByText("复核提示词 v2 候选正文")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "激活 Prompt review v2" })).toBeInTheDocument();
+  });
+
+  it("034 AC-7: 登记请求 40000（场景白名单等）业务文案透出且列表不新增", async () => {
+    const observed = stubAdminLlmFetch(CONFIGURED_ON, { promptsPostMode: "reject" });
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "登记 Prompt 新版本" }));
+    await user.type(screen.getByLabelText("Prompt 系统提示全文"), "任意正文");
+    await user.click(screen.getByRole("button", { name: "登记为候选版本" }));
+
+    // 服务端拒绝文案如实透出（错误信封 message 直达 toast）。
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      /name 只能为 ask、review 或 appeal/,
+    );
+    // POST 已发出但被拒：请求被记录，列表未新增行（列表行的摘要带 title 属性，抽屉内 textarea 不计）。
+    expect(observed.promptPosts).toHaveLength(1);
+    expect(screen.queryByTitle("任意正文")).not.toBeInTheDocument();
+  });
+
+  it("034 AC-7: Prompt 区块加载失败只降级为本区块提示，不拖垮整页", async () => {
+    stubAdminLlmFetch(CONFIGURED_ON, { promptsMode: "error" });
+
+    renderModelsPage();
+
+    // 查询失败先重试一次（1s 退避），放宽等待窗口。
+    expect(
+      await screen.findByText("Prompt 版本加载失败，其余配置不受影响。", {}, { timeout: 5000 }),
+    ).toBeInTheDocument();
+    // 整页其余区块仍可用：答疑配置卡正常渲染。
+    expect(screen.getByLabelText("当前模型")).toHaveValue("glm-4.7");
   });
 });

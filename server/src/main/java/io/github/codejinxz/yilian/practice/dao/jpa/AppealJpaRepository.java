@@ -64,6 +64,10 @@ public interface AppealJpaRepository extends JpaRepository<Appeal, Long> {
      * 定向 UPDATE 落 LLM 初裁结果：只碰裁决六列，不触碰 status 与提交数据（append-only 纪律—— 判分/提交数据一经落库不改写，裁决列是 appeals
      * 作为「可变投影」的受控 UPDATE 面）。
      *
+     * <p>WHERE 携带 status='PENDING' 条件（初裁侧原子门，与终审 {@link #updateFinalDecision} 同款条件 UPDATE）：
+     * 申诉落库后初裁外呼期间（同步 LLM 最长 ~31.5s）该行 PENDING 可见于管理端，管理员可在此窗口合法终审； 无守卫时后到的初裁 UPDATE 会覆盖终审理由与
+     * decided_by 且不可自愈。 行数=0 表示记录不存在或已被并发终审——调用方不得落初裁列，回执按存储真相（终审）投影。
+     *
      * @param id 记录 id
      * @param decision 初裁原文 JSON 或占位
      * @param decisionReason 可展示理由
@@ -71,7 +75,7 @@ public interface AppealJpaRepository extends JpaRepository<Appeal, Long> {
      * @param decidedAt 裁决时间
      * @param modelSnapshot 模型快照
      * @param promptVersionId prompt 注册表版本 id
-     * @return 受影响行数
+     * @return 受影响行数（0=记录不存在或已被并发终审）
      */
     @Modifying
     @Query(
@@ -79,7 +83,7 @@ public interface AppealJpaRepository extends JpaRepository<Appeal, Long> {
                     + " SET a.decision = :decision, a.decisionReason = :decisionReason,"
                     + " a.decidedBy = :decidedBy, a.decidedAt = :decidedAt,"
                     + " a.modelSnapshot = :modelSnapshot, a.promptVersionId = :promptVersionId"
-                    + " WHERE a.id = :id")
+                    + " WHERE a.id = :id AND a.status = 'PENDING'")
     int updateAdjudication(
             @Param("id") long id,
             @Param("decision") String decision,

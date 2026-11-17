@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 |---|---|
-| 版本 | v1.8（对齐文末变更记录最新行，029 批次头部版本号随变更记录推进） |
-| 日期 | 2026-11-17 |
+| 版本 | v2.2（对齐文末变更记录最新行，批次头部版本号随变更记录推进） |
+| 日期 | 2026-11-18 |
 | 字段来源 | `docs/DATA-MODEL.md` v0.1（唯一字段来源） |
 | 上游约束 | `AGENTS.md`、`docs/PRD.md` §4/§5/§8/§11/§12、`docs/NAMING.md` |
 | 下游 | `docs/openapi.yaml`（仅导出已实现端点）、`web/src/lib/api.ts` |
@@ -1200,7 +1200,7 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 }
 ```
 
-回执字段口径（029 对齐，以存储 decision JSON 为真相）：初裁成功四字段为 `SUPPORT/OPPOSE/UNCERTAIN` + AI 理由 + `LLM` + 时间；**初裁不可用（失败/限流/未配置模型）时 verdict=`"UNAVAILABLE"`、`decisionReason`=占位理由「AI 初裁暂不可用，等待人工终审」、`decidedBy/decidedAt` 为 `null`**（与 `decision` 列落的 `{"verdict":"UNAVAILABLE"}` 同源，用户端「AI 初裁暂不可用」展示分支由此驱动）；DISPUTE 回执四字段恒为 `null`。
+回执字段口径（029 对齐，以存储 decision JSON 为真相）：初裁成功四字段为 `SUPPORT/OPPOSE/UNCERTAIN` + AI 理由 + `LLM` + 时间；**初裁不可用（失败/限流/未配置模型）时 verdict=`"UNAVAILABLE"`、`decisionReason`=占位理由「AI 初裁暂不可用，等待人工终审」、`decidedBy/decidedAt` 为 `null`**（与 `decision` 列落的 `{"verdict":"UNAVAILABLE"}` 同源，用户端「AI 初裁暂不可用」展示分支由此驱动）；DISPUTE 回执四字段恒为 `null`。**034 R2-01 窗口竞态口径**：初裁落列 UPDATE 的 WHERE 携带 `status='PENDING'`——终审在初裁外呼窗口内完成时行数=0，初裁结果整体丢弃（终审理由与 decided_by 不被覆盖，占位也不落列），回执**按存储真相投影为终审态**（`status=ACCEPTED/REJECTED`、`decisionReason`=终审理由、`decidedBy=ADMIN`、`decidedAt`=终审时间、verdict=null 不伪造 AI 意见），初裁调用真实发生以 llm_usage `ok=true` 留痕。
 
 错误：`40000`、`40100`、`40300`、`40403`、`40900`、`50000`。
 
@@ -2111,6 +2111,34 @@ provider 目录（022，CC Switch 式多 provider；027B 扩密钥录入）：�
 
 前端消费（033）：ModelsPage 下半区「本月用量」卡片（已用/预算/百分比指标 + 三态状态徽标 + 分场景小计；EXCEEDED 时展示降级说明「答疑拒新调用（40306），复核/申诉初裁走降级路径」），预算与定价编辑表单走 §8.14.2 PUT（状态型字段语义：预算空串=清除、定价行可增删整体替换）；用量视图独立查询，失败只降级为区块内提示不拖垮整页；预算/定价保存连带失效配置与用量两个查询。
 
+### 8.18 `/api/admin/prompts`（implemented，034）
+
+Prompt 版本治理（DATA-MODEL §5.19 写半边）：prompt_versions 注册表的应用内读写入口——此前版本流转走手工 SQL（GAP 029 余量 C-01）。模块归属沿用管理端申诉终审先例：controller 在 practice 域（`AdminPromptController`），只依赖 practice 的 service 接口（AGENTS §3.2 跨模块依赖纪律）。管理员权限由 `/api/admin/**` 路径矩阵（SecurityConfig `hasRole("ADMIN")`）服务端保证。**无 DELETE 端点**（历史快照不删=append-only 语义，预披露裁决）；label 枚举不扩 RETIRED（降级=CANDIDATE，历史版本可再激活——重启旧版本也是合法治理动作）。
+
+#### 8.18.1 `GET /api/admin/prompts`
+
+查询参数：`page`（从 1 起）、`size`（缺省 20，上限 100 越界归 100，011 分页口径）、`name`（`ask`/`review`/`appeal`，非法值 40000）、`label`（`ACTIVE`/`CANDIDATE`，非法值 40000）；均缺省=不过滤。
+
+响应 `PageResponse<PromptVersionView>`，行按 `name` 升序 + `version` 倒序稳定排列（同场景新版本在前），每行含 `id/name/version/label/content/createdAt`。`content` 全文回读（版本快照非密钥，DATA-MODEL §5.19 预披露；前端列表做首行摘要）。读接口不标操作日志（§3.6）。
+
+#### 8.18.2 `POST /api/admin/prompts`
+
+请求：`{ "name": "ask" | "review" | "appeal", "content": "非空 ≤20000 字符（Unicode 码点口径）" }`（Bean Validation：`@NotBlank` + `@Pattern` 白名单 + `@Size`）。
+
+语义：登记新版本——版本号**服务端分配**（该 name 现存最大 +1，不收自客户端），`label=CANDIDATE`（不自动激活，上线必须显式激活）；行内容（name/version/content）一经登记不改写（append-only），并发登记撞 `uk_prompt_name_version` 唯一键按 `40900` 收敛（重试即取到下一个版本号，幂等以数据库唯一约束为准）。审计：`@OperationLog(module=admin, action=PROMPT_REGISTER, targetType=prompt-version)`，动态对象 id 经 `OperationLogContext` 落库；prompt 全文不进审计（体积与敏感性双重考量）。
+
+错误：`40000`（name 白名单/content 空白或超长）、`40001`（缺请求体）、`40100`、`40300`（非管理员）、`40900`（并发登记冲突）、`50000`。
+
+#### 8.18.3 `POST /api/admin/prompts/{id}/activate`
+
+语义：激活候选版本——仅 `CANDIDATE` 可激活；同事务完成「旧 ACTIVE 行降 CANDIDATE → 新行置 ACTIVE → `PromptRegistry.evictAll()`」，三条 LLM 链路（ask/review/appeal）下一次读取即取新版本（prompt_version_id 换轨语义，§6.4/§6.13 的可追溯性基础），缓存失效即使先于提交可见也只导致回源读库（方向安全）。对已 ACTIVE 行重复激活（双击/重试）**幂等返回现值**（不重复降级也不改写历史）；不存在 `40400`。定向 UPDATE 只碰 label 一列（行内容三列在 SQL 面不可达），`@Modifying(clearAutomatically=true)` 保证同事务回读走库。审计：`@OperationLog(module=admin, action=PROMPT_ACTIVATE, targetType=prompt-version)`。
+
+错误：`40000`（id 形态不合法）、`40100`、`40300`（非管理员）、`40400`、`50000`。
+
+字段回溯：`prompt_versions.*`（DATA-MODEL §5.19）。
+
+前端消费（034）：ModelsPage「Prompt 模板」区块（M3 占位真实化）：版本列表（场景中文名+键名/版本/登记日期/label 徽标/内容首行摘要）、登记新版本抽屉（场景选择+内容编辑+字数计数+≤20000 校验）、激活确认弹窗（仅 CANDIDATE 行可用，描述讲清旧版本降级可回滚）；版本查询独立（失败只降级为区块内提示），登记/激活成功后失效回读。
+
 ## 9. 字段回溯对照
 
 > 规则：每个字段必须能落到 `DATA-MODEL.md` 的表列；找不到的标“派生”，并写来源。嵌套对象按 `parent.child` 列。
@@ -2209,6 +2237,9 @@ provider 目录（022，CC Switch 式多 provider；027B 扩密钥录入）：�
 | `Today.goal` | `users.daily_goal` | — |
 | `Today.correctRate` | 派生 | attempts + gradings |
 | `Today.streakDays` | 派生 | attempts 日期序列 |
+| `PromptVersionView.id/name/version/content` | `prompt_versions.*` | 034 §8.18；行内容 append-only |
+| `PromptVersionView.label` | `prompt_versions.label` | ACTIVE/CANDIDATE（激活流转） |
+| `PromptVersionView.createdAt` | `prompt_versions.created_at` | UTC |
 
 ### 9.4 Admin/Analytics
 
@@ -2250,6 +2281,7 @@ provider 目录（022，CC Switch 式多 provider；027B 扩密钥录入）：�
 | Practice | `POST /api/practice/attempts/{attemptId}/review`（024，§6.13；029 并发串行化） | 模型复核：追加 grader=MODEL 判分行（sequence=首判+1，append-only），回看/统计取最新 sequence 而排程与错题维持首判口径（wrongCount/countWrong 限定 sequence=1）；可见性复用 §6.3 口径（40403/40300，REVEAL 无判分 40000）；幂等=已有 MODEL 行回读不再调模型（有意非 409），029 起并发复核在 READ_COMMITTED 事务内锁 attempts 父行串行化——后到者幂等回读、模型只调一次、MODEL 行恰一条，uk_grading_attempt_sequence 保留为兜底（命中即数据异常按 50000 降级回滚）；strict JSON 输出解析失败重试 1 次仍败降级 50000 不落行（镜像答疑模式），无可用客户端 40400；score 钳制 0–100、reason ≤200 字码点截断；限流 model-review 5 次/分钟（账号）；llm_usage scene='review' 三终态双写（029 起旁路记账走 REQUIRES_NEW 独立事务，不随复核主事务回滚丢失）；prompt_version_id 落 PromptRegistry 的 review 版本 id（025 V13 注册表，缺行时 NULL 降级） | `PracticeControllerTest`（切片：匿名 401、委托与信封形状、限流注解契约 5 次/60 秒/账号）；`PracticeModelReviewIntegrationTest`（真实 MySQL + 桩注册表/桩客户端：[AC-1] 落行 sequence+1/grader=MODEL/快照/耗时/口径版本沿用与 result 批注结构、[AC-2] 幂等读 LLM 调用数=1、[AC-3] 匿名 401/他人与不存在/REVEAL 拒绝且零模型调用、[AC-4] 异常与非法输出降级不落行+重试后成功+101 钳制 100、[AC-5] llm_usage 三终态、[AC-6] 限流脚本化 429+Retry-After 且被拒请求零业务副作用（真实 ZSET 窗口语义由 RateLimitServiceTest/RateLimitAspectTest 覆盖，CI 无 Redis 不可复现）、[AC-7] 回看/今日全对率取复核分而卡与 review_logs/错题池 lastScore 维持首判）；`PracticeModelReviewConcurrencyIntegrationTest`（029 [AC-2]：同 attempt 双线程并发复核 MODEL 行恰 1/双方 200 其一幂等回读/LLM 调用数=1/首判行不动，串行重复复核幂等回归）；`ModelReviewPromptBuilderTest`（prompt 五段上下文、系统提示 strict JSON 契约、定界剥离防伪造、解析/钳制/码点截断）；前端 `PracticePage.test.tsx`（[AC-8] 入口门禁匿名与本地占位隐藏、成功新分+理由+复核不影响复习计划注记+attempt 刷新、失败 toast 保留原分、无演示占位残留） |
 | Practice | `POST /api/practice/attempts/{attemptId}/annotations/{key}/appeal`（025 扩展，§6.4） | 申诉同步 LLM 初裁：落库（status 保持 PENDING）后同步调模型，成功落 decision/decision_reason/decided_by=LLM/decided_at/model_snapshot/prompt_version_id（V8 裁决列启用）；失败/超时/非法输出（重试 1 次）与限流（独立 scene `appeal-adjudication` 5 次/分钟账号、程序化判定）落 `{"verdict":"UNAVAILABLE"}` 占位且回执 verdict=`"UNAVAILABLE"`（029 对齐：以存储 decision JSON 为真相，「初裁不可用」回执态真实可达），**不阻塞提交**（响应 200、status PENDING）；llm_usage scene='appeal' 三终态双写；提示词只含被申诉批注上下文与本人主张（系统提示走 PromptRegistry ask/review/appeal 三链路注册表，V13）；`dispute`（§6.5）语义不变 | `PracticeControllerTest`（切片：appeal/dispute 200 信封与缺体、40000/40300/40403/40900 映射）；`PracticeAppealAdjudicationIntegrationTest`（真实 MySQL + 桩注册表/桩限流：[AC-2] 初裁成功落裁决六列且 status=PENDING/失败与非法输出占位 decided_by=NULL/限流跳过且申诉不拒/重试恢复/DISPUTE 零模型调用、[AC-5] ACCEPTED 进 overlay 后 proposed_answer 判对而 PENDING/REJECTED 不影响、DISPUTE 不进 overlay、[AC-6] 初裁行与 MODEL 复核行 prompt_version_id 落注册表 id）；prompt 契约另由 `AppealAdjudicationPromptBuilderTest`（五段上下文不含整句参考译文/strict JSON/verdict 枚举/300 字截断/围栏容错）、V13 形状由 `V13PromptVersionsSchemaIntegrationTest` 锁定；前端 `PracticePage-appeal-opinion.test.tsx`（[AC-7] 批注行 AI 意见/初裁不可用/终审通过/驳回/无意见原文案/DISPUTE 已排除回归；029 起回执夹具与 `PracticeAppealAdjudicationIntegrationTest` 的真实回执断言同形） |
 | Admin | `GET /api/admin/appeals`、`POST /api/admin/appeals/{id}/decision`（025，§8.16） | 申诉分页检索（status/kind 精确过滤、011 分页口径 size 上限 100、非法筛选 40000、行内含 AI 意见/题目摘要/用户主张；复杂查询走 MyBatis 只读 JOIN）与人工终审（仅 PENDING 可裁决否则 40900、status/decision_reason/decided_by=ADMIN/decided_at 定向 UPDATE、decision JSON 保留初裁意见；ACCEPTED 进判分 overlay 不改题目、REJECTED 不回写；审计 `@OperationLog(action=APPEAL_DECIDE)` + OperationLogContext 落对象与理由） | `AdminAppealControllerTest`（切片：匿名 401/非管理员 403、筛选透传与非法筛选 40000、PageResponse+AdminAppealView 形状、终审 200/绑定校验 400/40900 透传、审计注解口径 [AC-3]）；终审落库与 overlay 消费另由 `PracticeAppealAdjudicationIntegrationTest`（真实 MySQL）覆盖 |
+| Admin/Practice | `GET /api/admin/prompts`、`POST /api/admin/prompts`、`POST /api/admin/prompts/{id}/activate`（034，§8.18） | Prompt 版本治理（DATA-MODEL §5.19 写半边，controller 在 practice 域沿用 AdminAppealController 先例）：GET 分页检索（name/label 精确过滤、非法值 40000、011 分页口径 size 上限 100、name 升序+version 倒序、content 全文回读）；POST 登记（name 白名单 ask/review/appeal、content 非空 ≤20000 码点、版本号服务端分配=现存最大+1、label=CANDIDATE 不自动激活、append-only 行内容不改写、并发撞 uk_prompt_name_version 40900）；POST activate（仅 CANDIDATE 可激活否则 40900/已 ACTIVE 幂等返回、同事务「旧 ACTIVE 降 CANDIDATE→新行 ACTIVE→PromptRegistry.evictAll 即时换轨」、定向 UPDATE 只碰 label 一列、clearAutomatically 防一级缓存旧值、不存在 40400、无 DELETE 历史快照不删）；审计 PROMPT_REGISTER/PROMPT_ACTIVATE（targetType=prompt-version，动态 id 经 OperationLogContext） | `AdminPromptControllerTest`（切片：匿名 401/非管理员 403、GET 筛选透传与 PageResponse 形状、非法筛选 40000、登记 200/绑定校验（白名单/空白/超长）、激活 200/40400/40900 映射、审计注解口径与 GET 不标）；`PromptRegistryWritePathIntegrationTest`（真实 MySQL+真实 Caffeine 注册表：登记递增版本号与 CANDIDATE/校验拒绝零落库/激活后注册表即时换新版本且重复读不回旧值/旧 ACTIVE 降级/再激活旧版本回滚语义/幂等激活/40400/列表过滤与分页口径）；R2-01 初裁守卫另由 `AppealAdjudicationWindowRaceIntegrationTest`（真实 MySQL 窗口竞态：终审先行则初裁丢弃、终审结论与 decided_by 不被覆盖、回执按存储真相投影、占位路径同门）覆盖 |
 | Admin | `GET/PUT /api/admin/llm/config`（017）、`GET /api/admin/llm/usage`（033）、`GET/POST /api/admin/llm/providers`、`PUT/DELETE /api/admin/llm/providers/{id}`、`PUT /api/admin/llm/providers/{id}/activate`（022） | 答疑 LLM 配置（§8.14）、本月用量视图（§8.17，033）与 provider 目录（§8.15）：enabled 与 tutor 覆盖存 `app_settings` 键 `llm.tutor`（fail-closed 解析；028 扩 baseUrl/model 覆盖）；预算护栏字段 `monthlyBudgetCny`/`pricing` 存键 `llm.budget`（033，状态型字段：非空=落值、空/缺省=清除，预算>0、模型名 ≤128、单价>0 违规 40000）；目录存键 `llm.providers`/`llm.active`（激活唯一、激活中不可删、id `[a-z0-9-]+` 唯一、协议白名单 fail-closed）；027B：目录 POST/PUT 收写-only 可选 apiKey（非空白=加密 upsert，空/缺省=不变更），GET 回 hasKey（DB 或 env 任一）/keyLast4（仅 DB 态）/active 不回读明文（响应无 apiKey 字段），DELETE 同事务删密钥行，元数据与密钥行同事务；028：PUT config 收 baseUrl/model 覆盖（非空白=落覆盖、空/缺省=清除，形状/长度校验 40000）与写-only apiKey（加密 upsert 到 `llm_provider_keys` 预留 id=`tutor`）及 clearKey（删行），GET 回 source（custom\|env）/keyLast4（tutor 行），原 40000 env-only 拒绝废除；enabled=true 无可用客户端 40000 且同事务回滚（文案按目录/覆盖轨/legacy 分口径）；033 usage 视图按 UTC 自然月聚合 `llm_usage`（金额只聚合估算成本非空行，status 三态 UNSET/OK/WARN/EXCEEDED 与强制门同内核，读接口不标审计）；审计 LLM_CONFIG_UPDATE（GET/usage 不标，切面不读请求体） | `AdminLlmConfigControllerTest`（切片：匿名 401/非管理员 403、GET 投影形状 source/keyLast4/预算定价字段无 apiKey 回显、PUT 全字段透传/clearKey/预算与定价透传 [AC-2]、校验拒绝信封、审计注解口径、usage 匿名 401/非管理员 403/投影形状 [AC-6]）、`AdminLlmProviderControllerTest`（切片：401/403、GET 形状含 keyLast4、POST/PUT/DELETE/activate 透传与 id 校验 40000、40400 信封、审计注解口径、apiKey 透传与响应无明文）；service 分支另由 `TutorServiceImplTest`（覆盖落库/清除/tutor 密钥 upsert/clearKey/校验零写入/定向文案；033：预算写入回显/清除/非法 40000 [AC-2]、40306 预算门 [AC-5]、成本落列与无定价 NULL [AC-3]、用量视图 UNSET 与状态回显 [AC-6]）、`BudgetGuardServiceTest`（80/100 边界三态/跨月重置/未设预算直通 [AC-4]）、`LlmCostCalculatorTest`（输入输出分开计价/ROUND_HALF_UP/无定价 null）、`LlmBudgetSettingsTest`（fail-closed 解析/条目校验）、`LlmProviderAdminServiceImplTest`（CRUD 规则/激活幂等/写-only apiKey/删除联动密钥行）、`LlmClientRegistryTest`（覆盖轨>env 轨/即时换轨/三态门）与集成 `TutorConfigRailIntegrationTest`、`LlmProviderKeyResolutionIntegrationTest`（真实 MySQL：三级优先序/覆盖即时换轨/tutor 密钥加密入库与 last4/开启被拒回滚；033：预算门 40306 与直通 [AC-5]、用量视图空表 UNSET/跨场景聚合 WARN/跨月排除 [AC-6]）覆盖 |
 | Practice/llm | （022 支撑 §6.12 的三协议客户端与 provider 目录装配，无独立端点） | `LlmChatClient` 三协议统一接口：`OpenAiChatLlmClient`（Spring AI OpenAI 轨收编）、`AnthropicMessagesLlmClient`（021 网关轨；022 改官方 SDK 直调+手写 content 提取）、`OpenAiResponsesLlmClient`（新，手写 java.net.http）；`LlmClientRegistry` 按激活 provider 装配+目录指纹缓存+legacy 回退。V11：`llm_usage` 用量账本（DATA-MODEL §5.18）落库为内部表，无端点、不进矩阵行 | `AnthropicMessagesLlmClientTest`（JDK 桩：/v1/messages 请求形状与头、**thinking 块只拼 text 块**/max_tokens 吃尽空正文、usage 映射、429（网关非标准错误体）与 5xx 退避重试一次、4xx 不重试）；`OpenAiResponsesLlmClientTest`（JDK 桩：/v1/responses 请求形状与 Bearer 头、output 取 message/output_text、reasoning 跳过、非 2xx 不重试）；`OpenAiChatLlmClientTest`（离线装配）；`LlmClientRegistryTest`（协议装配选择、目录指纹缓存失效、legacy 回退、凭证口径按协议分、三态门）；`LlmProviderCatalogTest`（app_settings 解析 fail-closed、写入形状、env 索引连字符→下划线）；`LlmPropertiesTest`（env 绑定+legacy 映射）；V11 落库形状/失败旁路由 `TutorServiceImplTest`（[AC-V11-1]/[AC-V11-2]）与 `SentenceActiveExternalKeySchemaIntegrationTest`（真实 MySQL 全字段读回）覆盖——矩阵注：内部表无端点，无接口级测试行 |
 | Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 | `ImportBatchControllerTest`（切片：匿名 401/非管理员 403、multipart 绑定与缺参 40000、缺请求体 40001、40405/40904、PageResponse 信封）；`ImportBatchServiceIntegrationTest`（真实 MySQL：五端点语义、commit 原子性（回写失败整体回滚可恢复）、COMMITTING 残留对账收敛、重复 commit 幂等、回滚 tombstone） |
@@ -2317,6 +2349,7 @@ provider 目录（022，CC Switch 式多 provider；027B 扩密钥录入）：�
 | 2026-11-18 | v1.9 | 030 过时声明修正：§10.4 删「§6.1 D7 四参数未开发」条目（已随 014 落地，§10.1 Practice 行在案）、删「FSRS 排程真值/申诉 LLM 裁决」（分别已随 014/025 落地，§8.13/§6.4/§8.16 在案，深度批改 M3 保留）；§10.5 错误码行改写为已落地口径（40302/40303、40404–40405、40901–40905、41300、42200 已全量定义于 `ApiCode.java`，40303/40404/40405/40904 有端点与测试在用）；登录「用户名或邮箱」条目按代码实态改写（语义已随基线经 `findByUsernameOrEmail` 单查询实现，余项收窄为补邮箱登录接口级测试）；§10 头部日期 2026-10-31→2026-11-18 | 实现工程师 |
 | 2026-11-18 | v2.0 | 032 管理员 2FA（TOTP 自研 RFC 6238，零新依赖）：新增 §4.10（`POST /api/auth/login/totp` 公开+CSRF、`GET /api/auth/2fa/status`、`POST /api/auth/2fa/setup|activate|disable` 登录态）与 §8.2d `POST /api/admin/users/{id}/reset-2fa`；§4.2 登录密码步 40305（data 携 5 分钟 purpose 限定 challengeToken，challenge 与 access token 分 purpose 互不冒用）；§1.3 增 40305 TOTP_REQUIRED；恢复码 10×8 位 BCrypt 落 user_2fa_recovery_codes（使用落 used_at 不删行，DATA-MODEL §5.21/V15）；限流 login-totp 10/min(IP+challengeToken)、setup/activate/disable 5/min(账号)；审计 TOTP_SETUP/ACTIVATE/DISABLE 与 RESET_2FA；§2/§3/§10.1 矩阵同步 | 实现工程师 |
 | 2026-11-18 | v2.1 | 033 预算护栏（PRD §17，V16）：§6.12 答疑前置预算强制门（已设 `llm.budget` 月度预算且本月已用估算成本 ≥100% 时 `40306` 固定文案拒新调用，预算门先于三态门；80% WARN 只留痕：WARN 日志+§8.17 状态可见——无推送渠道的如实口径）；§6.13 复核预算门走既有 50000 降级且文案带预算原因（零模型调用零落行）；§6.4 初裁预算门落 `{"verdict":"UNAVAILABLE","reason":"BUDGET"}` 占位不阻塞提交；V16 建 `llm_usage.estimated_cost_micro_cny`（微元整数口径 ROUND_HALF_UP，无定价 NULL=不计入预算，三记账点补成本）；§8.14.1/8.14.2 扩 `monthlyBudgetCny`/`pricing`（键 `llm.budget`，状态型字段）；新增 §8.17 `GET /api/admin/llm/usage`（UTC 自然月用量视图：monthUtc/budgetCny/spentCny/percent/status/byScene，JPA 单表聚合）；§1.3 增 40306 MODEL_BUDGET_EXHAUSTED；§10.1 Admin 行同步 | 实现工程师 |
+| 2026-11-18 | v2.2 | 034 Prompt 注册表写路径 + 黄金集回归资产 + R2-01：新增 §8.18 `/api/admin/prompts` 三端点（GET 分页检索 name/label 过滤 011 口径、POST 登记 name 白名单/content ≤20000 码点/版本号服务端分配=label=CANDIDATE append-only、POST activate 仅 CANDIDATE 可激活同事务「降级→激活→evictAll」即时换轨、已 ACTIVE 幂等、无 DELETE 历史快照不删；审计 PROMPT_REGISTER/PROMPT_ACTIVATE）；§10.1 增 Admin/Practice 行；§6.4 初裁回执扩窗口竞态口径（终审先行时回执按存储真相投影为终审态，status 不恒 PENDING，R2-01）；§9.3 增 PromptVersionView 字段回溯 | 实现工程师 |
 
 ---
 
