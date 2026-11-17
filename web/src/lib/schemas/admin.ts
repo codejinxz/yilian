@@ -14,6 +14,8 @@ export const adminUserSchema = z.object({
   email: z.string().nullable(),
   role: userRoleSchema,
   enabled: z.boolean(),
+  /** 是否已启用两步验证（只投影开关，不含密钥材料）。 */
+  totpEnabled: z.boolean(),
   deleted: z.boolean(),
   createdAt: isoDateTimeSchema,
   lastLoginAt: isoDateTimeSchema.nullable(),

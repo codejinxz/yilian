@@ -56,12 +56,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     /**
      * 校验 token 并把 principal 写入上下文；失败时保持匿名，交给入口点统一返回 401。
      *
+     * <p>带 purpose 声明的 token（如登录 challenge）在这里被显式拒绝：challenge 只代表 「密码已验证、等待两步验证」，若能当 access token
+     * 用，第二步验证即被完全绕过。
+     *
      * @param request 当前请求，保留用于后续按需读取其他请求信息
      * @param token 去掉 Bearer 前缀后的 JWT 字符串
      */
     private void authenticate(HttpServletRequest request, String token) {
         try {
             Jwt jwt = jwtDecoder.decode(token);
+            if (jwt.getClaim("purpose") != null) {
+                throw new JwtException("JWT purpose 不符：challenge token 不得作为 access token");
+            }
             String subject = jwt.getSubject();
             String username = jwt.getClaimAsString("username");
             String role = jwt.getClaimAsString("role");

@@ -16,6 +16,7 @@ import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.session.RefreshSessionGuard;
 import io.github.codejinxz.yilian.system.dao.AppUserDao;
 import io.github.codejinxz.yilian.system.dao.InviteCodeDao;
+import io.github.codejinxz.yilian.system.dao.User2faRecoveryCodeDao;
 import io.github.codejinxz.yilian.system.entity.AppUser;
 import io.github.codejinxz.yilian.system.entity.InviteCode;
 import io.github.codejinxz.yilian.system.entity.UserRole;
@@ -51,10 +52,13 @@ class UserAccountServiceImplTest {
     private final FindByIndexNameSessionRepository<? extends Session> refreshSessions =
             mock(FindByIndexNameSessionRepository.class);
 
+    private final User2faRecoveryCodeDao recoveryCodeDao = mock(User2faRecoveryCodeDao.class);
+
     private final UserAccountServiceImpl service =
             new UserAccountServiceImpl(
                     appUserDao,
                     inviteCodeDao,
+                    recoveryCodeDao,
                     new BCryptPasswordEncoder(4),
                     false,
                     refreshSessions,
@@ -114,6 +118,59 @@ class UserAccountServiceImplTest {
 
         verify(refreshSessions, never())
                 .findByPrincipalName(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /** [AC-6c] 重置两步验证：清三列 + 删恢复码行 + 吊销全部 refresh 会话。 */
+    @Test
+    void adminReset2faClearsEnrollmentAndRevokesSessions_ac6c() {
+        AppUser target = user(2L, "learner");
+        target.activateTotp("cipher-1", Instant.now());
+        when(appUserDao.findById(2L)).thenReturn(Optional.of(target));
+        when(appUserDao.save(any(AppUser.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.adminReset2fa(1L, 2L, "恢复码全失");
+
+        assertThat(target.isTotpEnabled()).isFalse();
+        assertThat(target.getTotpSecretCipher()).isNull();
+        assertThat(target.getTotpEnrolledAt()).isNull();
+        verify(recoveryCodeDao).deleteByUserId(2L);
+        verify(refreshSessions).findByPrincipalName("learner");
+    }
+
+    /** [AC-6c] 重置两步验证：未注册目标为无状态变化的幂等成功，不删恢复码不吊销会话。 */
+    @Test
+    void adminReset2faIsIdempotentForUnenrolledUser_ac6c() {
+        AppUser target = user(2L, "learner");
+        when(appUserDao.findById(2L)).thenReturn(Optional.of(target));
+
+        service.adminReset2fa(1L, 2L, "误操作预防");
+
+        verify(appUserDao, never()).save(any());
+        verify(recoveryCodeDao, never()).deleteByUserId(anyLong());
+        verify(refreshSessions, never())
+                .findByPrincipalName(org.mockito.ArgumentMatchers.anyString());
+    }
+
+    /** [AC-6c] 重置两步验证：目标不存在/已删按 40400 收敛；原因空白按 40000。 */
+    @Test
+    void adminReset2faRejectsMissingAndBlankReason_ac6c() {
+        assertThatThrownBy(() -> service.adminReset2fa(1L, 2L, ""))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.VALIDATION_FAILED);
+        when(appUserDao.findById(2L)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.adminReset2fa(1L, 2L, "x"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.NOT_FOUND);
+        AppUser deleted = user(3L, "gone");
+        deleted.softDelete(1L, Instant.now());
+        when(appUserDao.findById(3L)).thenReturn(Optional.of(deleted));
+        assertThatThrownBy(() -> service.adminReset2fa(1L, 3L, "x"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.NOT_FOUND);
     }
 
     /** [AC-5] 用户检索 keyword 做 LIKE 转义：用户输入的 %/_ 是字面量。 */

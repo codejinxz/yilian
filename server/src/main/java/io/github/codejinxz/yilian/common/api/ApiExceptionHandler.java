@@ -74,7 +74,7 @@ public class ApiExceptionHandler {
     }
 
     /**
-     * 预期内的业务失败按错误码原样返回，文案优先取异常自带的覆盖值。
+     * 预期内的业务失败按错误码原样返回，文案优先取异常自带的覆盖值；异常携带载荷时 （如 40305 的 challengeToken）随 data 透出，与 40000 携字段明细同款机制。
      *
      * <p>{@code IDEMPOTENT_CONFLICT} 的 409 也走这里：错误码自带 HTTP 状态，无需单独分支。
      *
@@ -82,9 +82,10 @@ public class ApiExceptionHandler {
      * @return 对应错误码与 HTTP 状态的 {@link ApiResponse} 信封
      */
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException exception) {
+    public ResponseEntity<ApiResponse<Object>> handleBusiness(BusinessException exception) {
         ApiCode apiCode = exception.apiCode();
-        return respond(apiCode, ApiResponse.<Void>fail(apiCode, exception.getMessage()));
+        return ResponseEntity.status(apiCode.httpStatus())
+                .body(ApiResponse.fail(apiCode, exception.getMessage(), exception.data()));
     }
 
     /**

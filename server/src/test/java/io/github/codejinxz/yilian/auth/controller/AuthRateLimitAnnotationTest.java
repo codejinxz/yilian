@@ -45,6 +45,21 @@ class AuthRateLimitAnnotationTest {
         assertThat(rateLimit.accountExpression()).isEqualTo("#principal.id()");
     }
 
+    /** [AC-5] login/totp 端点：与 login 同口径双维度 10 次/60 秒（账号槽由 challengeToken 键控）。 */
+    @Test
+    @DisplayName("[AC-5] login/totp 端点限流契约（IP+账号 10/60s）")
+    void ac5_loginTotpHasDualDimensionRateLimit() throws Exception {
+        RateLimit rateLimit = rateLimitOf("loginTotp");
+
+        assertThat(rateLimit).isNotNull();
+        assertThat(rateLimit.scene()).isEqualTo("login-totp");
+        assertThat(rateLimit.dimensions())
+                .containsExactly(RateLimitDimension.IP, RateLimitDimension.ACCOUNT);
+        assertThat(rateLimit.limit()).isEqualTo(10);
+        assertThat(rateLimit.windowSeconds()).isEqualTo(60);
+        assertThat(rateLimit.accountExpression()).isEqualTo("#request.challengeToken()");
+    }
+
     /**
      * 取指定方法的 @RateLimit 注解。
      *
@@ -59,7 +74,7 @@ class AuthRateLimitAnnotationTest {
     }
 
     /**
-     * 按方法名解析参数类型（两个目标方法参数不同）。
+     * 按方法名解析参数类型（三个目标方法参数不同）。
      *
      * @param methodName 方法名
      * @return 参数类型数组
@@ -76,6 +91,12 @@ class AuthRateLimitAnnotationTest {
                         io.github.codejinxz.yilian.auth.dto.ChangePasswordRequest.class,
                         io.github.codejinxz.yilian.common.security.YilianUserPrincipal.class,
                         jakarta.servlet.http.HttpServletRequest.class
+                    };
+            case "loginTotp" ->
+                    new Class<?>[] {
+                        io.github.codejinxz.yilian.auth.dto.LoginTotpRequest.class,
+                        jakarta.servlet.http.HttpServletRequest.class,
+                        jakarta.servlet.http.HttpServletResponse.class
                     };
             default -> throw new IllegalArgumentException("未知方法: " + methodName);
         };

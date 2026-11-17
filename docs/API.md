@@ -75,6 +75,7 @@
 | `40302` | 403 | `REGISTRATION_CLOSED` | 当前未开放注册 | 邀请制关闭 |
 | `40303` | 403 | `PASSWORD_CHANGE_REQUIRED` | 请先修改初始密码 | 首次登录强制改密 |
 | `40304` | 403 | `ASK_NOT_OPEN` | 答疑未开放 | 017：模型凭证已配置但管理员未开启答疑 |
+| `40305` | 403 | `TOTP_REQUIRED` | 需要两步验证 | 密码正确但账号已启用 TOTP：`data` 携 5 分钟有效的 `challengeToken`，凭它走 `POST /api/auth/login/totp` 完成第二步（§4.10） |
 | `40400` | 404 | `NOT_FOUND` | 请求的资源不存在 | 通用路由/资源 |
 | `40401` | 404 | `BANK_NOT_FOUND` | 题库不存在 | 题库 |
 | `40402` | 404 | `SENTENCE_NOT_FOUND` | 题目不存在 | 题目 |
@@ -238,6 +239,8 @@
 | `/api/auth/me` | GET | `USER` | 当前用户 |
 | `/api/auth/password` | PUT | `USER` | 改密；吊销 refresh |
 | `/api/auth/guest-upgrade` | POST | `USER` | 游客本地记录升级 |
+| `/api/auth/login/totp` | POST | `PUBLIC` | 登录第二步（challengeToken）；CSRF；限流对齐 login |
+| `/api/auth/2fa/**` | GET/POST | `USER` | 两步验证自助（status/setup/activate/disable，§4.10） |
 | `/api/me/settings` | GET/PUT | `USER` | 用户设置 |
 | `/api/banks` | GET | `PUBLIC_OR_USER` | 公开题库 + 自己的私有题库 |
 | `/api/banks/{bankId}` | GET | `PUBLIC_OR_USER` | 题库详情 |
@@ -258,6 +261,7 @@
 | `/api/admin/users` | GET | `ADMIN` | 用户列表 |
 | `/api/admin/users/{id}/status` | PATCH | `ADMIN` | 启停 |
 | `/api/admin/users/{id}/role` | PATCH | `ADMIN` | 角色 |
+| `/api/admin/users/{id}/reset-2fa` | POST | `ADMIN` | 重置两步验证（必填原因 + 审计，§8.2d） |
 | `/api/admin/audit-logs` | GET | `ADMIN` | 操作日志 |
 | `/api/admin/error-logs` | GET | `ADMIN` | 异常日志 |
 | `/api/admin/error-logs/{id}` | GET | `ADMIN` | 异常详情 |
@@ -286,6 +290,11 @@
 | account | `/api/auth/register` | POST | PUBLIC | M1 | planned |
 | account | `/api/auth/password` | PUT | USER | M1 | planned |
 | account | `/api/auth/guest-upgrade` | POST | USER | M2 | planned |
+| account | `/api/auth/login/totp` | POST | PUBLIC | M2 | implemented（0232，§4.10） |
+| account | `/api/auth/2fa/status` | GET | USER | M2 | implemented（0232，§4.10） |
+| account | `/api/auth/2fa/setup` | POST | USER | M2 | implemented（0232，§4.10） |
+| account | `/api/auth/2fa/activate` | POST | USER | M2 | implemented（0232，§4.10） |
+| account | `/api/auth/2fa/disable` | POST | USER | M2 | implemented（0232，§4.10） |
 | account | `/api/me/settings` | GET/PUT | USER | M1 | planned |
 | admin | `/api/admin/error-logs/{id}` | GET | ADMIN | M2 | implemented |
 | content | `/api/banks` | GET | PUBLIC_OR_USER | M1 | planned |
@@ -310,6 +319,7 @@
 | admin | `/api/admin/users` | GET | ADMIN | M2 | implemented |
 | admin | `/api/admin/users/{id}/status` | PATCH | ADMIN | M2 | implemented |
 | admin | `/api/admin/users/{id}/role` | PATCH | ADMIN | M2 | implemented |
+| admin | `/api/admin/users/{id}/reset-2fa` | POST | ADMIN | M2 | implemented（0232，§8.2d） |
 | admin | `/api/admin/overview` | GET | ADMIN | M2 | implemented |
 | admin | `/api/admin/invites` | GET/POST | ADMIN | M2 | implemented |
 | admin | `/api/admin/audit-logs` | GET | ADMIN | M2 | implemented |
@@ -392,7 +402,9 @@
 
 限流：`login` 场景 **10 次/60 秒，IP + 账号双维度**（账号取请求体 `username`，2026-11-04 015 修复轮与代码对齐——此前文档/任务稿写 5/min 与实现不符；双维度独立计数，任一超限即 429 并带 `Retry-After`）。
 
-错误：`40000`、`40001`、`40101`、`40301`、`42900`、`50000`。
+两步验证分支（0232）：密码正确且账号 `totp_enabled=true` 时**不建会话不发 token**，返回 **`40305`**（`data` 携 5 分钟有效 `challengeToken`），凭它走 `POST /api/auth/login/totp`（§4.10）完成第二步；challenge 与 access token 分 purpose 互不冒用。
+
+错误：`40000`、`40001`、`40101`、`40301`、`40305`（需要两步验证，§4.10）、`42900`、`50000`。
 
 字段回溯：
 
@@ -568,6 +580,82 @@
 错误：`40000`、`40100`、`50000`。
 
 字段回溯：`users.timezone/daily_goal/rating_standard/desired_retention/theme/notifications_enabled`。
+
+---
+
+### 4.10 两步验证（TOTP，implemented，0232）
+
+TOTP 自研 RFC 6238（HMAC-SHA1、8 位数字、30 秒步长、验证窗口 ±1、常数时间比较），密钥 20 字节
+SecureRandom 生成、RFC 4648 Base32 展示；密钥经 SecretCipher（AES-256-GCM，主密钥只走
+`YILIAN_SECRET_MASTER_KEY`，与 027B 同纪律）加密落 `users.totp_secret_cipher`。机制对所有登录用户开放，
+公网硬前置面是管理员（AGENTS §3.7）；本批不渲染二维码图片（需前端新依赖），验证器走「手动录入密钥」
+或复制 otpauth URI 文本。
+
+**登录两步流**：`POST /api/auth/login` 密码正确且 `totp_enabled=true` 时不建会话，返回
+**`40305`**（`data.challengeToken` + `data.expiresIn=300`，5 分钟 TTL purpose 限定 challenge JWT，
+复用 JwtTokenService 签发、过滤器链拒收带 purpose 的 token——challenge 不是凭据）。客户端凭
+challengeToken 完成第二步；challenge 过期/ purpose 不符统一 `40101`「登录已过期，请重新登录」。
+
+#### `POST /api/auth/login/totp`（PUBLIC，CSRF）
+
+请求：`{"challengeToken": "...", "code": "12345678"}`（`code` 为 8 位数字，同时接受 TOTP 动态码与
+一次性恢复码；服务端先验 TOTP 再逐条比对未用恢复码）。
+
+成功（200）：data 为 §4.2 同形 `AuthResponse`；恢复码登录时额外携带
+`remainingRecoveryCodes`（剩余可用恢复码数，普通登录/刷新为 null）——恢复码使用即落
+`user_2fa_recovery_codes.used_at`（append-only：不删行不重置），剩余数随响应告知。
+
+错误：`40000`（验证码非 8 位数字/挑战缺失）、`40101`（挑战无效/过期/动态码错误，统一文案不区分原因）、
+`40301`、`42900`。
+
+限流：`login-totp` 场景 **10 次/60 秒，IP + 账号双维度**（账号槽由 challengeToken 键控——挑战经密码步
+签发且与用户一一绑定，请求体没有用户名字段）。
+
+#### `GET /api/auth/2fa/status`（USER）
+
+响应：`{"enabled": true, "enrolledAt": "2026-11-18T00:00:00Z", "remainingRecoveryCodes": 9}`。
+响应不含任何密钥材料。错误：`40100`、`50000`。读端点不挂限流（仓库纪律）。
+
+#### `POST /api/auth/2fa/setup`（USER，CSRF）
+
+请求：`{"password": "当前密码"}`（密码确认防会话劫持后静默开启）。
+
+响应（200）：`{"secret": "<Base32 32 字符>", "otpauthUri": "otpauth://totp/Yilian:{username}?secret=…&issuer=Yilian&algorithm=SHA1&digits=8&period=30"}`
+——**密钥明文与 URI 仅随本响应出现一次**；密文落库、`totp_enabled` 不动；重复调用覆盖旧密文
+（旧验证器绑定密钥即作废），激活时校验密文未被并发覆盖。
+
+错误：`40000`、`40100`、`40101`（当前密码不正确）、`42900`。
+限流：`totp-setup` 场景 **5 次/60 秒（账号）**。审计：`@OperationLog(module=account, action=TOTP_SETUP)`。
+
+#### `POST /api/auth/2fa/activate`（USER，CSRF）
+
+请求：`{"code": "12345678"}`（验证器当前动态码）。
+
+响应（200）：`{"recoveryCodes": ["八个8位数字" ×10]}`——**10 个一次性恢复码明文仅随本响应出现一次**，
+库内只存 BCrypt 哈希（`user_2fa_recovery_codes`，零物理外键）；通过后 `totp_enabled=true` +
+`totp_enrolled_at` 留痕。错误：`40000`（未 setup）、`40100`、`40101`（验证码不正确）、`42900`。
+限流：`totp-activate` 场景 **5 次/60 秒（账号）**。审计：`TOTP_ACTIVATE`。
+
+#### `POST /api/auth/2fa/disable`（USER，CSRF）
+
+请求：`{"password": "当前密码", "code": "12345678"}`（密码 + 当前动态码双确认；动态码也接受剩余
+恢复码——验证器丢失时的自助逃生通道）。
+
+响应（200）：`{"code":0,"message":"两步验证已关闭","data":null}`；三列清回未注册态且恢复码行删除
+（凭据投影删除：残留旧码在重新注册后仍可登录，属安全要求而非历史抹除）。
+错误：`40000`（未开启）、`40100`、`40101`（密码或验证码不正确）、`42900`。
+限流：`totp-disable` 场景 **5 次/60 秒（账号）**。审计：`TOTP_DISABLE`。
+
+#### `POST /api/admin/users/{id}/reset-2fa`（ADMIN，§8.2d）
+
+请求：`{"reason": "必填 1–255 字符"}`。清空目标用户 TOTP 注册（三列 + 全部恢复码）并吊销其全部
+refresh 会话（口径镜像 §8.2b 重置密码；允许管理员对自己执行——唯一管理员丢码时的解救通道；
+未注册目标为无状态变化的幂等 200，审计照常留痕；目标不存在/已删按 `40400` 收敛）。
+响应（200）：`{"code":0,"message":"已重置该用户的两步验证","data":null}`。
+错误：`40000`、`40100`、`40300`、`40400`、`50000`。审计：`@OperationLog(module=admin, action=RESET_2FA, targetType=user)`，
+原因经 `OperationLogContext` 落库。
+
+`GET /api/admin/users` 行新增 `totpEnabled: boolean` 只读投影（§8.1），不含任何密钥材料。
 
 ---
 
@@ -1531,6 +1619,24 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 
 字段回溯：`users.deleted_at/deleted_by/enabled`；`admin_audit_log.*`；Spring Session 删除。
 
+### 8.2d `POST /api/admin/users/{id}/reset-2fa`（implemented，0232）
+
+用途：管理员重置目标用户的两步验证——公网锁死兜底（TOTP 验证器与恢复码全失时解救）；目标用户解救后重新登录走完整密码步并重新注册 2FA（§4.10）。
+
+请求：`{ "reason": "用户恢复码全失" }`（必填 1–255 字符，随审计落库）。
+
+行为：`users.totp_secret_cipher/totp_enabled/totp_enrolled_at` 清回未注册态、`user_2fa_recovery_codes` 全部行删除（凭据投影删除，残留旧码在重新注册后仍可登录属安全漏洞）；吊销目标用户全部 refresh 会话（口径镜像 §8.2b）。与 §8.2b 不同：**允许管理员对自己执行**——唯一管理员丢码时没有他人可救（自助关闭端点需要动态码，锁死时不可用）；未注册 2FA 的目标为无状态变化的幂等 200，审计行照常落库。
+
+响应：`{ "code": 0, "message": "已重置该用户的两步验证", "data": null }`。
+
+审计：`@OperationLog(module=admin, action=RESET_2FA, targetType=user)`，reason 随上下文落库。
+
+错误：`40000`（reason 缺失/超长）、`40100`、`40300`（非管理员）、`40400`（用户不存在/已删）、`50000`。
+
+`GET /api/admin/users`（§8.1）行新增 `totpEnabled: boolean` 只读投影，不含任何密钥材料。
+
+字段回溯：`users.totp_secret_cipher/totp_enabled/totp_enrolled_at`；`user_2fa_recovery_codes` 删行；`admin_audit_log.*`；Spring Session 删除。
+
 ### 8.4 `GET /api/admin/audit-logs`（implemented，012）
 
 用途：操作日志检索；只读，不做状态流转，`admin_audit_log` 原样出（无 `detail` JSON 列，参数与请求体不进检索页）。
@@ -2115,7 +2221,7 @@ provider 目录（022，CC Switch 式多 provider；027B 扩密钥录入）：�
 | Admin | `GET/PUT /api/admin/llm/config`（017）、`GET/POST /api/admin/llm/providers`、`PUT/DELETE /api/admin/llm/providers/{id}`、`PUT /api/admin/llm/providers/{id}/activate`（022） | 答疑 LLM 配置（§8.14）与 provider 目录（§8.15）：enabled 与 tutor 覆盖存 `app_settings` 键 `llm.tutor`（fail-closed 解析；028 扩 baseUrl/model 覆盖）；目录存键 `llm.providers`/`llm.active`（激活唯一、激活中不可删、id `[a-z0-9-]+` 唯一、协议白名单 fail-closed）；027B：目录 POST/PUT 收写-only 可选 apiKey（非空白=加密 upsert，空/缺省=不变更），GET 回 hasKey（DB 或 env 任一）/keyLast4（仅 DB 态）/active 不回读明文（响应无 apiKey 字段），DELETE 同事务删密钥行，元数据与密钥行同事务；028：PUT config 收 baseUrl/model 覆盖（非空白=落覆盖、空/缺省=清除，形状/长度校验 40000）与写-only apiKey（加密 upsert 到 `llm_provider_keys` 预留 id=`tutor`）及 clearKey（删行），GET 回 source（custom\|env）/keyLast4（tutor 行），原 40000 env-only 拒绝废除；enabled=true 无可用客户端 40000 且同事务回滚（文案按目录/覆盖轨/legacy 分口径）；审计 LLM_CONFIG_UPDATE（GET 不标，切面不读请求体） | `AdminLlmConfigControllerTest`（切片：匿名 401/非管理员 403、GET 投影形状 source/keyLast4 无 apiKey 回显、PUT 全字段透传/clearKey、校验拒绝信封、审计注解口径）、`AdminLlmProviderControllerTest`（切片：401/403、GET 形状含 keyLast4、POST/PUT/DELETE/activate 透传与 id 校验 40000、40400 信封、审计注解口径、apiKey 透传与响应无明文）；service 分支另由 `TutorServiceImplTest`（覆盖落库/清除/tutor 密钥 upsert/clearKey/校验零写入/定向文案）、`LlmProviderAdminServiceImplTest`（CRUD 规则/激活幂等/写-only apiKey/删除联动密钥行）、`LlmClientRegistryTest`（覆盖轨>env 轨/即时换轨/三态门）与集成 `TutorConfigRailIntegrationTest`、`LlmProviderKeyResolutionIntegrationTest`（真实 MySQL：三级优先序/覆盖即时换轨/tutor 密钥加密入库与 last4/开启被拒回滚）覆盖 |
 | Practice/llm | （022 支撑 §6.12 的三协议客户端与 provider 目录装配，无独立端点） | `LlmChatClient` 三协议统一接口：`OpenAiChatLlmClient`（Spring AI OpenAI 轨收编）、`AnthropicMessagesLlmClient`（021 网关轨；022 改官方 SDK 直调+手写 content 提取）、`OpenAiResponsesLlmClient`（新，手写 java.net.http）；`LlmClientRegistry` 按激活 provider 装配+目录指纹缓存+legacy 回退。V11：`llm_usage` 用量账本（DATA-MODEL §5.18）落库为内部表，无端点、不进矩阵行 | `AnthropicMessagesLlmClientTest`（JDK 桩：/v1/messages 请求形状与头、**thinking 块只拼 text 块**/max_tokens 吃尽空正文、usage 映射、429（网关非标准错误体）与 5xx 退避重试一次、4xx 不重试）；`OpenAiResponsesLlmClientTest`（JDK 桩：/v1/responses 请求形状与 Bearer 头、output 取 message/output_text、reasoning 跳过、非 2xx 不重试）；`OpenAiChatLlmClientTest`（离线装配）；`LlmClientRegistryTest`（协议装配选择、目录指纹缓存失效、legacy 回退、凭证口径按协议分、三态门）；`LlmProviderCatalogTest`（app_settings 解析 fail-closed、写入形状、env 索引连字符→下划线）；`LlmPropertiesTest`（env 绑定+legacy 映射）；V11 落库形状/失败旁路由 `TutorServiceImplTest`（[AC-V11-1]/[AC-V11-2]）与 `SentenceActiveExternalKeySchemaIntegrationTest`（真实 MySQL 全字段读回）覆盖——矩阵注：内部表无端点，无接口级测试行 |
 | Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 | `ImportBatchControllerTest`（切片：匿名 401/非管理员 403、multipart 绑定与缺参 40000、缺请求体 40001、40405/40904、PageResponse 信封）；`ImportBatchServiceIntegrationTest`（真实 MySQL：五端点语义、commit 原子性（回写失败整体回滚可恢复）、COMMITTING 残留对账收敛、重复 commit 幂等、回滚 tombstone） |
-| Admin | `GET /api/admin/overview`、`GET /api/admin/users`、`PATCH /api/admin/users/{id}/status`、`PATCH /api/admin/users/{id}/role`、`POST /api/admin/invites`、`GET /api/admin/invites`（011-a）、`POST /api/admin/users/{id}/reset-password`、`DELETE /api/admin/users/{id}`（018） | 概览聚合（活跃=attempts 当日去重用户，UTC 日界）、用户检索分页、启停/改角色（审计经 `OperationLogContext`）、邀请码生成（明文一次性）/前缀列表、重置密码（一次性临时口令+40303 强制改密+吊销全部会话，§8.2b）、删除账号（软删+吊销会话+40400 幂等口径，§8.2c） | `AdminOverviewControllerTest`、`AdminUserControllerTest`、`AdminInviteControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse 形状、reason 越界 40000、40001、审计上下文断言；018 补 reset-password/delete 绑定校验与 403/401 矩阵）；service 分支另由 `UserAccountServiceImplTest`（自己停自己/自己降自己/邀请码哈希落库；018 补重置成功与自重置/已删/原因必填、删除成功与自删/已删/最后管理员）、`AdminOverviewServiceImplTest`（补 0 与活动组装）覆盖 |
+| Admin | `GET /api/admin/overview`、`GET /api/admin/users`、`PATCH /api/admin/users/{id}/status`、`PATCH /api/admin/users/{id}/role`、`POST /api/admin/invites`、`GET /api/admin/invites`（011-a）、`POST /api/admin/users/{id}/reset-password`、`DELETE /api/admin/users/{id}`（018）、`POST /api/admin/users/{id}/reset-2fa`（0232） | 概览聚合（活跃=attempts 当日去重用户，UTC 日界）、用户检索分页、启停/改角色（审计经 `OperationLogContext`）、邀请码生成（明文一次性）/前缀列表、重置密码（一次性临时口令+40303 强制改密+吊销全部会话，§8.2b）、删除账号（软删+吊销会话+40400 幂等口径，§8.2c）、重置两步验证（清 TOTP 注册+恢复码+吊销全部会话，原因必填审计 RESET_2FA，允许自愈式自重置——唯一管理员丢码解救，未注册幂等 200、已删 40400，§8.2d；users 列表行新增 totpEnabled 只读投影） | `AdminOverviewControllerTest`、`AdminUserControllerTest`、`AdminInviteControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse 形状、reason 越界 40000、40001、审计上下文断言；018 补 reset-password/delete 绑定校验与 403/401 矩阵；0232 补 reset-2fa 原因透传与审计上下文/缺原因 40000/403/40400 与列表行 totpEnabled 投影）；service 分支另由 `UserAccountServiceImplTest`（自己停自己/自己降自己/邀请码哈希落库；018 补重置成功与自重置/已删/原因必填、删除成功与自删/已删/最后管理员；0232 补 reset-2fa 清列+删恢复码+吊销会话/未注册幂等/缺失与已删与空白原因）、`AdminOverviewServiceImplTest`（补 0 与活动组装）覆盖 |
 | Admin | `GET/POST /api/admin/banks`、`GET/PATCH/DELETE /api/admin/banks/{bankId}`、`GET /api/admin/banks/{bankId}/sentences`、`GET /api/admin/sentences`、`POST /api/admin/sentences/bulk-status`、`POST /api/admin/sentences/bulk-move`、`PATCH /api/admin/sentences/{sentenceId}/status`、`PATCH /api/admin/sentences/{sentenceId}`（011-b） | 题库检索/新建/详情/部分更新/软删（状态流转 RECYCLED，恢复清 `deleted_at`）、题库内与跨题库题目检索（跨题库缺省隐藏回收站）、批量状态/移动（单事务；不存在的 id 与无变化 id 跳过、计数如实返回；每题递增银行修订号；移动预检指纹冲突 40000）、单题状态流转（幂等不推进）、行内编辑（zh/level/tags/note 走新版本行并回填指纹/content_hash，bankId/status 走元字段；编辑先于移动，预检用新指纹） | `AdminBankControllerTest`、`AdminSentenceControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse/SentenceView 形状、reason/ids/zh 校验 40000、缺体 40001、40401/40402、审计上下文断言）；批量与列表/编辑语义另由 `ContentAdminServiceImplTest`（每题递增版本、悲观锁按题库 id 升序、跳过语义、恢复清软删、版本字段新版本行、非法枚举 40000/分页 40004）覆盖 |
 | Admin | `GET /api/admin/audit-logs`、`GET /api/admin/error-logs`、`GET /api/admin/error-logs/{id}`、`POST /api/admin/generation/import`、`POST /api/admin/audit-events`（012） | 操作日志/异常日志检索（分区表强制时间兜底：from/to 缺省近 30 天；size 上限 100 越界归 100；keyword LIKE 转义纯 contains；异常列表剥离 stackTrace、详情含堆栈缺失 40400）、出题导入（复用 content 导入接缝，指纹去重 40904 整批回滚，行校验与文件导入同口径、拼接比对按前端 normLoose 宽松归一，不建 upload 批次）、审计事件（动作白名单防污染，返回字符串 id） | `AdminAuditLogControllerTest`、`AdminErrorLogControllerTest`、`AdminGenerationControllerTest`、`AdminAuditEventControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse/批次视图形状、stackTrace 剥离与详情、审计上下文/字符串 id 断言）；服务层分支另由 `AdminLogServiceImplTest`（时间兜底/转义/size 归一/40000/40400）、`AdminGenerationServiceImplTest`（行校验 fail-fast/接缝透传/40904 上抛）、`AdminAuditEventServiceImplTest`（白名单/行形状）覆盖；题库「空串清空说明」契约由 `ContentAdminServiceImplTest` 补测（012 AC-5） |
 | Admin/Practice | `POST /api/admin/fsrs/optimize`、`GET /api/admin/fsrs/parameters`、`POST /api/admin/fsrs/parameters/{id}/enable`（014/M2.1） | FSRS 参数版本管理：SGD 优化读指定用户 review_logs 产 GLOBAL CANDIDATE（样本 <50 40000 拒绝、metrics 携训练摘要）、版本列表、启用状态机（仅 CANDIDATE；旧 ACTIVE bulk UPDATE 即时退役防 uk 撞键；审计 FSRS_OPTIMIZE/FSRS_ENABLE）；启用后调度消费新权重（§6.1 四分支参数换源，原型种子逐值不变） | `AdminFsrsControllerTest`（切片：匿名 401/非管理员 403、40000/40001/41500、信封与视图形状、审计注解口径）；`FsrsAdminIntegrationTest`（真实 MySQL：真实日志训练产 CANDIDATE、样本不足不落行、启用状态机/40000/40400、启用后失败排程 stability=w[0]/difficulty=w[4] 且 weights_version_id 绑新版本）；`AdminFsrsControllerTest` 补 optimize 限流注解契约（ACCOUNT 5/60s）；优化器数学另由 `FsrsOptimizerTest`（FSRS-6 闭式/BCE 手算对拍、合成数据收敛）覆盖 |
@@ -2177,6 +2283,7 @@ provider 目录（022，CC Switch 式多 provider；027B 扩密钥录入）：�
 | 2026-11-17 | v1.7 | 028 答疑 LLM legacy 态全字段可编辑：§8.14.2 PUT 扩 baseUrl/model 覆盖（非空白=落覆盖存 `app_settings` 键 `llm.tutor`，空/缺省=清除回 env；形状/长度校验 40000）、写-only apiKey（AES-256-GCM 加密 upsert 到 `llm_provider_keys` 预留 id=`tutor`，空/缺省=不变更）、clearKey=true 删 tutor 密钥行；**废除 017 的 40000 env-only 拒绝语义**（契约演进链 017→027B→028），enabled=true 无可用客户端仍 40000 且同事务回滚全部写入；§8.14.1 GET 增 source（custom\|env，legacy 形态取值来源）与 keyLast4（tutor 密钥行尾号），生效值改按「目录激活 > tutor 覆盖 > env」逐字段投影；解析链三级（022 语义不变：目录激活高于一切 legacy 形态，目录非空未激活仍 fail-closed），覆盖/密钥变更经注册表指纹即时换轨；§10.1 Admin 行同步；黑盒套件（docs/analysis/ai-tutor-test）A-04/A-05/A-06/C-05 期望同步并注明 | 实现工程师 |
 | 2026-11-17 | v1.8 | 029 双 skill 第一轮消缺：§6.13 复核并发语义修订（READ_COMMITTED 事务内锁 attempts 父行串行化，后到者幂等回读、模型只调一次、MODEL 行恰一条，uk_grading_attempt_sequence 降为兜底——命中即数据异常按 50000 降级回滚；llm_usage 旁路记账改 REQUIRES_NEW 独立事务不随主事务回滚丢失）；§6.4/§8.16 申诉语义收口（终审 UPDATE WHERE 携带 status='PENDING' 条件——并发双管理员裁决恰一人成功，后到者 40900「该申诉已被终审」；占位回执 verdict="UNAVAILABLE" 如实发送，与存储 decision JSON 同源，「初裁不可用」回执态真实可达）；§10.1 矩阵两行同步 | 实现工程师 |
 | 2026-11-18 | v1.9 | 030 过时声明修正：§10.4 删「§6.1 D7 四参数未开发」条目（已随 014 落地，§10.1 Practice 行在案）、删「FSRS 排程真值/申诉 LLM 裁决」（分别已随 014/025 落地，§8.13/§6.4/§8.16 在案，深度批改 M3 保留）；§10.5 错误码行改写为已落地口径（40302/40303、40404–40405、40901–40905、41300、42200 已全量定义于 `ApiCode.java`，40303/40404/40405/40904 有端点与测试在用）；登录「用户名或邮箱」条目按代码实态改写（语义已随基线经 `findByUsernameOrEmail` 单查询实现，余项收窄为补邮箱登录接口级测试）；§10 头部日期 2026-10-31→2026-11-18 | 实现工程师 |
+| 2026-11-18 | v2.0 | 0232 管理员 2FA（TOTP 自研 RFC 6238，零新依赖）：新增 §4.10（`POST /api/auth/login/totp` 公开+CSRF、`GET /api/auth/2fa/status`、`POST /api/auth/2fa/setup|activate|disable` 登录态）与 §8.2d `POST /api/admin/users/{id}/reset-2fa`；§4.2 登录密码步 40305（data 携 5 分钟 purpose 限定 challengeToken，challenge 与 access token 分 purpose 互不冒用）；§1.3 增 40305 TOTP_REQUIRED；恢复码 10×8 位 BCrypt 落 user_2fa_recovery_codes（使用落 used_at 不删行，DATA-MODEL §5.21/V15）；限流 login-totp 10/min(IP+challengeToken)、setup/activate/disable 5/min(账号)；审计 TOTP_SETUP/ACTIVATE/DISABLE 与 RESET_2FA；§2/§3/§10.1 矩阵同步 | 实现工程师 |
 
 ---
 

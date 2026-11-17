@@ -2,6 +2,7 @@ package io.github.codejinxz.yilian.auth.controller;
 
 import io.github.codejinxz.yilian.auth.dto.ChangePasswordRequest;
 import io.github.codejinxz.yilian.auth.dto.LoginRequest;
+import io.github.codejinxz.yilian.auth.dto.LoginTotpRequest;
 import io.github.codejinxz.yilian.auth.dto.RegisterRequest;
 import io.github.codejinxz.yilian.auth.service.AuthService;
 import io.github.codejinxz.yilian.auth.service.CaptchaService;
@@ -164,6 +165,68 @@ public class AuthController {
             HttpServletRequest httpRequest,
             HttpServletResponse httpResponse) {
         return ApiResponse.success(authService.login(request, httpRequest, httpResponse));
+    }
+
+    /**
+     * 登录第二步：凭 challengeToken 与动态码（TOTP 或恢复码）完成两步验证并签发 access token。
+     *
+     * @param request 挑战 token 与 8 位验证码
+     * @param httpRequest 当前请求
+     * @param httpResponse 当前响应
+     * @return access token 与当前用户；恢复码登录时携带剩余恢复码数
+     */
+    @Operation(
+            summary = "登录两步验证",
+            description =
+                    "密码步返回 40305（data 携 challengeToken）后调用本端点完成第二步。"
+                            + "challengeToken 5 分钟有效且 purpose 限定，不是 access token；"
+                            + "code 同时接受 TOTP 动态码与一次性恢复码，恢复码使用后作废并回显剩余数。"
+                            + "必须携带 X-XSRF-TOKEN。",
+            parameters = {
+                @Parameter(
+                        name = "X-XSRF-TOKEN",
+                        in = ParameterIn.HEADER,
+                        required = true,
+                        description =
+                                "CSRF 令牌，取自 GET /api/auth/csrf 返回的 token，"
+                                        + "或浏览器可读 Cookie XSRF-TOKEN")
+            })
+    @ApiResponses({
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "200",
+                description = "两步验证通过；data 为 AuthResponse，恢复码登录时含 remainingRecoveryCodes"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "400",
+                description = "验证码不是 8 位数字或挑战缺失（40000）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "401",
+                description = "挑战无效/过期（40101「登录已过期」）或动态码不正确（40101）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "403",
+                description = "CSRF 令牌缺失或不匹配（code=40301）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "429",
+                description = "触发限流（42900），带 Retry-After",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class)))
+    })
+    // 双维度对齐 login：IP 维度限爆破总量；「账号」维度用 challengeToken 键控——挑战经密码步
+    // 签发且与用户一一绑定，是本端点能拿到的最贴近账号的稳定标识（请求体没有用户名）。
+    @RateLimit(
+            scene = "login-totp",
+            dimensions = {RateLimitDimension.IP, RateLimitDimension.ACCOUNT},
+            limit = 10,
+            windowSeconds = 60,
+            accountExpression = "#request.challengeToken()")
+    @OperationLog(module = "account", action = "LOGIN_TOTP")
+    @PostMapping("/login/totp")
+    public ApiResponse<AuthResponse> loginTotp(
+            @Valid @RequestBody LoginTotpRequest request,
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse) {
+        return ApiResponse.success(authService.loginTotp(request, httpRequest, httpResponse));
     }
 
     /**

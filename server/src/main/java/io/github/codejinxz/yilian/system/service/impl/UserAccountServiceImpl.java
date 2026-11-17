@@ -9,6 +9,7 @@ import io.github.codejinxz.yilian.common.util.StringUtils;
 import io.github.codejinxz.yilian.common.util.UsernameUtils;
 import io.github.codejinxz.yilian.system.dao.AppUserDao;
 import io.github.codejinxz.yilian.system.dao.InviteCodeDao;
+import io.github.codejinxz.yilian.system.dao.User2faRecoveryCodeDao;
 import io.github.codejinxz.yilian.system.entity.AppUser;
 import io.github.codejinxz.yilian.system.entity.InviteCode;
 import io.github.codejinxz.yilian.system.entity.UserRole;
@@ -79,16 +80,18 @@ public class UserAccountServiceImpl implements UserAccountService {
 
     private final AppUserDao appUserDao;
     private final InviteCodeDao inviteCodeDao;
+    private final User2faRecoveryCodeDao recoveryCodeDao;
     private final PasswordEncoder passwordEncoder;
     private final boolean inviteRequired;
     private final FindByIndexNameSessionRepository<? extends Session> refreshSessions;
     private final RefreshSessionGuard refreshSessionGuard;
 
     /**
-     * 注入账号 Dao、邀请码 Dao、密码编码器与 refresh 会话吊销依赖。
+     * 注入账号 Dao、邀请码 Dao、恢复码 Dao、密码编码器与 refresh 会话吊销依赖。
      *
      * @param appUserDao 账号 Dao
      * @param inviteCodeDao 邀请码 Dao
+     * @param recoveryCodeDao 2FA 恢复码 Dao（管理员重置两步验证时清行）
      * @param passwordEncoder BCrypt 编码器
      * @param inviteRequired 是否强制邀请码注册
      * @param refreshSessions 按用户名索引的 refresh 会话仓库（停用账号时吊销会话）
@@ -97,12 +100,14 @@ public class UserAccountServiceImpl implements UserAccountService {
     public UserAccountServiceImpl(
             AppUserDao appUserDao,
             InviteCodeDao inviteCodeDao,
+            User2faRecoveryCodeDao recoveryCodeDao,
             PasswordEncoder passwordEncoder,
             @Value("${yilian.registration.invite-required:false}") boolean inviteRequired,
             FindByIndexNameSessionRepository<? extends Session> refreshSessions,
             RefreshSessionGuard refreshSessionGuard) {
         this.appUserDao = appUserDao;
         this.inviteCodeDao = inviteCodeDao;
+        this.recoveryCodeDao = recoveryCodeDao;
         this.passwordEncoder = passwordEncoder;
         this.inviteRequired = inviteRequired;
         this.refreshSessions = refreshSessions;
@@ -285,6 +290,30 @@ public class UserAccountServiceImpl implements UserAccountService {
         revokeRefreshSessions(target.getUsername());
         return new AdminPasswordResetView(
                 temporaryPassword, Long.toString(target.getId()), target.getUsername());
+    }
+
+    @Override
+    @Transactional
+    public void adminReset2fa(long actorId, long targetId, String reason) {
+        if (StringUtils.isBlank(reason)) {
+            throw new BusinessException(ApiCode.VALIDATION_FAILED, "重置两步验证必须填写原因");
+        }
+        AppUser target = requireUser(targetId);
+        if (target.getDeletedAt() != null) {
+            // 与 adminResetPassword/adminDeleteUser 同口径：目标已删按 40400 显式报出。
+            throw new BusinessException(ApiCode.NOT_FOUND, "用户已删除");
+        }
+        if (!target.isTotpEnabled() && target.getTotpSecretCipher() == null) {
+            // 未注册 2FA 是无状态变化的无害操作：幂等返回，不吊销会话（无凭据变更可吊销），
+            // 审计行照常落库（动作有理由即可见）。
+            return;
+        }
+        // 清三列 + 删恢复码行 + 吊销全部 refresh 会话，三者同事务口径与「改密吊销全部」一致：
+        // 重置后该用户任何在途会话都不能再免验证续期，重新登录走完整密码 + 重新注册 2FA。
+        target.clearTotp();
+        appUserDao.save(target);
+        recoveryCodeDao.deleteByUserId(targetId);
+        revokeRefreshSessions(target.getUsername());
     }
 
     @Override

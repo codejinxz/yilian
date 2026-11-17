@@ -12,6 +12,7 @@ import {
   getInvites,
   getRawAttempt,
   getUserAttempts,
+  resetAdminUser2fa,
   resetAdminUserPassword,
   updateUserRole,
   updateUserStatus,
@@ -241,7 +242,7 @@ export function UsersPage() {
                   key={user.id}
                   onClick={() => setDrawerUserId(user.id)}
                   className="group"
-                  cols="grid-cols-[minmax(0,1fr)_84px_78px_92px_58px] gap-3.5 max-[760px]:grid-cols-[minmax(0,1fr)_auto_auto] max-[760px]:gap-2.5"
+                  cols="grid-cols-[minmax(0,1fr)_84px_78px_68px_92px_58px] gap-3.5 max-[760px]:grid-cols-[minmax(0,1fr)_auto_auto] max-[760px]:gap-2.5"
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <span
@@ -263,6 +264,10 @@ export function UsersPage() {
                   <LiveMark on={!user.deleted && user.enabled}>
                     {user.deleted ? "已删除" : user.enabled ? "正常" : "已禁用"}
                   </LiveMark>
+                  {/* 2FA 列：只读开关投影；重置动作在抽屉里走填原因弹窗（与重置密码同款）。 */}
+                  <span className="font-mono text-[11px] text-ink-muted max-[760px]:hidden">
+                    {user.totpEnabled ? "已开启" : "—"}
+                  </span>
                   <span className="text-right font-mono text-[11px] text-ink-muted max-[760px]:hidden">
                     {user.lastLoginAt ? relativeDayLabel(user.lastLoginAt) : "从未登录"}
                   </span>
@@ -432,6 +437,15 @@ function UserDrawer({
     },
     onError: (error) => toast(error instanceof Error ? error.message : "重置失败"),
   });
+  // 重置两步验证（公网锁死兜底）：清注册与恢复码并全部下线，用户重新走注册流程。
+  const reset2faMutation = useMutation({
+    mutationFn: (reason: string) => resetAdminUser2fa(user.id, reason),
+    onSuccess: () => {
+      onSettled();
+      toast("已重置两步验证：注册与恢复码已清空，该用户全部会话已吊销");
+    },
+    onError: (error) => toast(error instanceof Error ? error.message : "重置失败"),
+  });
   const rawMutation = useMutation({
     mutationFn: (input: { attemptId: string; reason: string; zh: string; ref: string | null }) =>
       getRawAttempt(input.attemptId, input.reason),
@@ -520,6 +534,11 @@ function UserDrawer({
       )}
 
       <p className="section-title mt-[30px]">账户</p>
+      <DrawerField label="两步验证">
+        <span className="font-mono text-[11px] text-ink-muted">
+          {user.totpEnabled ? "已开启（登录需动态码）" : "未开启"}
+        </span>
+      </DrawerField>
       <DrawerField label="角色">
         <AdminSelect
           aria-label="用户角色"
@@ -579,6 +598,22 @@ function UserDrawer({
           }
         >
           重置密码
+        </button>
+        <button
+          type="button"
+          className="linkish"
+          disabled={reset2faMutation.isPending}
+          onClick={() =>
+            requestReason({
+              title: "重置两步验证",
+              description:
+                "清空该用户的 TOTP 注册与全部恢复码，并吊销全部会话；用户重新登录后需重新开启两步验证。适用于验证器与恢复码全部丢失的解救。",
+              options: ["用户丢失验证器", "安全原因", "其他"],
+              onConfirm: (reason) => reset2faMutation.mutate(reason),
+            })
+          }
+        >
+          重置两步验证
         </button>
         <button
           type="button"

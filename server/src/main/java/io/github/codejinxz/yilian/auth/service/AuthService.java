@@ -2,6 +2,7 @@ package io.github.codejinxz.yilian.auth.service;
 
 import io.github.codejinxz.yilian.auth.dto.ChangePasswordRequest;
 import io.github.codejinxz.yilian.auth.dto.LoginRequest;
+import io.github.codejinxz.yilian.auth.dto.LoginTotpRequest;
 import io.github.codejinxz.yilian.auth.dto.RegisterRequest;
 import io.github.codejinxz.yilian.auth.dto.UserSettingsRequest;
 import io.github.codejinxz.yilian.auth.vo.AuthResponse;
@@ -32,6 +33,8 @@ public interface AuthService {
     /**
      * 校验凭据并签发 access token，同时建立用于 refresh 的服务端会话。
      *
+     * <p>账号启用两步验证时密码步不建会话：抛 40305 并在 data 携带 challengeToken， 由 {@link #loginTotp} 完成第二步。
+     *
      * @param request 登录请求
      * @param httpRequest 当前请求
      * @param httpResponse 当前响应
@@ -39,6 +42,19 @@ public interface AuthService {
      */
     AuthResponse login(
             LoginRequest request, HttpServletRequest httpRequest, HttpServletResponse httpResponse);
+
+    /**
+     * 登录第二步：凭 challengeToken + 动态码（TOTP 或恢复码）完成两步验证并签发 access token。
+     *
+     * @param request 挑战 token 与 8 位验证码
+     * @param httpRequest 当前请求
+     * @param httpResponse 当前响应
+     * @return access token 与当前用户；恢复码登录时响应携带剩余恢复码数
+     */
+    AuthResponse loginTotp(
+            LoginTotpRequest request,
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse);
 
     /**
      * 邀请码注册并直接登录。

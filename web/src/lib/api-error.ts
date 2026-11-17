@@ -15,6 +15,8 @@ export class ApiError extends Error {
   readonly code: number;
   /** 网络层失败细分；仅 status=0 的失败由客户端产生时填写，HTTP 状态错误不填。 */
   readonly networkKind?: NetworkErrorKind;
+  /** 失败信封的 data 载荷（如 40305 的 challengeToken）；多数失败为 null，调用方按码分支取用。 */
+  readonly data?: unknown;
 
   /**
    * 创建可直接展示给用户的 API 异常。
@@ -22,13 +24,21 @@ export class ApiError extends Error {
    * @param code 后端业务码；缺失时用 -1 兜底
    * @param message 可直接展示的错误提示
    * @param networkKind status=0 时的失败细分；缺省表示未分类的历史路径
+   * @param data 失败信封的 data 载荷；缺省为 undefined（与后端 data:null 同义）
    */
-  constructor(status: number, code: number, message: string, networkKind?: NetworkErrorKind) {
+  constructor(
+    status: number,
+    code: number,
+    message: string,
+    networkKind?: NetworkErrorKind,
+    data?: unknown,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.networkKind = networkKind;
+    this.data = data;
   }
 }
 

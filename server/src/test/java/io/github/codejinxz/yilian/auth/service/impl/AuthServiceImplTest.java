@@ -12,9 +12,12 @@ import static org.mockito.Mockito.when;
 import io.github.codejinxz.yilian.auth.dto.LoginRequest;
 import io.github.codejinxz.yilian.auth.service.CaptchaService;
 import io.github.codejinxz.yilian.auth.service.JwtTokenService;
+import io.github.codejinxz.yilian.auth.service.TotpService;
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
+import io.github.codejinxz.yilian.common.security.SecretCipher;
 import io.github.codejinxz.yilian.common.session.RefreshSessionGuard;
+import io.github.codejinxz.yilian.system.service.TotpAccountService;
 import io.github.codejinxz.yilian.system.service.UserAccountService;
 import io.github.codejinxz.yilian.system.service.dto.UserCredentials;
 
@@ -51,7 +54,10 @@ class AuthServiceImplTest {
                     mock(JwtTokenService.class),
                     refreshSessions,
                     mock(CaptchaService.class),
-                    new RefreshSessionGuard());
+                    new RefreshSessionGuard(),
+                    mock(TotpService.class),
+                    mock(TotpAccountService.class),
+                    mock(SecretCipher.class));
 
     /** [AC-1] 用户名不存在时必须对固定假哈希执行一次 BCrypt matches 后才抛 40101，耗时与存在分支对齐。 */
     @Test
@@ -116,6 +122,7 @@ class AuthServiceImplTest {
                 io.github.codejinxz.yilian.system.entity.UserRole.USER,
                 enabled,
                 true,
+                false,
                 "Asia/Shanghai",
                 3,
                 new BigDecimal("0.900"),

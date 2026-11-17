@@ -111,6 +111,18 @@ export async function resetAdminUserPassword(
 }
 
 /**
+ * 管理员重置用户两步验证：清空 TOTP 注册与全部恢复码并吊销全部会话，目标用户重新走注册流程。
+ * 公网锁死兜底（TOTP 与恢复码全失时解救）；未注册目标为幂等成功。
+ * @param userId 用户 id
+ * @param reason 审计原因
+ */
+export async function resetAdminUser2fa(userId: string, reason: string): Promise<void> {
+  await jsonRequest<unknown>(`/admin/users/${encodeURIComponent(userId)}/reset-2fa`, "POST", {
+    reason,
+  });
+}
+
+/**
  * 操作日志检索。
  * @param params 分页、时间、模块、动作、操作者与关键字
  * @param signal 取消信号

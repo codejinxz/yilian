@@ -5,10 +5,16 @@ package io.github.codejinxz.yilian.common.api;
  *
  * <p>由 {@link ApiExceptionHandler} 转成 {@link ApiResponse} 信封，堆栈只进服务端日志， 不返回客户端；需要给用户更具体提示时可使用带
  * message 的构造方法覆盖默认文案。
+ *
+ * <p>个别失败需要在 {@code data} 里携带载荷（如 40305 的 challengeToken、40000 的字段 明细），用带 data 的构造方法；不带载荷的失败 data
+ * 保持 null。
  */
 public class BusinessException extends RuntimeException {
 
     private final ApiCode apiCode;
+
+    /** 失败载荷；null 表示本次失败不携带明细，响应 data 为 null。 */
+    private final transient Object data;
 
     /**
      * 直接使用错误码内置文案。
@@ -26,8 +32,20 @@ public class BusinessException extends RuntimeException {
      * @param message 面向用户的替换文案，不得包含内部细节
      */
     public BusinessException(ApiCode apiCode, String message) {
+        this(apiCode, message, null);
+    }
+
+    /**
+     * 覆盖文案并携带失败载荷（与 40000 携字段明细同款机制，如 40305 的 challengeToken）。
+     *
+     * @param apiCode 业务错误码，决定返回的 {@code code} 与 HTTP 状态
+     * @param message 面向用户的替换文案，不得包含内部细节
+     * @param data 随失败信封返回的载荷；可为 null（等价于不带载荷的构造）
+     */
+    public BusinessException(ApiCode apiCode, String message, Object data) {
         super(message);
         this.apiCode = apiCode;
+        this.data = data;
     }
 
     /**
@@ -37,5 +55,14 @@ public class BusinessException extends RuntimeException {
      */
     public ApiCode apiCode() {
         return apiCode;
+    }
+
+    /**
+     * 失败载荷。
+     *
+     * @return 构造时传入的载荷；不带载荷时为 null
+     */
+    public Object data() {
+        return data;
     }
 }

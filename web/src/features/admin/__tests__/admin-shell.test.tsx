@@ -44,6 +44,7 @@ const USERS_PAGE = {
       email: "demo-user@example.com",
       role: "USER",
       enabled: true,
+      totpEnabled: false,
       deleted: false,
       createdAt: "2026-01-01T08:00:00Z",
       lastLoginAt: "2026-01-05T08:00:00Z",

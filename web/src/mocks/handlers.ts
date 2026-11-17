@@ -52,9 +52,10 @@ async function delay(): Promise<void> {
  * @param status HTTP 状态
  * @param code 业务码
  * @param message 中文提示
+ * @param data 失败载荷（如 40305 的 challengeToken）；缺省不带
  */
-function fail(status: number, code: number, message: string): never {
-  throw new ApiError(status, code, message);
+function fail(status: number, code: number, message: string, data?: unknown): never {
+  throw new ApiError(status, code, message, undefined, data);
 }
 
 /**
@@ -152,6 +153,7 @@ function toAdminUser(user: MockUser): AdminUser {
     email: user.email,
     role: user.role,
     enabled: user.enabled,
+    totpEnabled: user.totpEnabled,
     deleted: user.deleted,
     createdAt: user.createdAt,
     lastLoginAt: user.lastLoginAt,
@@ -912,6 +914,48 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     if (!user) {
       fail(401, 40101, "用户名或密码错误");
     }
+    // 启用 2FA 的账号密码步不建会话：与真实服务端同形——40305 + data 挑战载荷，
+    // 第二步走 /auth/login/totp（演示态挑战 5 分钟语义由客户端提示承接）。
+    if (user.totpEnabled) {
+      fail(403, 40305, "需要两步验证", {
+        challengeToken: `mock-totp-challenge-${user.id}`,
+        expiresIn: 300,
+      });
+    }
+    db.sessionUserId = user.id;
+    user.lastLoginAt = new Date().toISOString();
+    persistMockDb();
+    return authResponse(user);
+  }
+
+  if (pathname === "/auth/login/totp" && method === "POST") {
+    const input = asObject(body);
+    const token = String(input.challengeToken ?? "");
+    const code = String(input.code ?? "");
+    const match = /^mock-totp-challenge-(.+)$/.exec(token);
+    if (!match) {
+      fail(401, 40101, "登录已过期，请重新登录");
+    }
+    const user = db.users.find((item) => item.id === match[1]);
+    if (!user || !user.enabled || user.deleted || !user.totpEnabled) {
+      fail(401, 40101, "登录已过期，请重新登录");
+    }
+    if (!/^\d{8}$/.test(code)) {
+      fail(401, 40101, "动态验证码不正确");
+    }
+    // 演示态动态码口径：TOTP 部分任意 8 位数字通过；恢复码按库内明文逐一消费（一次性）。
+    const recovery = user.recoveryCodes.find(
+      (candidate) => !candidate.used && candidate.code === code,
+    );
+    if (recovery) {
+      recovery.used = true;
+      persistMockDb();
+      const remaining = user.recoveryCodes.filter((candidate) => !candidate.used).length;
+      db.sessionUserId = user.id;
+      user.lastLoginAt = new Date().toISOString();
+      persistMockDb();
+      return { ...authResponse(user), remainingRecoveryCodes: remaining };
+    }
     db.sessionUserId = user.id;
     user.lastLoginAt = new Date().toISOString();
     persistMockDb();
@@ -983,6 +1027,9 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
         theme: "paper",
         notificationsEnabled: false,
       },
+      totpEnabled: false,
+      totpSecret: null,
+      recoveryCodes: [],
     };
     db.users.push(user);
     db.inviteUsedBy = user.id;
@@ -991,6 +1038,80 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     db.sessionUserId = user.id;
     persistMockDb();
     return authResponse(user);
+  }
+
+  // ---- 两步验证自助端点（0232 同形：演示态密钥/恢复码存明文，接口形状与 API §4.10 一致） ----
+  if (pathname === "/auth/2fa/status" && method === "GET") {
+    const user = requireUser(db);
+    return {
+      enabled: user.totpEnabled,
+      enrolledAt: user.totpEnabled ? user.createdAt : null,
+      remainingRecoveryCodes: user.recoveryCodes.filter((candidate) => !candidate.used).length,
+    };
+  }
+
+  if (pathname === "/auth/2fa/setup" && method === "POST") {
+    const user = requireUser(db);
+    const input = asObject(body);
+    const password = String(input.password ?? "");
+    if (!password || password !== user.password) {
+      fail(401, 40101, "当前密码不正确");
+    }
+    // 演示密钥：固定形状的 32 字符 Base32（真实服务端为 SecureRandom 20 字节 + AES-GCM 密文落库）。
+    user.totpSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+    persistMockDb();
+    return {
+      secret: user.totpSecret,
+      otpauthUri:
+        "otpauth://totp/Yilian:" +
+        user.username +
+        "?secret=" +
+        user.totpSecret +
+        "&issuer=Yilian&algorithm=SHA1&digits=8&period=30",
+    };
+  }
+
+  if (pathname === "/auth/2fa/activate" && method === "POST") {
+    const user = requireUser(db);
+    const input = asObject(body);
+    const code = String(input.code ?? "");
+    if (!user.totpSecret) {
+      fail(400, 40000, "请先完成两步验证注册（setup）");
+    }
+    if (!/^\d{8}$/.test(code)) {
+      fail(401, 40101, "验证码不正确，请重试");
+    }
+    // 演示态恢复码：10 个 8 位数字（首位非零），明文随本响应展示一次。
+    const codes: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      codes.push(String(10_000_000 + Math.floor(Math.random() * 90_000_000)));
+    }
+    user.totpEnabled = true;
+    user.recoveryCodes = codes.map((value) => ({ code: value, used: false }));
+    persistMockDb();
+    return { recoveryCodes: codes };
+  }
+
+  if (pathname === "/auth/2fa/disable" && method === "POST") {
+    const user = requireUser(db);
+    const input = asObject(body);
+    const password = String(input.password ?? "");
+    const code = String(input.code ?? "");
+    if (!user.totpEnabled) {
+      fail(400, 40000, "两步验证未开启");
+    }
+    if (!password || password !== user.password) {
+      fail(401, 40101, "当前密码不正确");
+    }
+    // 演示态动态码任意 8 位数字通过（与 login/totp 同口径）。
+    if (!/^\d{8}$/.test(code)) {
+      fail(401, 40101, "验证码不正确，请重试");
+    }
+    user.totpEnabled = false;
+    user.totpSecret = null;
+    user.recoveryCodes = [];
+    persistMockDb();
+    return null;
   }
 
   if (pathname === "/me/settings" && method === "GET") {
@@ -1597,6 +1718,27 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     const { page, size } = pagination(params);
     const result = paginate(filtered, page, size);
     return { ...result, items: result.items.map(toAdminUser) };
+  }
+
+  const userReset2faMatch = pathname.match(/^\/admin\/users\/([^/]+)\/reset-2fa$/);
+  if (userReset2faMatch && method === "POST") {
+    const admin = requireAdmin(db);
+    const input = asObject(body);
+    const target = db.users.find((user) => user.id === decodeURIComponent(userReset2faMatch[1]!));
+    const reason = String(input.reason ?? "").trim();
+    if (!reason) {
+      fail(400, 40000, "请填写原因");
+    }
+    if (!target || target.deleted) {
+      fail(404, 40400, "请求的资源不存在");
+    }
+    // 幂等口径与真实服务端一致：未注册 2FA 是无状态变化的无害操作（200），审计照常留痕。
+    target.totpEnabled = false;
+    target.totpSecret = null;
+    target.recoveryCodes = [];
+    appendAudit(db, admin, "RESET_2FA", "USER", target.id, reason);
+    persistMockDb();
+    return null;
   }
 
   const userStatusMatch = pathname.match(/^\/admin\/users\/([^/]+)\/status$/);

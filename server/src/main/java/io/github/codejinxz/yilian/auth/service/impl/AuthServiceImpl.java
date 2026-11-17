@@ -2,26 +2,32 @@ package io.github.codejinxz.yilian.auth.service.impl;
 
 import io.github.codejinxz.yilian.auth.dto.ChangePasswordRequest;
 import io.github.codejinxz.yilian.auth.dto.LoginRequest;
+import io.github.codejinxz.yilian.auth.dto.LoginTotpRequest;
 import io.github.codejinxz.yilian.auth.dto.RegisterRequest;
 import io.github.codejinxz.yilian.auth.dto.UserSettingsRequest;
 import io.github.codejinxz.yilian.auth.service.AuthService;
 import io.github.codejinxz.yilian.auth.service.CaptchaService;
 import io.github.codejinxz.yilian.auth.service.JwtTokenService;
+import io.github.codejinxz.yilian.auth.service.TotpService;
 import io.github.codejinxz.yilian.auth.vo.AccessToken;
 import io.github.codejinxz.yilian.auth.vo.AuthResponse;
 import io.github.codejinxz.yilian.auth.vo.CsrfTokenResponse;
 import io.github.codejinxz.yilian.auth.vo.CurrentUserResponse;
+import io.github.codejinxz.yilian.auth.vo.TotpChallengeView;
 import io.github.codejinxz.yilian.auth.vo.UserSettingsResponse;
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.common.security.AuthConstants;
+import io.github.codejinxz.yilian.common.security.SecretCipher;
 import io.github.codejinxz.yilian.common.security.SecurityUtils;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
 import io.github.codejinxz.yilian.common.session.RefreshSessionGuard;
 import io.github.codejinxz.yilian.common.util.DateTimeUtils;
 import io.github.codejinxz.yilian.common.util.PasswordUtils;
+import io.github.codejinxz.yilian.system.service.TotpAccountService;
 import io.github.codejinxz.yilian.system.service.UserAccountService;
 import io.github.codejinxz.yilian.system.service.dto.RegisterCommand;
+import io.github.codejinxz.yilian.system.service.dto.TotpAccountView;
 import io.github.codejinxz.yilian.system.service.dto.UserCredentials;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -68,6 +74,9 @@ public class AuthServiceImpl implements AuthService {
     private final FindByIndexNameSessionRepository<? extends Session> refreshSessions;
     private final CaptchaService captchaService;
     private final RefreshSessionGuard refreshSessionGuard;
+    private final TotpService totpService;
+    private final TotpAccountService totpAccountService;
+    private final SecretCipher secretCipher;
 
     /**
      * 依赖全部面向接口，便于测试时替换账号查询、token 签发与会话吊销。
@@ -75,9 +84,12 @@ public class AuthServiceImpl implements AuthService {
      * @param userAccountService 账号服务
      * @param passwordEncoder 密码比对器
      * @param csrfTokenRepository CSRF 令牌仓库
-     * @param jwtTokenService access token 签发服务
+     * @param jwtTokenService access token 与登录挑战签发服务
      * @param refreshSessions 按用户名索引的 refresh 会话仓库
      * @param refreshSessionGuard 刷新与吊销的互斥锁与会话纪元护栏
+     * @param totpService TOTP 算法服务（登录第二步验码）
+     * @param totpAccountService 账号 2FA 状态读取（system 接口，恢复码比对）
+     * @param secretCipher AES-256-GCM 加密基建（解密落库密文供验码）
      */
     public AuthServiceImpl(
             UserAccountService userAccountService,
@@ -86,7 +98,10 @@ public class AuthServiceImpl implements AuthService {
             JwtTokenService jwtTokenService,
             FindByIndexNameSessionRepository<? extends Session> refreshSessions,
             CaptchaService captchaService,
-            RefreshSessionGuard refreshSessionGuard) {
+            RefreshSessionGuard refreshSessionGuard,
+            TotpService totpService,
+            TotpAccountService totpAccountService,
+            SecretCipher secretCipher) {
         this.userAccountService = userAccountService;
         this.passwordEncoder = passwordEncoder;
         this.csrfTokenRepository = csrfTokenRepository;
@@ -94,6 +109,9 @@ public class AuthServiceImpl implements AuthService {
         this.refreshSessions = refreshSessions;
         this.captchaService = captchaService;
         this.refreshSessionGuard = refreshSessionGuard;
+        this.totpService = totpService;
+        this.totpAccountService = totpAccountService;
+        this.secretCipher = secretCipher;
     }
 
     @Override
@@ -130,9 +148,77 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(ApiCode.AUTH_INVALID_CREDENTIALS);
         }
 
+        // 两步验证账号密码步到此为止：不建会话不发 token，抛 40305 让前端进入第二步；
+        // challenge 是 purpose 限定的短 TTL JWT（过滤器链拒收），拿到它仍需要动态码才能登录。
+        if (user.totpEnabled()) {
+            throw new BusinessException(
+                    ApiCode.TOTP_REQUIRED,
+                    ApiCode.TOTP_REQUIRED.message(),
+                    new TotpChallengeView(
+                            jwtTokenService.issueLoginChallenge(user.id(), user.username()),
+                            JwtTokenService.LOGIN_CHALLENGE_TTL.toSeconds()));
+        }
+
         startSession(httpRequest, user);
         userAccountService.recordLogin(user.id());
         return issue(user);
+    }
+
+    @Override
+    public AuthResponse loginTotp(
+            LoginTotpRequest request,
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse) {
+        // 挑战校验（签名/过期/purpose）失败统一 40101「重新登录」，不给探测者区分反馈。
+        JwtTokenService.LoginChallengeSubject subject =
+                jwtTokenService.verifyLoginChallenge(request.challengeToken());
+        UserCredentials user =
+                userAccountService
+                        .findById(subject.userId())
+                        .filter(candidate -> candidate.enabled() && !candidate.deleted())
+                        .orElseThrow(() -> new BusinessException(ApiCode.AUTH_REQUIRED));
+        TotpAccountView account =
+                totpAccountService
+                        .findAccount(user.id())
+                        .filter(TotpAccountView::totpEnabled)
+                        // 挑战有效但 2FA 已被关闭（如管理员 reset-2fa）：旧流程失效，回到第一步。
+                        .orElseThrow(
+                                () ->
+                                        new BusinessException(
+                                                ApiCode.AUTH_INVALID_CREDENTIALS, "登录已过期，请重新登录"));
+
+        // 先验 TOTP（±1 窗），失败再逐条比对未用恢复码（BCrypt）；恢复码命中即标记 used，
+        // 一次性语义由 used_at 表达，剩余数随响应告知「又少了一枚」。
+        Long remainingRecoveryCodes = null;
+        if (!totpService.verify(
+                secretCipher.decrypt(account.secretCipher()),
+                request.code(),
+                DateTimeUtils.now())) {
+            boolean recovered = false;
+            for (TotpAccountView.RecoveryCodeHash candidate : account.unusedRecoveryCodes()) {
+                if (passwordEncoder.matches(request.code(), candidate.codeHash())) {
+                    totpAccountService.markRecoveryCodeUsed(user.id(), candidate.id());
+                    recovered = true;
+                    remainingRecoveryCodes =
+                            Long.valueOf(Math.max(0, account.remainingRecoveryCodes() - 1));
+                    break;
+                }
+            }
+            if (!recovered) {
+                throw new BusinessException(ApiCode.AUTH_INVALID_CREDENTIALS, "动态验证码不正确");
+            }
+        }
+
+        startSession(httpRequest, user);
+        userAccountService.recordLogin(user.id());
+        AuthResponse response = issue(user);
+        if (remainingRecoveryCodes == null) {
+            return response;
+        }
+        return AuthResponse.from(
+                new AccessToken(response.accessToken(), response.tokenType(), response.expiresIn()),
+                response.user(),
+                remainingRecoveryCodes);
     }
 
     @Override

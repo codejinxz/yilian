@@ -221,7 +221,7 @@ class ApiExceptionHandlerTest {
     /** 幂等冲突走业务异常分支，HTTP 状态必须映射为 409。 */
     @Test
     void idempotentConflictReturns409() {
-        ResponseEntity<ApiResponse<Void>> response =
+        ResponseEntity<ApiResponse<Object>> response =
                 handler.handleBusiness(new BusinessException(ApiCode.IDEMPOTENT_CONFLICT));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);

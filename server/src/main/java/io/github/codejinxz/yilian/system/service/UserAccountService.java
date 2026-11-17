@@ -139,6 +139,18 @@ public interface UserAccountService {
     AdminPasswordResetView adminResetPassword(long actorId, long targetId, String reason);
 
     /**
+     * 管理员重置目标用户的两步验证：清空 TOTP 注册（密文/开关/启用时刻）与全部恢复码， 并吊销该用户全部 refresh 会话。
+     *
+     * <p>公网锁死兜底：用户 TOTP 与恢复码全失时由管理员解救，解救后重新走 setup/activate。 允许管理员对自己执行（唯一管理员丢码时无人可救自己之外的人）；未注册 2FA
+     * 的目标是 无状态变化的无害操作（幂等 200）；目标不存在或已删按 40400 收敛（与 018 重置密码口径一致）。
+     *
+     * @param actorId 操作管理员 id
+     * @param targetId 目标用户 id
+     * @param reason 审计原因，必填
+     */
+    void adminReset2fa(long actorId, long targetId, String reason);
+
+    /**
      * 管理员删除账号：软删置位并吊销全部会话；自己不能删自己，已删返回 40400。
      *
      * @param actorId 操作管理员 id

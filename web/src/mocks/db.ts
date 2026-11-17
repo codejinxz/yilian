@@ -17,10 +17,14 @@ import type {
 const STORAGE_KEY = "yilian.mock.db.v1";
 const DAY_MS = 86_400_000;
 
-/** mock 用户只多存密码与设置；API 响应会裁掉这两项。 */
+/** mock 用户只多存密码、设置与 2FA 材料；API 响应会裁掉后三项。 */
 export interface MockUser extends AdminUser {
   password: string;
   settings: UserSettings;
+  /** TOTP 密钥明文（演示态直接存明文；真实服务端为 AES-GCM 密文且明文永不回显）。 */
+  totpSecret: string | null;
+  /** 一次性恢复码：明文存演示库，used 即作废（与真实 used_at 语义对齐）。 */
+  recoveryCodes: Array<{ code: string; used: boolean }>;
 }
 
 /** mock 句子比 API 多一个 bankId，便于题库筛选；返回给页面时会裁掉。 */
@@ -576,8 +580,27 @@ function seedUsers(): MockUser[] {
       password: "password123",
       settings: { ...baseSettings },
     },
-  ];
+  ].map(withTotpDefaults);
 }
+
+/** 种子用户统一补 2FA 字段：演示种子未启用 2FA（登录路径零变化）。 */
+function withTotpDefaults(user: SeedUser): MockUser {
+  return {
+    ...user,
+    // 数组字面量非上下文类型时 role 放宽为 string，这里收窄回联合类型。
+    role: user.role === "ADMIN" ? "ADMIN" : "USER",
+    totpEnabled: false,
+    totpSecret: null,
+    recoveryCodes: [],
+  };
+}
+
+/** 种子用户字面量形状（AdminUser 裁掉 2FA 三字段；role 允许放宽）。 */
+type SeedUser = Omit<AdminUser, "role" | "totpEnabled"> & {
+  role: string;
+  password: string;
+  settings: UserSettings;
+};
 
 function seedBanks(): BankView[] {
   return [
@@ -1154,6 +1177,18 @@ export function getMockDb(): MockDb {
           // 历史存储没有 invites 字段：补默认码，注册与用户页演示不受影响。
           if (!Array.isArray(parsed.invites)) {
             parsed.invites = seedInvites();
+          }
+          // 历史存储没有 2FA 字段：按「未启用」补齐，登录路径与升级前一致。
+          for (const user of parsed.users) {
+            if (typeof user.totpEnabled !== "boolean") {
+              user.totpEnabled = false;
+            }
+            if (user.totpSecret === undefined) {
+              user.totpSecret = null;
+            }
+            if (!Array.isArray(user.recoveryCodes)) {
+              user.recoveryCodes = [];
+            }
           }
           db = parsed;
           return db;

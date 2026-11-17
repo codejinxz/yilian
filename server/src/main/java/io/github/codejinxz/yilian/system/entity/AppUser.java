@@ -66,6 +66,18 @@ public class AppUser {
     @Column(name = "notifications_enabled", nullable = false)
     private boolean notificationsEnabled;
 
+    /** TOTP 密钥密文：AES-256-GCM 加密落库（主密钥只走环境变量，见 common/security/SecretCipher），列上无明文。 */
+    @Column(name = "totp_secret_cipher", length = 512)
+    private String totpSecretCipher;
+
+    /** 登录第二步开关；setup 只落密文不置位，activate 验码通过才置 true。 */
+    @Column(name = "totp_enabled", nullable = false)
+    private boolean totpEnabled;
+
+    /** 2FA 启用时刻；未启用为 null。 */
+    @Column(name = "totp_enrolled_at")
+    private Instant totpEnrolledAt;
+
     @Column(name = "last_login_at")
     private Instant lastLoginAt;
 
@@ -221,6 +233,38 @@ public class AppUser {
      */
     public void recordLogin(Instant now) {
         this.lastLoginAt = now;
+        touch();
+    }
+
+    /**
+     * 两步验证第一步（setup）：只落新密文，不改 {@code totp_enabled}。重复 setup 覆盖旧密文， 旧验证器绑定的密钥即作废；恢复码不动（activate
+     * 时随启用整体重发）。
+     *
+     * @param secretCipher 新密钥的 AES-256-GCM 密文（调用方已加密，本实体不接触明文）
+     */
+    public void stageTotpSecret(String secretCipher) {
+        this.totpSecretCipher = secretCipher;
+        touch();
+    }
+
+    /**
+     * 两步验证第二步（activate）：验码通过后启用；启用时刻由调用方统一取时钟。 恢复码行的新建与旧密文的覆盖由调用方在同一事务内完成。
+     *
+     * @param secretCipher 本次激活绑定的密文（与 setup 落的密文一致，防并发 setup 漂移）
+     * @param now 启用时间
+     */
+    public void activateTotp(String secretCipher, Instant now) {
+        this.totpSecretCipher = secretCipher;
+        this.totpEnabled = true;
+        this.totpEnrolledAt = now;
+        touch();
+    }
+
+    /** 关闭两步验证并清空全部材料：密文、开关、启用时刻一并清回未注册态； 恢复码行的删除由调用方在同一事务内完成（本实体不感知恢复码表）。 */
+    public void clearTotp() {
+        this.totpSecretCipher = null;
+        this.totpEnabled = false;
+        this.totpEnrolledAt = null;
         touch();
     }
 
@@ -403,6 +447,33 @@ public class AppUser {
      */
     public boolean isNotificationsEnabled() {
         return notificationsEnabled;
+    }
+
+    /**
+     * TOTP 密钥密文。
+     *
+     * @return AES-256-GCM 密文；未 setup 时为 null，不应出现在日志或响应中
+     */
+    public String getTotpSecretCipher() {
+        return totpSecretCipher;
+    }
+
+    /**
+     * 两步验证是否已启用。
+     *
+     * @return true 时登录需要第二步验证
+     */
+    public boolean isTotpEnabled() {
+        return totpEnabled;
+    }
+
+    /**
+     * 2FA 启用时刻。
+     *
+     * @return UTC 时间；未启用时为 null
+     */
+    public Instant getTotpEnrolledAt() {
+        return totpEnrolledAt;
     }
 
     /**

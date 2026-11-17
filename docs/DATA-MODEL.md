@@ -53,6 +53,7 @@
 |---|---|---|---|
 | account | `users` | PRD §8 | M1 |
 | account | `invite_codes` | PRD §16 | M1 |
+| account | `user_2fa_recovery_codes` | 新增（2FA 恢复码投影） | **V15 已建**（§5.21，内部表无端点） |
 | content | `sentence_banks` | PRD §8 | M1 |
 | content | `sentences` | PRD §8 | M1 |
 | content | `sentence_versions` | 新增（从 sentences 拆出） | M1 |
@@ -246,6 +247,9 @@ erDiagram
 | `desired_retention` | DECIMAL(4,3) | 否 | `0.900` | FSRS 期望保留率，0.800–0.970 |
 | `theme` | VARCHAR(8) | 否 | `paper` | `paper` / `night`；前端也可本地覆盖 |
 | `notifications_enabled` | BOOLEAN | 否 | `FALSE` | 通知默认关闭 |
+| `totp_secret_cipher` | VARCHAR(512) | 是 | NULL | TOTP 密钥密文（0232）：SecretCipher AES-256-GCM（主密钥 `YILIAN_SECRET_MASTER_KEY`），列上无明文；未 setup 为 NULL |
+| `totp_enabled` | BOOLEAN | 否 | `FALSE` | 登录第二步开关（0232）：activate 后 TRUE，disable/reset-2fa 清回 FALSE |
+| `totp_enrolled_at` | DATETIME(6) | 是 | NULL | 2FA 启用时刻（0232）；未启用 NULL |
 | `last_login_at` | DATETIME(6) | 是 | NULL | 最近登录成功 |
 | `disabled_reason` | VARCHAR(255) | 是 | NULL | 停用原因，管理员必填 |
 | `disabled_at` | DATETIME(6) | 是 | NULL | 停用时间 |
@@ -842,6 +846,29 @@ tutor 覆盖轨生效，密钥链为 **本行密文解密 > `YILIAN_LLM_API_KEY`
 消费：`LlmProviderKeys`（解析链与入库存取）→ `LlmClientRegistry`（激活条目装配，缓存指纹
 含本表状态）→ `AdminLlmProviderController`（§8.15 写-only apiKey / keyLast4 投影）。
 
+### 5.21 `user_2fa_recovery_codes`（V15 已建，0232）
+
+两步验证一次性恢复码投影表：activate 时生成 10 个 8 位数字（首位非零）明文只随 §4.10 activate
+响应返回一次，库内只存 BCrypt 哈希；使用即落 `used_at`（append-only 语义：不删行、不重置，
+登录第二步按 user_id 取未用行逐条 BCrypt 比对，命中即标记并随响应回显剩余数）。**行不是答题/审计类
+历史而是凭据投影**：disable / reset-2fa 清 enrollment 时由服务层在同一事务内删行——残留旧码在重新
+注册后仍可登录，保留即安全漏洞。零物理外键（仓库纪律），`user_id` 逻辑引用 `users.id`，级联清理由
+应用层保证。密钥本体在 `users.totp_secret_cipher`（AES-256-GCM 密文），本表与主密钥纪律同 §5.20。
+内部表，无端点；经 §4.10 自助端点与 §8.2d 管理端重置读写。
+
+| 字段 | 类型 | 可空 | 默认 | 说明 |
+|---|---|---|---|---|
+| `id` | BIGINT | 否 | AUTO | 主键 |
+| `user_id` | BIGINT | 否 | — | 逻辑引用 `users.id`（零物理外键，应用层同事务清理） |
+| `code_hash` | VARCHAR(255) | 否 | — | 恢复码 BCrypt 哈希；明文只在 activate 响应出现一次 |
+| `used_at` | DATETIME(6) | 是 | NULL | 使用时刻（UTC）；NULL=未使用，落值后永不复活 |
+| `created_at` | DATETIME(6) | 否 | CURRENT_TIMESTAMP(6) | 生成时刻（UTC） |
+
+索引/约束：
+
+- 主键 `(id)`
+- 普通 `idx_2fa_recovery_user (user_id)`——登录第二步与清行的唯一访问路径。
+
 #### M3 预留表（只登记，不建）
 
 #### `llm_providers`
@@ -1314,6 +1341,7 @@ RELEARNING --rating>=GOOD--> REVIEW
 | `V10__drop_fks_index_tuning.sql` | 三处索引调整 + 全部物理外键改逻辑外键（§4.5） | schema 合理化 |
 | `V13__prompt_versions.sql` | `prompt_versions`（ask/review/appeal 首版种子） | 025 申诉裁决：prompt 版本注册与 prompt_version_id 落值 |
 | `V14__llm_provider_keys.sql` | `llm_provider_keys`（provider_id 主键/AES-GCM 密文/key_last4/updated_at） | 027B：provider 条目密钥管理端加密入库（主密钥 env `YILIAN_SECRET_MASTER_KEY`，AGENTS §3.4 修订） |
+| `V15__user_totp_2fa.sql` | `users` 加 `totp_secret_cipher/totp_enabled/totp_enrolled_at` 三列 + `user_2fa_recovery_codes` 表 | 0232：管理员 2FA（TOTP 自研 RFC 6238）——密文列与恢复码投影表（§5.21），迁移前 mysqldump 快照 `server/data/pre-v15-2fa-snapshot.sql` |
 | 未来版本（M3） | `user_daily_stats`、`llm_*` 五表 | 暂不建，版本号顺延 |
 
 规则：
@@ -1436,3 +1464,4 @@ RELEARNING --rating>=GOOD--> REVIEW
 | 2026-11-06 | v0.2 | 025 申诉 LLM 裁决：§5.10 补两级裁决口径（LLM 初裁产 AI 意见 status 保持 PENDING → 人工终审 ACCEPTED/REJECTED；UNAVAILABLE 占位语义；ACCEPTED 经判分 overlay 参与判分，DISPUTE 排除语义不变）；新增 §5.19 `prompt_versions` 注册表（V13，ask/review/appeal 首版种子幂等，行内容不改写、label 流转表达启用态）；§6 枚举 `PromptStatus`→`PromptLabel`（M3 四态模板形状作废）；§5.9 MODEL 行 prompt_version_id 落值；V13 进迁移清单；可变投影表清单补 prompt_versions | 实现工程师 |
 | 2026-11-17 | v0.3 | 027B provider 密钥加密入库：新增 §5.20 `llm_provider_keys`（V14，provider_id 主键逻辑引用目录条目、AES-256-GCM 密文、key_last4 尾 4 位辨识、updated_at 留痕；密钥投影表允许受控 UPDATE/DELETE，与 prompt_versions 的 append-only 区分）；§2 表清单补 ai/llm_provider_keys 行；§4 可变投影表清单补 llm_provider_keys；迁移清单 V14 行；主密钥 `YILIAN_SECRET_MASTER_KEY` 口径（prod fail-fast、local dev 值禁复用）与解析链 DB>env>legacy 见 §5.20 | 实现工程师 |
 | 2026-11-17 | v0.4 | 028 答疑 LLM 配置全可改：§6.11 登记 `llm.tutor` 键形状扩展（017 的 `{"schemaVersion":1,"enabled":bool}` → 028 扩 `baseUrl`/`model` 可空覆盖字段，fail-closed 解析 + 裸布尔兼容；生效优先级目录激活 > 覆盖 > env，API.md §8.14）；§5.20 注明 `llm_provider_keys` **预留 id=`tutor`** 行（答疑密钥复用本表与 027B 加密基建，不新建表、不新建迁移；不属于任何目录条目、目录增删不触碰；密钥链本行密文 > `YILIAN_LLM_API_KEY` env > 空；与覆盖写同事务）；§6.11 补登记 `llm.providers`/`llm.active` 两键形状（022 已投产，随本批一并入表） | 实现工程师 |
+| 2026-11-18 | v0.5 | 0232 管理员 2FA：§5.1 `users` 补三列（totp_secret_cipher AES-256-GCM 密文/totp_enabled/totp_enrolled_at，存量账号默认未启用——黑盒套件登录路径零变化）；新增 §5.21 `user_2fa_recovery_codes`（V15，BCrypt 哈希投影、使用落 used_at 不删行、disable/reset-2fa 同事务删行——凭据投影删除非历史抹除）；§2 实体清单补 account 行；迁移清单 V15 行（快照 pre-v15-2fa-snapshot.sql）；主密钥纪律复用 §5.20 的 `YILIAN_SECRET_MASTER_KEY`（SecretCipher 由 027B 加密器抽取至 common/security，TOTP 密钥入库复用同一加密） | 实现工程师 |

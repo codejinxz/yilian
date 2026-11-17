@@ -17,6 +17,7 @@ import java.math.BigDecimal;
  * @param role 角色
  * @param enabled 账号是否启用
  * @param passwordChanged 是否已改初始密码
+ * @param totpEnabled 是否已启用两步验证（true 时登录密码步返回 40305 challenge）
  * @param timezone IANA 时区，FSRS 日界与 today 使用
  * @param dailyGoal 每日目标
  * @param desiredRetention FSRS 期望保留率
@@ -30,6 +31,7 @@ public record UserCredentials(
         UserRole role,
         boolean enabled,
         boolean passwordChanged,
+        boolean totpEnabled,
         String timezone,
         int dailyGoal,
         BigDecimal desiredRetention,
@@ -50,6 +52,7 @@ public record UserCredentials(
                 user.getRole(),
                 user.isEnabled(),
                 user.isPasswordChanged(),
+                user.isTotpEnabled(),
                 user.getTimezone(),
                 user.getDailyGoal(),
                 user.getDesiredRetention(),

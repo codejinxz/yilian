@@ -22,9 +22,68 @@ export const authResponseSchema = z.object({
   tokenType: z.string().min(1),
   expiresIn: z.number().int().positive(),
   user: currentUserSchema,
+  // 恢复码登录时后端回显剩余恢复码数；普通登录/刷新为 null 或缺省。
+  remainingRecoveryCodes: z.number().int().nonnegative().nullable().optional(),
 });
 
 export type AuthResponse = z.infer<typeof authResponseSchema>;
+
+/**
+ * 40305「需要两步验证」失败信封的 data 载荷：challengeToken 仅代表「密码已验证」，
+ * 不是 access token，5 分钟过期。
+ */
+export const totpChallengeSchema = z.object({
+  challengeToken: z.string().min(1),
+  expiresIn: z.number().int().positive(),
+});
+
+export type TotpChallenge = z.infer<typeof totpChallengeSchema>;
+
+/** 两步验证状态（GET /auth/2fa/status）；响应不含任何密钥材料。 */
+export const totpStatusSchema = z.object({
+  enabled: z.boolean(),
+  enrolledAt: z.string().min(1).nullable(),
+  remainingRecoveryCodes: z.number().int().nonnegative(),
+});
+
+export type TotpStatus = z.infer<typeof totpStatusSchema>;
+
+/** 注册第一步回执：Base32 密钥与 otpauth URI 文本仅此一次展示（本批不渲染二维码）。 */
+export const totpSetupSchema = z.object({
+  secret: z.string().regex(/^[A-Z2-7]{32}$/, "密钥格式异常"),
+  otpauthUri: z.string().startsWith("otpauth://totp/"),
+});
+
+export type TotpSetup = z.infer<typeof totpSetupSchema>;
+
+/** 注册第二步回执：10 个一次性恢复码明文仅此一次展示。 */
+export const totpActivationSchema = z.object({
+  recoveryCodes: z.array(z.string().regex(/^\d{8}$/)).length(10),
+});
+
+export type TotpActivation = z.infer<typeof totpActivationSchema>;
+
+/** 登录第二步请求：code 同时接受 TOTP 动态码与恢复码。 */
+export const loginTotpRequestSchema = z.object({
+  challengeToken: z.string().min(1, "登录挑战缺失，请重新登录"),
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{8}$/, "验证码为 8 位数字"),
+});
+
+export type LoginTotpRequest = z.infer<typeof loginTotpRequestSchema>;
+
+/** 关闭两步验证请求：密码 + 当前动态码双确认。 */
+export const disableTotpRequestSchema = z.object({
+  password: z.string().min(1, "请输入当前密码"),
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{8}$/, "验证码为 8 位数字"),
+});
+
+export type DisableTotpRequest = z.infer<typeof disableTotpRequestSchema>;
 
 export const registerRequestSchema = z.object({
   email: z.string().trim().email("邮箱格式不正确").max(255, "邮箱过长"),

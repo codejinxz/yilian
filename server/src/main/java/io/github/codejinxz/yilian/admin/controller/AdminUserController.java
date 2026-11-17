@@ -1,6 +1,7 @@
 package io.github.codejinxz.yilian.admin.controller;
 
 import io.github.codejinxz.yilian.admin.service.dto.AdminUserDeleteRequest;
+import io.github.codejinxz.yilian.admin.service.dto.AdminUserReset2faRequest;
 import io.github.codejinxz.yilian.admin.service.dto.AdminUserResetPasswordRequest;
 import io.github.codejinxz.yilian.admin.service.dto.AdminUserRoleRequest;
 import io.github.codejinxz.yilian.admin.service.dto.AdminUserStatusRequest;
@@ -134,6 +135,29 @@ public class AdminUserController {
         OperationLogContext.set("user", Long.toString(userId), request.reason());
         return ApiResponse.success(
                 userAccountService.adminResetPassword(actor.id(), userId, request.reason()));
+    }
+
+    /**
+     * 重置用户两步验证：清空 TOTP 注册与全部恢复码并吊销全部会话，目标用户重新走注册流程。
+     *
+     * <p>公网锁死兜底：TOTP 与恢复码全失时管理员解救。允许对自己执行（唯一管理员丢码时 没有他人可救）；未注册 2FA 的目标为无状态变化的幂等成功；已删目标按 40400 收敛 （与
+     * reset-password 口径一致）。
+     *
+     * @param userId 目标用户 id
+     * @param request 审计原因
+     * @param actor 当前管理员
+     * @return 成功提示
+     */
+    @Operation(summary = "重置用户两步验证")
+    @OperationLog(module = "admin", action = "RESET_2FA", targetType = "user")
+    @PostMapping("/{userId}/reset-2fa")
+    public ApiResponse<Void> reset2fa(
+            @PathVariable long userId,
+            @Valid @RequestBody AdminUserReset2faRequest request,
+            @AuthenticationPrincipal YilianUserPrincipal actor) {
+        OperationLogContext.set("user", Long.toString(userId), request.reason());
+        userAccountService.adminReset2fa(actor.id(), userId, request.reason());
+        return ApiResponse.successMessage("已重置该用户的两步验证");
     }
 
     /**

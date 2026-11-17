@@ -12,6 +12,7 @@ import java.time.Instant;
  * @param email 邮箱
  * @param role 角色
  * @param enabled 是否启用
+ * @param totpEnabled 是否已启用两步验证（只投影开关，不含任何密钥材料）
  * @param deleted 是否软删
  * @param createdAt 创建时间
  * @param lastLoginAt 最近登录时间
@@ -23,6 +24,7 @@ public record AdminUserView(
         String email,
         String role,
         boolean enabled,
+        boolean totpEnabled,
         boolean deleted,
         Instant createdAt,
         Instant lastLoginAt,
@@ -41,6 +43,7 @@ public record AdminUserView(
                 user.getEmail(),
                 user.getRole().name(),
                 user.isEnabled(),
+                user.isTotpEnabled(),
                 user.getDeletedAt() != null,
                 user.getCreatedAt(),
                 user.getLastLoginAt(),

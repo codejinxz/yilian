@@ -212,9 +212,10 @@ async function readApiEnvelope(response: Response): Promise<ApiEnvelope | null> 
 
 /**
  * 把失败响应转换为 ApiError；业务码缺失时退回 HTTP 状态，429 额外读取 Retry-After。
+ * 失败信封的 data 载荷随异常透出（如 40305 的 challengeToken），调用方按业务码分支取用。
  * @param response 失败响应
  * @param envelope 已解析的信封，可为 null
- * @returns 带 HTTP 状态与业务码的异常
+ * @returns 带 HTTP 状态、业务码与载荷的异常
  */
 function toApiError(response: Response, envelope: ApiEnvelope | null): ApiError {
   const code = envelope && envelope.code !== 0 ? envelope.code : response.status;
@@ -225,7 +226,7 @@ function toApiError(response: Response, envelope: ApiEnvelope | null): ApiError 
       message = `请求过于频繁，请 ${retryAfter} 秒后重试`;
     }
   }
-  return new ApiError(response.status, code, message);
+  return new ApiError(response.status, code, message, undefined, envelope?.data ?? undefined);
 }
 
 /**
@@ -1041,6 +1042,28 @@ export const api = {
   }): Promise<AuthResponse> {
     const data = await request<unknown>(
       "/auth/register",
+      { method: "POST", body: JSON.stringify(input) },
+      { skipRefresh: true, skipUnauthorizedRedirect: true },
+    );
+    const parsed = authResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      throw new ApiError(0, FALLBACK_ERROR_CODE, "服务响应异常，请稍后重试");
+    }
+    accessToken = parsed.data.accessToken;
+    cachedCsrfToken = null;
+    return parsed.data;
+  },
+
+  /**
+   * 登录两步验证：密码步返回 40305（data 携 challengeToken）后，凭挑战 token 与 8 位
+   * 验证码（TOTP 或恢复码）完成登录；恢复码登录时响应携带剩余恢复码数供提示。
+   * @param input 挑战 token 与验证码
+   * @returns 认证响应；remainingRecoveryCodes 仅恢复码登录时有值
+   * @throws ApiError 挑战过期、动态码错误、限流或响应结构异常
+   */
+  async loginTotp(input: { challengeToken: string; code: string }): Promise<AuthResponse> {
+    const data = await request<unknown>(
+      "/auth/login/totp",
       { method: "POST", body: JSON.stringify(input) },
       { skipRefresh: true, skipUnauthorizedRedirect: true },
     );

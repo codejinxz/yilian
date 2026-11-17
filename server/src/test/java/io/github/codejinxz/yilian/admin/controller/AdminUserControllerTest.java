@@ -3,6 +3,7 @@ package io.github.codejinxz.yilian.admin.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -139,6 +140,7 @@ class AdminUserControllerTest {
                 .andExpect(jsonPath("$.data.items[0].username").value("learner"))
                 .andExpect(jsonPath("$.data.items[0].role").value("USER"))
                 .andExpect(jsonPath("$.data.items[0].enabled").value(true))
+                .andExpect(jsonPath("$.data.items[0].totpEnabled").value(false))
                 .andExpect(jsonPath("$.data.items[0].deleted").value(false))
                 .andExpect(jsonPath("$.data.items[0].createdAt").value("2026-01-15T08:00:00Z"))
                 .andExpect(jsonPath("$.data.items[0].lastLoginAt").value("2026-10-30T12:30:00Z"))
@@ -266,12 +268,96 @@ class AdminUserControllerTest {
                 .andExpect(jsonPath("$.message").value("不能重置自己的密码，请走自助改密"));
     }
 
+    /** [AC-6c] 重置两步验证端点：reason 必填透传，200 固定提示，审计上下文写入目标与原因。 */
+    @Test
+    void reset2faForwardsReasonAndWritesAuditContext_ac6c() throws Exception {
+        mockMvc.perform(
+                        post("/api/admin/users/{userId}/reset-2fa", 3)
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\":\"用户恢复码全失\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(ApiCode.SUCCESS.code()))
+                .andExpect(jsonPath("$.message").value("已重置该用户的两步验证"));
+
+        verify(userAccountService).adminReset2fa(1L, 3L, "用户恢复码全失");
+        assertThat(OperationLogContext.current())
+                .hasValueSatisfying(
+                        override -> {
+                            assertThat(override.targetType()).isEqualTo("user");
+                            assertThat(override.targetId()).isEqualTo("3");
+                            assertThat(override.reason()).isEqualTo("用户恢复码全失");
+                        });
+    }
+
+    /** [AC-6c] 重置两步验证：缺失原因 40000（Bean Validation），不触达 Service。 */
+    @Test
+    void reset2faRejectsBlankReason_ac6c() throws Exception {
+        mockMvc.perform(
+                        post("/api/admin/users/{userId}/reset-2fa", 3)
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\":\"\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ApiCode.VALIDATION_FAILED.code()));
+
+        verifyNoInteractions(userAccountService);
+    }
+
+    /** [AC-6c] 重置两步验证：非管理员 403；目标不存在由 Service 抛 40400 原样透传。 */
+    @Test
+    void reset2faRejectsNonAdminAndMapsNotFound_ac6c() throws Exception {
+        mockMvc.perform(
+                        post("/api/admin/users/{userId}/reset-2fa", 3)
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\":\"x\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(ApiCode.ACCESS_DENIED.code()));
+        doThrow(new BusinessException(ApiCode.NOT_FOUND, "用户不存在"))
+                .when(userAccountService)
+                .adminReset2fa(1L, 99L, "x");
+        mockMvc.perform(
+                        post("/api/admin/users/{userId}/reset-2fa", 99)
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\":\"x\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(ApiCode.NOT_FOUND.code()));
+        verify(userAccountService).adminReset2fa(1L, 99L, "x");
+    }
+
     /** [AC-6b] 删除账号端点：DELETE + reason 透传，200 回软删后的视图，审计上下文写入。 */
     @Test
     void deleteUserForwardsReasonAndReturnsDeletedView_ac6b() throws Exception {
         AdminUserView deleted =
                 new AdminUserView(
-                        "3", "learner", null, "USER", false, true, Instant.EPOCH, null, null);
+                        "3",
+                        "learner",
+                        null,
+                        "USER",
+                        false,
+                        false,
+                        true,
+                        Instant.EPOCH,
+                        null,
+                        null);
         when(userAccountService.adminDeleteUser(1L, 3L, "用户申请注销")).thenReturn(deleted);
 
         mockMvc.perform(
@@ -470,6 +556,7 @@ class AdminUserControllerTest {
                 "USER",
                 true,
                 false,
+                false,
                 Instant.parse("2026-01-15T08:00:00Z"),
                 Instant.parse("2026-10-30T12:30:00Z"),
                 null);
@@ -486,6 +573,7 @@ class AdminUserControllerTest {
                 "learner",
                 "learner@example.com",
                 "USER",
+                false,
                 false,
                 false,
                 Instant.parse("2026-01-15T08:00:00Z"),
@@ -505,6 +593,7 @@ class AdminUserControllerTest {
                 "learner@example.com",
                 "ADMIN",
                 true,
+                false,
                 false,
                 Instant.parse("2026-01-15T08:00:00Z"),
                 Instant.parse("2026-10-30T12:30:00Z"),

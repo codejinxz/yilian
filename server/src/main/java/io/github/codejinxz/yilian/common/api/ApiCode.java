@@ -40,6 +40,8 @@ public enum ApiCode {
     PASSWORD_CHANGE_REQUIRED(40303, "请先修改初始密码", HttpStatus.FORBIDDEN),
     /** 功能已部署但管理员未开放：题目答疑配置了模型凭证但 enabled=false（错误号取 40304——40301 已被 CSRF 占用，业务码发布后不改号也不复用）。 */
     ASK_NOT_OPEN(40304, "答疑未开放", HttpStatus.FORBIDDEN),
+    /** 密码正确但账号已启用两步验证：data 携带 5 分钟有效的 challengeToken，前端引导到验证码第二步。 */
+    TOTP_REQUIRED(40305, "需要两步验证", HttpStatus.FORBIDDEN),
 
     /** 路由或静态资源不存在。 */
     NOT_FOUND(40400, "请求的资源不存在", HttpStatus.NOT_FOUND),

@@ -11,6 +11,8 @@ import type { Today } from "@/lib/schemas/practice";
 export const queryKeys = {
   me: ["auth", "me"] as const,
   settings: ["me", "settings"] as const,
+  /** 两步验证状态；注册/关闭后失效重取。 */
+  totpStatus: ["auth", "totp-status"] as const,
   today: ["practice", "today"] as const,
   nextPractice: (params: {
     bankId?: string;

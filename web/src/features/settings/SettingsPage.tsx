@@ -5,6 +5,7 @@ import { ErrorState, LoadingBlock, Notice } from "@/components/feedback";
 import { clearSession } from "@/features/auth/clear-session";
 import { ConfirmDialog } from "@/features/settings/confirm-dialog";
 import { type GradingMode, type ThemeMode, useSettingsStore } from "@/features/settings/store";
+import { TotpCard } from "@/features/settings/TotpCard";
 import { api } from "@/lib/api";
 import { updateSettings } from "@/lib/api/account";
 import {
@@ -560,6 +561,13 @@ export function SettingsPage() {
             </div>
           )}
         </SettingRow>
+
+        {/* 两步验证卡片：仅登录用户可见；游客没有账号侧凭据可保护。 */}
+        {user ? (
+          <SettingRow label="两步验证">
+            <TotpCard />
+          </SettingRow>
+        ) : null}
 
         <SettingRow label="批改方式">
           <div className="space-y-3.5">
