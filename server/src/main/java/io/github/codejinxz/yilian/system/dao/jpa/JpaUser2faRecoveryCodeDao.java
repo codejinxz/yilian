@@ -5,6 +5,7 @@ import io.github.codejinxz.yilian.system.entity.User2faRecoveryCode;
 
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.List;
 
 /** User2faRecoveryCodeDao 的 JPA 适配器。 */
@@ -30,6 +31,12 @@ public class JpaUser2faRecoveryCodeDao implements User2faRecoveryCodeDao {
     @Override
     public List<User2faRecoveryCode> findUnusedByUserId(long userId) {
         return repository.findByUserIdAndUsedAtIsNullOrderByIdAsc(userId);
+    }
+
+    @Override
+    public boolean markUsedIfUnused(long userId, long codeId, Instant now) {
+        // 影响行数 >0 才算消费成功；0=已被并发消费或行不存在，由服务层收敛为 40101。
+        return repository.markUsedIfUnused(codeId, userId, now) > 0;
     }
 
     @Override

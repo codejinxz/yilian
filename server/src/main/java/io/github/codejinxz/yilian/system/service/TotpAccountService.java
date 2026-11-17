@@ -45,10 +45,12 @@ public interface TotpAccountService {
     void clearTotpEnrollment(long userId);
 
     /**
-     * 标记恢复码已使用（落 used_at，append-only：不删行、不重置）。
+     * 原子消费恢复码：Dao 层条件更新（仅 {@code used_at IS NULL} 时落值，append-only： 不删行、不重置）——并发双发同码时恰一影响行数为 1。
      *
      * @param userId 用户 id（行归属校验，防跨用户消费）
      * @param codeId 恢复码行 id
+     * @throws io.github.codejinxz.yilian.common.api.BusinessException 行已被并发消费或不存在 （影响行数 0）→
+     *     40101「恢复码无效或已使用」
      */
     void markRecoveryCodeUsed(long userId, long codeId);
 }

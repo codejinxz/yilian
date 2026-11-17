@@ -187,8 +187,9 @@ public class AuthServiceImpl implements AuthService {
                                         new BusinessException(
                                                 ApiCode.AUTH_INVALID_CREDENTIALS, "登录已过期，请重新登录"));
 
-        // 先验 TOTP（±1 窗），失败再逐条比对未用恢复码（BCrypt）；恢复码命中即标记 used，
-        // 一次性语义由 used_at 表达，剩余数随响应告知「又少了一枚」。
+        // 先验 TOTP（±1 窗），失败再逐条比对未用恢复码（BCrypt）；命中即走条件更新原子消费
+        // （used_at IS NULL 才落值，并发双发同码恰一成功、败者 40101「恢复码无效或已使用」），
+        // 剩余数随响应告知「又少了一枚」。
         Long remainingRecoveryCodes = null;
         if (!totpService.verify(
                 secretCipher.decrypt(account.secretCipher()),

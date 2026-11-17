@@ -57,15 +57,6 @@ public class User2faRecoveryCode {
     }
 
     /**
-     * 标记本恢复码已被使用：只落 {@code used_at}，不删行不重置—— 用过即废的一次性语义由该列表达，审计可回放。
-     *
-     * @param now 使用时间
-     */
-    public void markUsed(Instant now) {
-        this.usedAt = now;
-    }
-
-    /**
      * 主键。
      *
      * @return 自增 id，未持久化时为 null

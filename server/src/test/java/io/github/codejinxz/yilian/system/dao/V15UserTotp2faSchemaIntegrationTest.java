@@ -113,15 +113,26 @@ class V15UserTotp2faSchemaIntegrationTest {
         assertThat(unused.get(0).getCodeHash()).isEqualTo("$2a$10$hash-a");
         assertThat(unused.get(0).getCreatedAt()).isEqualTo(created);
 
-        // 使用语义：markUsed 落 used_at，行不消失、不再出现在未用集合。
-        first.markUsed(created.plusSeconds(60));
-        recoveryCodeDao.save(first);
+        // 使用语义（R1-1 原子化后走真实生产路径）：条件更新落 used_at，行不消失、不再出现在未用集合。
+        assertThat(recoveryCodeDao.markUsedIfUnused(-7L, first.getId(), created.plusSeconds(60)))
+                .isTrue();
         assertThat(recoveryCodeDao.findUnusedByUserId(-7L)).hasSize(1);
         Long usedRows =
                 jdbcTemplate.queryForObject(
                         "SELECT COUNT(*) FROM user_2fa_recovery_codes WHERE user_id = -7",
                         Long.class);
         assertThat(usedRows).as("使用后行保留（append-only）").isEqualTo(2L);
+        // 单次语义的反向：同码再次消费（并发竞态输家/重放）影响行数 0 → false，used_at 不被改写。
+        assertThat(recoveryCodeDao.markUsedIfUnused(-7L, first.getId(), created.plusSeconds(120)))
+                .isFalse();
+        java.util.Map<String, Object> usedRow =
+                jdbcTemplate.queryForMap(
+                        "SELECT used_at FROM user_2fa_recovery_codes WHERE id = ?", first.getId());
+        // 连接时区为 UTC（application-test.yml），DATETIME(6) 取回 LocalDateTime 按 UTC 还原。
+        assertThat(
+                        ((java.time.LocalDateTime) usedRow.get("used_at"))
+                                .toInstant(java.time.ZoneOffset.UTC))
+                .isEqualTo(created.plusSeconds(60));
 
         // 清行语义：disable/reset-2fa 的物理删除（凭据投影，非历史抹除）。
         assertThat(recoveryCodeDao.deleteByUserId(-7L)).isEqualTo(2);

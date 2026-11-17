@@ -21,6 +21,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -239,6 +244,23 @@ class AuthTotpFlowIntegrationTest {
         assertThat(secondStep.body()).contains("\"username\":\"admin\"");
         // 验证码登录不消费恢复码：无剩余数字段（null）。
         assertThat(secondStep.body()).contains("\"remainingRecoveryCodes\":null");
+
+        // 反向隔离（R1-3）：access token 冒充 challengeToken 调第二步——verifyLoginChallenge 的
+        // purpose 校验拒绝（access token 不携带 purpose 声明），统一 40101「请重新登录」口径。
+        HttpResponse<String> accessAsChallenge =
+                send(
+                        client,
+                        "POST",
+                        "/api/auth/login/totp",
+                        Map.of(
+                                "challengeToken",
+                                accessToken(secondStep.body()),
+                                "code",
+                                currentCode(secret)),
+                        Map.of("X-XSRF-TOKEN", csrfToken(client)));
+        assertThat(accessAsChallenge.statusCode()).isEqualTo(401);
+        assertThat(accessAsChallenge.body()).contains("\"code\":40101");
+        assertThat(accessAsChallenge.body()).contains("登录已过期");
     }
 
     /** [AC-5] 恢复码登录：一次性消费、剩余数随响应可见、重放同一恢复码被拒；TOTP 码不受影响。 */
@@ -311,6 +333,94 @@ class AuthTotpFlowIntegrationTest {
                         Map.of("X-XSRF-TOKEN", csrfToken(replayClient)));
         assertThat(totpLogin.statusCode()).isEqualTo(200);
         assertThat(totpLogin.body()).contains("\"remainingRecoveryCodes\":null");
+    }
+
+    /** [AC-5][R1-1] 同一恢复码两线程并发登录：Dao 条件更新原子化消费，恰一 200 一 40101，库内 used_at 只落一次。 */
+    @Test
+    @DisplayName("[AC-5] 恢复码并发单次语义（条件更新原子化，镜像 029 AC-1 并发样式）")
+    void ac5_recoveryCodeConcurrentSingleUse() throws Exception {
+        Enrollment enrollment = enrollAdmin();
+        String code = enrollment.recoveryCodes()[0].trim();
+
+        // 两个独立客户端各自走完密码步拿到挑战，再用同一枚恢复码并发提交第二步。
+        HttpClient clientA = newClient();
+        HttpClient clientB = newClient();
+        String challengeA = challengeFor(clientA);
+        String challengeB = challengeFor(clientB);
+
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<HttpResponse<String>> futureA =
+                    pool.submit(() -> totpSubmit(clientA, challengeA, code, start));
+            Future<HttpResponse<String>> futureB =
+                    pool.submit(() -> totpSubmit(clientB, challengeB, code, start));
+            // 双任务均已就位（各自备好 CSRF），放行闸放行：两请求贴近同时到达服务端竞争条件更新。
+            start.countDown();
+            HttpResponse<String> responseA = futureA.get(30, TimeUnit.SECONDS);
+            HttpResponse<String> responseB = futureB.get(30, TimeUnit.SECONDS);
+
+            // 恰一 200 一 401：条件更新使后到者影响行数 0，输家 40101「恢复码无效或已使用」。
+            HttpResponse<String> winner = responseA.statusCode() == 200 ? responseA : responseB;
+            HttpResponse<String> loser = responseA.statusCode() == 200 ? responseB : responseA;
+            assertThat(winner.statusCode()).as("winner body=%s", winner.body()).isEqualTo(200);
+            assertThat(loser.statusCode()).isEqualTo(401);
+            assertThat(loser.body()).contains("\"code\":40101");
+            assertThat(loser.body()).contains("恢复码无效或已使用");
+
+            // 库内该行只落一次 used_at（append-only 行保留，剩余 9 枚未被波及）。
+            Long usedRows =
+                    jdbcTemplate.queryForObject(
+                            "SELECT COUNT(*) FROM user_2fa_recovery_codes"
+                                    + " WHERE used_at IS NOT NULL",
+                            Long.class);
+            assertThat(usedRows).as("并发双发同码只落一次 used_at").isEqualTo(1L);
+
+            // 赢家登录态可用：status 剩余恢复码 9。
+            HttpResponse<String> status =
+                    get(
+                            winner == responseA ? clientA : clientB,
+                            "/api/auth/2fa/status",
+                            Map.of("Authorization", bearer(accessToken(winner.body()))));
+            assertThat(status.body()).contains("\"remainingRecoveryCodes\":9");
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /**
+     * 走完密码步并返回 40305 的 challengeToken（并发用例夹具）。
+     *
+     * @param client HTTP 客户端
+     * @return challenge token
+     */
+    private String challengeFor(HttpClient client) throws Exception {
+        HttpResponse<String> passwordStep = loginRaw(client, ADMIN_USERNAME, TEST_ADMIN_PASSWORD);
+        assertThat(passwordStep.statusCode()).isEqualTo(403);
+        assertThat(passwordStep.body()).contains("\"code\":40305");
+        return jsonField(passwordStep.body(), "challengeToken");
+    }
+
+    /**
+     * 并发提交第二步：先取 CSRF，对齐起跑线后发同一枚恢复码。
+     *
+     * @param client HTTP 客户端
+     * @param challengeToken 密码步挑战
+     * @param code 恢复码
+     * @param start 起跑闸
+     * @return 第二步响应
+     */
+    private HttpResponse<String> totpSubmit(
+            HttpClient client, String challengeToken, String code, CountDownLatch start)
+            throws Exception {
+        String csrf = csrfToken(client);
+        start.await();
+        return send(
+                client,
+                "POST",
+                "/api/auth/login/totp",
+                Map.of("challengeToken", challengeToken, "code", code),
+                Map.of("X-XSRF-TOKEN", csrf));
     }
 
     /** [AC-6] 管理员 reset-2fa：解救启用 2FA 的用户（清注册+吊销会话，登录回到单步）；未注册目标幂等 200；缺失目标 40400。 */
