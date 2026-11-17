@@ -24,8 +24,11 @@ import io.github.codejinxz.yilian.practice.entity.AttemptGrading;
 import io.github.codejinxz.yilian.practice.entity.LlmUsage;
 import io.github.codejinxz.yilian.practice.grading.GradingAnnotation;
 import io.github.codejinxz.yilian.practice.grading.GradingResult;
+import io.github.codejinxz.yilian.practice.llm.BudgetGuardService;
+import io.github.codejinxz.yilian.practice.llm.LlmBudgetSettings;
 import io.github.codejinxz.yilian.practice.llm.LlmChatClient;
 import io.github.codejinxz.yilian.practice.llm.LlmClientRegistry;
+import io.github.codejinxz.yilian.practice.llm.LlmModelPricing;
 import io.github.codejinxz.yilian.practice.llm.LlmProperties;
 import io.github.codejinxz.yilian.practice.llm.LlmProviderKeys;
 import io.github.codejinxz.yilian.practice.llm.PromptRegistry;
@@ -33,6 +36,7 @@ import io.github.codejinxz.yilian.practice.llm.TutorOverrides;
 import io.github.codejinxz.yilian.practice.service.PracticeService;
 import io.github.codejinxz.yilian.practice.service.dto.LlmConfigUpdateRequest;
 import io.github.codejinxz.yilian.practice.service.vo.LlmConfigView;
+import io.github.codejinxz.yilian.practice.service.vo.LlmUsageView;
 import io.github.codejinxz.yilian.practice.service.vo.TutorAskView;
 import io.github.codejinxz.yilian.system.service.AppSettingService;
 
@@ -48,9 +52,11 @@ import org.springframework.dao.DataAccessResourceFailureException;
 
 import tools.jackson.databind.ObjectMapper;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -143,6 +149,10 @@ class TutorServiceImplTest {
                         promptRegistry,
                         new TutorOverrides(appSettingService, objectMapper),
                         providerKeys,
+                        new LlmBudgetSettings(appSettingService, objectMapper),
+                        new BudgetGuardService(
+                                new LlmBudgetSettings(appSettingService, objectMapper),
+                                llmUsageDao),
                         objectMapper);
     }
 
@@ -479,6 +489,10 @@ class TutorServiceImplTest {
                         promptRegistry,
                         new TutorOverrides(appSettingService, objectMapper),
                         providerKeys,
+                        new LlmBudgetSettings(appSettingService, objectMapper),
+                        new BudgetGuardService(
+                                new LlmBudgetSettings(appSettingService, objectMapper),
+                                llmUsageDao),
                         objectMapper);
 
         LlmConfigView view = unconfigured.getAdminConfig();
@@ -766,6 +780,10 @@ class TutorServiceImplTest {
                         promptRegistry,
                         new TutorOverrides(appSettingService, objectMapper),
                         providerKeys,
+                        new LlmBudgetSettings(appSettingService, objectMapper),
+                        new BudgetGuardService(
+                                new LlmBudgetSettings(appSettingService, objectMapper),
+                                llmUsageDao),
                         objectMapper);
 
         LlmConfigView view =
@@ -883,5 +901,286 @@ class TutorServiceImplTest {
                                         60,
                                         objectMapper.writeValueAsString(result),
                                         Instant.parse("2026-11-04T00:00:01Z"))));
+    }
+
+    /** [AC-5] 预算强制门：预算用尽（≥100%）时答疑 40306 固定文案，不触达 LLM 也不落用量。 */
+    @Test
+    void askRejectsWith40306WhenBudgetExhausted_ac5() {
+        when(appSettingService.findValue(LlmBudgetSettings.SETTING_KEY))
+                .thenReturn(Optional.of("{\"schemaVersion\":1,\"monthlyBudgetCny\":100}"));
+        when(llmUsageDao.sumEstimatedCostSince(any(Instant.class))).thenReturn(100_000_000L);
+
+        assertThatThrownBy(() -> tutorService.ask(USER_ID, SENTENCE_ID, "为什么？"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> {
+                            assertThat(exception.apiCode())
+                                    .isEqualTo(ApiCode.MODEL_BUDGET_EXHAUSTED);
+                            assertThat(exception.getMessage())
+                                    .isEqualTo("本月模型预算已用尽，请下月再试或联系管理员调整预算");
+                        });
+        verifyNoInteractions(llmChatClient);
+        verify(llmUsageDao, never()).save(any());
+    }
+
+    /** [AC-5] 预算未用尽（含 WARN 80%+）：答疑照常可用（WARN 不拦截只留痕），回答与免责标注正常。 */
+    @Test
+    void askPassesWithinBudgetIncludingWarn_ac5() {
+        // 85%：WARN 区间不拦截。
+        when(appSettingService.findValue(LlmBudgetSettings.SETTING_KEY))
+                .thenReturn(Optional.of("{\"schemaVersion\":1,\"monthlyBudgetCny\":100}"));
+        when(llmUsageDao.sumEstimatedCostSince(any(Instant.class))).thenReturn(85_000_000L);
+        when(llmChatClient.ask(anyString(), anyString()))
+                .thenReturn(new LlmChatClient.Reply("先看介词搭配。", 12, 34));
+
+        TutorAskView view = tutorService.ask(USER_ID, SENTENCE_ID, "这里介词为什么用 to？");
+
+        assertThat(view.answer()).isEqualTo("先看介词搭配。");
+    }
+
+    /** [AC-3] 记账补成本：定价在案时用量行落估算成本微元（输入/输出分开计价）。 */
+    @Test
+    void askRecordsEstimatedCostOnUsageRow_ac3() {
+        when(appSettingService.findValue(LlmBudgetSettings.SETTING_KEY))
+                .thenReturn(
+                        Optional.of(
+                                "{\"schemaVersion\":1,\"monthlyBudgetCny\":null,\"pricing\":"
+                                        + "{\"glm-4.7\":{\"inputPerMillionCny\":2,\"outputPerMillionCny\":8}}}"));
+        when(llmChatClient.ask(anyString(), anyString()))
+                .thenReturn(new LlmChatClient.Reply("先看介词搭配。", 12, 34));
+
+        tutorService.ask(USER_ID, SENTENCE_ID, "这里介词为什么用 to？");
+
+        ArgumentCaptor<LlmUsage> captor = ArgumentCaptor.forClass(LlmUsage.class);
+        verify(llmUsageDao).save(captor.capture());
+        // 2×12/1e6 + 8×34/1e6 = 296 微元。
+        assertThat(captor.getValue().getEstimatedCostMicroCny()).isEqualTo(296L);
+    }
+
+    /** [AC-3] 无定价模型：用量行成本列如实 NULL（不计入预算），答疑不受影响。 */
+    @Test
+    void askRecordsNullCostWhenNoPricing_ac3() {
+        when(llmChatClient.ask(anyString(), anyString()))
+                .thenReturn(new LlmChatClient.Reply("先看介词搭配。", 12, 34));
+
+        tutorService.ask(USER_ID, SENTENCE_ID, "这里介词为什么用 to？");
+
+        ArgumentCaptor<LlmUsage> captor = ArgumentCaptor.forClass(LlmUsage.class);
+        verify(llmUsageDao).save(captor.capture());
+        assertThat(captor.getValue().getEstimatedCostMicroCny()).isNull();
+    }
+
+    /** [AC-2] PUT 预算与定价：写 app_settings 键 llm.budget（状态型字段语义），GET 回显。 */
+    @Test
+    void updateWritesBudgetKeyAndEchoesBack_ac2() {
+        when(appSettingService.upsert(anyString(), anyString(), anyString(), eq(1L)))
+                .thenReturn("");
+
+        tutorService.updateAdminConfig(
+                new LlmConfigUpdateRequest(
+                        false,
+                        null,
+                        null,
+                        null,
+                        null,
+                        new BigDecimal("80.5"),
+                        Map.of(
+                                "glm-4.7",
+                                new LlmModelPricing(new BigDecimal("2"), new BigDecimal("8")))),
+                1L);
+
+        ArgumentCaptor<String> budgetValue = ArgumentCaptor.forClass(String.class);
+        verify(appSettingService)
+                .upsert(
+                        eq(LlmBudgetSettings.SETTING_KEY),
+                        budgetValue.capture(),
+                        anyString(),
+                        eq(1L));
+        assertThat(budgetValue.getValue()).contains("\"monthlyBudgetCny\":80.5");
+        assertThat(budgetValue.getValue()).contains("\"glm-4.7\"");
+
+        // GET 回显：存储值经 fail-closed 解析进入视图（未设→null）。
+        when(appSettingService.findValue(LlmBudgetSettings.SETTING_KEY))
+                .thenReturn(Optional.of(budgetValue.getValue()));
+        LlmConfigView view = tutorService.getAdminConfig();
+        assertThat(view.monthlyBudgetCny()).isEqualByComparingTo(new BigDecimal("80.5"));
+        assertThat(view.pricing()).containsKey("glm-4.7");
+    }
+
+    /** [AC-2] PUT 清除预算：null 字段落 null（护栏不生效），GET 回显 null。 */
+    @Test
+    void updateClearsBudgetOnNullFields_ac2() {
+        when(appSettingService.upsert(anyString(), anyString(), anyString(), eq(1L)))
+                .thenReturn("");
+        // 清除后的读回值（mock 不回放 upsert，读侧按清除形状显式给值）。
+        when(appSettingService.findValue(LlmBudgetSettings.SETTING_KEY))
+                .thenReturn(
+                        Optional.of(
+                                "{\"schemaVersion\":1,\"monthlyBudgetCny\":null,\"pricing\":null}"));
+
+        LlmConfigView view =
+                tutorService.updateAdminConfig(
+                        new LlmConfigUpdateRequest(false, null, null, null, null, null, null), 1L);
+
+        assertThat(view.monthlyBudgetCny()).isNull();
+        assertThat(view.pricing()).isNull();
+        ArgumentCaptor<String> budgetValue = ArgumentCaptor.forClass(String.class);
+        verify(appSettingService)
+                .upsert(
+                        eq(LlmBudgetSettings.SETTING_KEY),
+                        budgetValue.capture(),
+                        anyString(),
+                        eq(1L));
+        assertThat(budgetValue.getValue())
+                .contains("\"monthlyBudgetCny\":null")
+                .contains("\"pricing\":null");
+    }
+
+    /** [AC-2] PUT 预算/定价校验拒绝：0/负预算与非法定价 40000，先于任何写路径。 */
+    @Test
+    void updateRejectsInvalidBudgetAndPricing_ac2() {
+        assertThatThrownBy(
+                        () ->
+                                tutorService.updateAdminConfig(
+                                        new LlmConfigUpdateRequest(
+                                                false,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                BigDecimal.ZERO,
+                                                null),
+                                        1L))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.getMessage()).contains("monthlyBudgetCny"));
+        assertThatThrownBy(
+                        () ->
+                                tutorService.updateAdminConfig(
+                                        new LlmConfigUpdateRequest(
+                                                false,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                new BigDecimal("-1"),
+                                                null),
+                                        1L))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.getMessage()).contains("monthlyBudgetCny"));
+        // 定价条目单价非正。
+        assertThatThrownBy(
+                        () ->
+                                tutorService.updateAdminConfig(
+                                        new LlmConfigUpdateRequest(
+                                                false,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                Map.of(
+                                                        "glm-4.7",
+                                                        new LlmModelPricing(
+                                                                new BigDecimal("0"),
+                                                                new BigDecimal("8")))),
+                                        1L))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.getMessage()).contains("pricing"));
+        // 定价键空白。
+        assertThatThrownBy(
+                        () ->
+                                tutorService.updateAdminConfig(
+                                        new LlmConfigUpdateRequest(
+                                                false,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                Map.of(
+                                                        "  ",
+                                                        new LlmModelPricing(
+                                                                new BigDecimal("2"),
+                                                                new BigDecimal("8")))),
+                                        1L))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.getMessage()).contains("pricing"));
+        // 键超长（>128，与 llm_usage.model 列同宽）。
+        assertThatThrownBy(
+                        () ->
+                                tutorService.updateAdminConfig(
+                                        new LlmConfigUpdateRequest(
+                                                false,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                Map.of(
+                                                        "m".repeat(129),
+                                                        new LlmModelPricing(
+                                                                new BigDecimal("2"),
+                                                                new BigDecimal("8")))),
+                                        1L))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.getMessage()).contains("128"));
+        verify(appSettingService, never()).upsert(anyString(), anyString(), anyString(), eq(1L));
+    }
+
+    /** [AC-6] 用量视图：未设预算 → status=UNSET、percent null；分场景三场景零值兜底 + 聚合行合并。 */
+    @Test
+    void getAdminUsageReturnsViewUnsetAndByScene_ac6() {
+        when(llmUsageDao.sumBySceneSince(any(Instant.class)))
+                .thenReturn(
+                        List.of(
+                                new io.github.codejinxz.yilian.practice.dao.SceneUsageSummary(
+                                        "tutor-ask", 120L, 34L, 296L, 1L),
+                                new io.github.codejinxz.yilian.practice.dao.SceneUsageSummary(
+                                        "review", null, null, null, 2L)));
+
+        LlmUsageView view = tutorService.getAdminUsage();
+
+        assertThat(view.monthUtc())
+                .isEqualTo(java.time.YearMonth.now(java.time.ZoneOffset.UTC).toString());
+        assertThat(view.budgetCny()).isNull();
+        assertThat(view.spentCny()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(view.percent()).isNull();
+        assertThat(view.status()).isEqualTo(LlmUsageView.STATUS_UNSET);
+        assertThat(view.byScene()).containsOnlyKeys("tutor-ask", "review", "appeal");
+        assertThat(view.byScene().get("tutor-ask").tokens()).isEqualTo(154L);
+        assertThat(view.byScene().get("tutor-ask").costMicroCny()).isEqualTo(296L);
+        assertThat(view.byScene().get("tutor-ask").calls()).isEqualTo(1L);
+        assertThat(view.byScene().get("review").tokens()).isZero();
+        assertThat(view.byScene().get("review").costMicroCny()).isZero();
+        assertThat(view.byScene().get("review").calls()).isEqualTo(2L);
+        assertThat(view.byScene().get("appeal").calls()).isZero();
+    }
+
+    /** [AC-6] 用量视图：预算在案 → 已用/预算/百分比/三态如实（80% 边界以上 WARN）。 */
+    @Test
+    void getAdminUsageReflectsBudgetStatus_ac6() {
+        when(appSettingService.findValue(LlmBudgetSettings.SETTING_KEY))
+                .thenReturn(Optional.of("{\"schemaVersion\":1,\"monthlyBudgetCny\":100}"));
+        when(llmUsageDao.sumEstimatedCostSince(any(Instant.class))).thenReturn(80_000_000L);
+
+        LlmUsageView view = tutorService.getAdminUsage();
+
+        assertThat(view.budgetCny()).isEqualByComparingTo(new BigDecimal("100"));
+        assertThat(view.spentCny()).isEqualByComparingTo(new BigDecimal("80.000000"));
+        assertThat(view.percent()).isEqualTo(80);
+        assertThat(view.status()).isEqualTo(LlmUsageView.STATUS_WARN);
+
+        when(llmUsageDao.sumEstimatedCostSince(any(Instant.class))).thenReturn(100_000_000L);
+        assertThat(tutorService.getAdminUsage().status()).isEqualTo(LlmUsageView.STATUS_EXCEEDED);
+
+        when(llmUsageDao.sumEstimatedCostSince(any(Instant.class))).thenReturn(0L);
+        assertThat(tutorService.getAdminUsage().status()).isEqualTo(LlmUsageView.STATUS_OK);
     }
 }

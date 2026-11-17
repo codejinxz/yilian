@@ -27,8 +27,11 @@ import io.github.codejinxz.yilian.practice.grading.GradingAnnotation;
 import io.github.codejinxz.yilian.practice.grading.GradingResult;
 import io.github.codejinxz.yilian.practice.grading.ModelReviewPromptBuilder;
 import io.github.codejinxz.yilian.practice.grading.Norm1Normalizer;
+import io.github.codejinxz.yilian.practice.llm.BudgetGuardService;
+import io.github.codejinxz.yilian.practice.llm.LlmBudgetSettings;
 import io.github.codejinxz.yilian.practice.llm.LlmChatClient;
 import io.github.codejinxz.yilian.practice.llm.LlmClientRegistry;
+import io.github.codejinxz.yilian.practice.llm.LlmCostCalculator;
 import io.github.codejinxz.yilian.practice.llm.PromptRegistry;
 import io.github.codejinxz.yilian.practice.scheduler.FsrsScheduleParams;
 import io.github.codejinxz.yilian.practice.scheduler.FsrsScheduler;
@@ -137,11 +140,21 @@ public class PracticeServiceImpl implements PracticeService {
     /** 初裁占位理由：不外抛堆栈与供应商信息，与答疑降级同款口径。 */
     static final String APPEAL_ADJUDICATION_UNAVAILABLE_REASON = "AI 初裁暂不可用，等待人工终审";
 
+    /** 初裁预算门占位 decision JSON：预算用尽跳过初裁，reason=BUDGET 区分于通用不可用（读端可归因）。 */
+    static final String APPEAL_ADJUDICATION_BUDGET_JSON =
+            "{\"verdict\":\"UNAVAILABLE\",\"reason\":\"BUDGET\"}";
+
+    /** 初裁预算门占位理由：与通用占位同款不外抛供应商信息，只点明预算原因。 */
+    static final String APPEAL_ADJUDICATION_BUDGET_REASON = "本月模型预算已用尽，AI 初裁暂不可用，等待人工终审";
+
     /** 模型复核输出解析的最大调用次数：首次 + 解析失败重试 1 次，仍败即降级。 */
     private static final int MODEL_REVIEW_MAX_ATTEMPTS = 2;
 
     /** 模型复核降级文案：与答疑同款固定话术，不外抛堆栈与供应商信息。 */
     static final String MODEL_REVIEW_DEGRADE_MESSAGE = "模型复核暂时不可用，请稍后再试";
+
+    /** 模型复核预算门降级文案：走既有 50000 降级语义（不调模型不落行），文案点明预算原因。 */
+    static final String MODEL_REVIEW_BUDGET_MESSAGE = "模型复核暂时不可用：本月模型预算已用尽，请下月再试或联系管理员调整预算";
 
     private final AttemptDao attemptDao;
 
@@ -160,6 +173,12 @@ public class PracticeServiceImpl implements PracticeService {
     private final PromptRegistry promptRegistry;
 
     private final RateLimitService rateLimitService;
+
+    /** 月度预算与定价存取（app_settings 键 llm.budget）：记账补成本按当次定价查询。 */
+    private final LlmBudgetSettings budgetSettings;
+
+    /** 预算护栏判定：复核与申诉初裁调用前的强制门。 */
+    private final BudgetGuardService budgetGuard;
 
     private final FsrsScheduler fsrsScheduler;
 
@@ -192,6 +211,8 @@ public class PracticeServiceImpl implements PracticeService {
      * @param llmUsageDao LLM 用量账本 Dao（复核/初裁调用旁路记账，失败不阻塞）
      * @param promptRegistry Prompt 版本注册表（复核/初裁系统提示与 prompt_version_id 来源）
      * @param rateLimitService 限流器（申诉初裁的账号级滑动窗口，程序化判定）
+     * @param budgetSettings 月度预算与定价存取（记账补成本按当次定价查询）
+     * @param budgetGuard 预算护栏判定（复核/初裁强制门）
      * @param fsrsScheduler FSRS 排程参数装配（ACTIVE 权重解码）
      * @param contentQueryService 题目内容只读查询（content 模块）
      * @param userAccountService 用户设置查询（system 模块）
@@ -208,6 +229,8 @@ public class PracticeServiceImpl implements PracticeService {
             LlmUsageDao llmUsageDao,
             PromptRegistry promptRegistry,
             RateLimitService rateLimitService,
+            LlmBudgetSettings budgetSettings,
+            BudgetGuardService budgetGuard,
             FsrsScheduler fsrsScheduler,
             ContentQueryService contentQueryService,
             UserAccountService userAccountService,
@@ -222,6 +245,8 @@ public class PracticeServiceImpl implements PracticeService {
         this.llmUsageDao = llmUsageDao;
         this.promptRegistry = promptRegistry;
         this.rateLimitService = rateLimitService;
+        this.budgetSettings = budgetSettings;
+        this.budgetGuard = budgetGuard;
         this.fsrsScheduler = fsrsScheduler;
         this.contentQueryService = contentQueryService;
         this.userAccountService = userAccountService;
@@ -575,6 +600,18 @@ public class PracticeServiceImpl implements PracticeService {
                         appeal.getUserId());
                 return recordUnavailable(appeal.getId());
             }
+            // 预算门：EXCEEDED 时跳过初裁（不调模型），落 reason=BUDGET 占位——与限流跳过同形态，
+            // 申诉本身不拒不阻塞（仍 PENDING 等人工终审）。
+            if (budgetGuard.gate() == BudgetGuardService.Status.EXCEEDED) {
+                log.info(
+                        "appeal_adjudication_skipped reason=budget_exhausted appealId={} userId={}",
+                        appeal.getId(),
+                        appeal.getUserId());
+                return recordPlaceholder(
+                        appeal.getId(),
+                        APPEAL_ADJUDICATION_BUDGET_JSON,
+                        APPEAL_ADJUDICATION_BUDGET_REASON);
+            }
             LlmClientRegistry.ChatHandle handle = llmClients.chatHandle().orElse(null);
             if (handle == null) {
                 return recordUnavailable(appeal.getId());
@@ -671,23 +708,31 @@ public class PracticeServiceImpl implements PracticeService {
      * @return 占位终态（verdict=UNAVAILABLE，decidedBy=null）
      */
     private AdjudicationOutcome recordUnavailable(long appealId) {
+        return recordPlaceholder(
+                appealId,
+                APPEAL_ADJUDICATION_UNAVAILABLE_JSON,
+                APPEAL_ADJUDICATION_UNAVAILABLE_REASON);
+    }
+
+    /**
+     * 落初裁占位（指定 decision JSON 与理由，通用内核）：预算门与通用不可用共用本路径， 占位写失败也不外抛（申诉已在库，管理端可无 AI 意见终审）。
+     *
+     * @param appealId 申诉行 id
+     * @param decisionJson 占位 decision JSON（UNAVAILABLE 形状，预算占位额外带 reason=BUDGET）
+     * @param reason 占位理由（decision_reason 列与回执共用）
+     * @return 占位终态（verdict=UNAVAILABLE，decidedBy=null）
+     */
+    private AdjudicationOutcome recordPlaceholder(
+            long appealId, String decisionJson, String reason) {
         try {
-            appealDao.updateAdjudication(
-                    appealId,
-                    APPEAL_ADJUDICATION_UNAVAILABLE_JSON,
-                    APPEAL_ADJUDICATION_UNAVAILABLE_REASON,
-                    null,
-                    null,
-                    null,
-                    null);
+            appealDao.updateAdjudication(appealId, decisionJson, reason, null, null, null, null);
         } catch (RuntimeException exception) {
             log.warn(
                     "appeal_adjudication_placeholder_failed appealId={} error={}",
                     appealId,
                     exception.getClass().getSimpleName());
         }
-        return new AdjudicationOutcome(
-                "UNAVAILABLE", APPEAL_ADJUDICATION_UNAVAILABLE_REASON, null, null);
+        return new AdjudicationOutcome("UNAVAILABLE", reason, null, null);
     }
 
     /**
@@ -813,6 +858,11 @@ public class PracticeServiceImpl implements PracticeService {
                             promptTokens,
                             completionTokens,
                             durationMs,
+                            LlmCostCalculator.estimateMicroCny(
+                                    model,
+                                    promptTokens,
+                                    completionTokens,
+                                    budgetSettings.read().pricing()),
                             ok,
                             Instant.now()));
         } catch (RuntimeException exception) {
@@ -2081,6 +2131,12 @@ public class PracticeServiceImpl implements PracticeService {
             // 与答疑同口径返回 40400。
             throw new BusinessException(ApiCode.NOT_FOUND);
         }
+        // 预算门（幂等闸与功能存在性之后）：EXCEEDED 时不调模型不落行，按既有降级语义 50000 返回、
+        // 文案点明预算原因——复核是增强链路，原判分不受影响；幂等回读在前，已落复核行的重复
+        // 请求只是取回既有结果，不受预算影响（不调模型无新消耗）。
+        if (budgetGuard.gate() == BudgetGuardService.Status.EXCEEDED) {
+            throw new BusinessException(ApiCode.INTERNAL_ERROR, MODEL_REVIEW_BUDGET_MESSAGE);
+        }
         // 协议快照在调用前取定：本条用量归属「当次实际使用的协议」（与答疑同口径）。
         String protocol =
                 llmClients
@@ -2342,6 +2398,11 @@ public class PracticeServiceImpl implements PracticeService {
                                             promptTokens,
                                             completionTokens,
                                             durationMs,
+                                            LlmCostCalculator.estimateMicroCny(
+                                                    model,
+                                                    promptTokens,
+                                                    completionTokens,
+                                                    budgetSettings.read().pricing()),
                                             ok,
                                             Instant.now())));
         } catch (RuntimeException exception) {

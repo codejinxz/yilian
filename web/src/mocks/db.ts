@@ -3,6 +3,7 @@
  * 禁止复用为任何真实环境的凭据。
  */
 import { gradeCloze } from "@/features/practice/grading";
+import type { LlmConfig } from "@/lib/api/admin";
 import type { AdminUser, AuditLog, ErrorLogDetail } from "@/lib/schemas/admin";
 import type { BankView, ImportBatchView, ImportRow } from "@/lib/schemas/content";
 import type {
@@ -134,6 +135,8 @@ export interface MockDb {
   uploads: MockUploadBatch[];
   /** 邀请码；历史存储可能缺少该字段，读取时补默认码。 */
   invites: MockInvite[];
+  /** 管理端 LLM 配置演示态（API §8.14）：预算护栏与定价字段随 033 契约；历史存储补默认值。 */
+  llmConfig: LlmConfig;
   seq: number;
   inviteUsedBy: string | null;
 }
@@ -155,6 +158,29 @@ export function isoAt(offsetDays = 0, offsetHours = 0): string {
  */
 export function mockUlid(seed: number): string {
   return `01J${String(seed).padStart(3, "0")}Z6K2M8Q4R7T1V3W5X`;
+}
+
+/**
+ * mock 演示态的 LLM 配置默认值（API §8.14 形状）：预算在案、单模型定价，
+ * 让用量卡与预算编辑在演示态呈现真实形状。
+ * @returns 默认 LLM 配置
+ */
+export function createDefaultLlmConfig(): LlmConfig {
+  return {
+    enabled: true,
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    model: "glm-4.7",
+    hasKey: false,
+    providerId: "legacy",
+    protocol: "openai-chat",
+    credentialsComplete: true,
+    source: "env",
+    keyLast4: null,
+    monthlyBudgetCny: 80,
+    pricing: {
+      "glm-4.7": { inputPerMillionCny: 2, outputPerMillionCny: 8 },
+    },
+  };
 }
 
 function makeSentence(
@@ -1117,6 +1143,7 @@ export function createSeedDb(): MockDb {
   return {
     version: 1,
     sessionUserId: null,
+    llmConfig: createDefaultLlmConfig(),
     users: seedUsers(),
     banks: seedBanks(),
     sentences,
@@ -1177,6 +1204,16 @@ export function getMockDb(): MockDb {
           // 历史存储没有 invites 字段：补默认码，注册与用户页演示不受影响。
           if (!Array.isArray(parsed.invites)) {
             parsed.invites = seedInvites();
+          }
+          // 历史存储没有 llmConfig 字段：补默认值，模型页演示不因升级破相。
+          if (parsed.llmConfig === undefined || parsed.llmConfig === null) {
+            parsed.llmConfig = createDefaultLlmConfig();
+          }
+          if (typeof parsed.llmConfig.monthlyBudgetCny === "undefined") {
+            parsed.llmConfig.monthlyBudgetCny = null;
+          }
+          if (typeof parsed.llmConfig.pricing === "undefined") {
+            parsed.llmConfig.pricing = null;
           }
           // 历史存储没有 2FA 字段：按「未启用」补齐，登录路径与升级前一致。
           for (const user of parsed.users) {

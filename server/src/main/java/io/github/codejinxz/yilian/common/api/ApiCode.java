@@ -42,6 +42,11 @@ public enum ApiCode {
     ASK_NOT_OPEN(40304, "答疑未开放", HttpStatus.FORBIDDEN),
     /** 密码正确但账号已启用两步验证：data 携带 5 分钟有效的 challengeToken，前端引导到验证码第二步。 */
     TOTP_REQUIRED(40305, "需要两步验证", HttpStatus.FORBIDDEN),
+    /**
+     * 本月模型预算已用尽（PRD §17 100% 强制门）：答疑拒新调用；复核与初裁不走本码（各自既有降级语义）。错误号取 40306——40305 已被 2FA
+     * 占用，业务码发布后不改号也不复用。
+     */
+    MODEL_BUDGET_EXHAUSTED(40306, "本月模型预算已用尽，请下月再试或联系管理员调整预算", HttpStatus.FORBIDDEN),
 
     /** 路由或静态资源不存在。 */
     NOT_FOUND(40400, "请求的资源不存在", HttpStatus.NOT_FOUND),

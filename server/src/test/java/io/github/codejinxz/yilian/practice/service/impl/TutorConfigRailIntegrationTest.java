@@ -3,6 +3,7 @@ package io.github.codejinxz.yilian.practice.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.api.BusinessException;
 import io.github.codejinxz.yilian.practice.llm.LlmClientRegistry;
 import io.github.codejinxz.yilian.practice.llm.LlmProviderKeys;
@@ -11,6 +12,7 @@ import io.github.codejinxz.yilian.practice.service.TutorService;
 import io.github.codejinxz.yilian.practice.service.dto.LlmConfigUpdateRequest;
 import io.github.codejinxz.yilian.practice.service.dto.LlmProviderCreateRequest;
 import io.github.codejinxz.yilian.practice.service.vo.LlmConfigView;
+import io.github.codejinxz.yilian.practice.service.vo.LlmUsageView;
 import io.github.codejinxz.yilian.support.TestDatabases;
 
 import org.junit.jupiter.api.AfterEach;
@@ -21,6 +23,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+
+import java.time.YearMonth;
+import java.time.ZoneOffset;
+import java.util.Map;
 
 /**
  * 028 答疑配置三级解析链集成测试（真实 MySQL）[AC-2]/[AC-3]：
@@ -76,7 +82,26 @@ class TutorConfigRailIntegrationTest {
                 "DELETE FROM llm_provider_keys WHERE provider_id = ?",
                 LlmProviderKeys.TUTOR_PROVIDER_ID);
         jdbcTemplate.update(
-                "DELETE FROM app_settings WHERE `key` IN ('llm.tutor', 'llm.providers', 'llm.active')");
+                "DELETE FROM app_settings WHERE `key` IN ('llm.tutor', 'llm.providers', 'llm.active', 'llm.budget')");
+        // [AC-6] 用量视图聚合全场景：llm_usage 整表清（用量行只由本类播种产生，预算判定 SUM 也按全场景聚合）。
+        jdbcTemplate.update("DELETE FROM llm_usage");
+    }
+
+    /**
+     * 播种预算护栏的月度口径事实：llm.budget 键 + 本月一笔指定成本的用量行。
+     *
+     * @param budgetCny 月度预算（元）
+     * @param spentMicroCny 本月已用成本（微元）
+     */
+    private void seedBudget(long budgetCny, long spentMicroCny) {
+        jdbcTemplate.update(
+                "INSERT INTO app_settings (`key`, value, description) VALUES ('llm.budget', ?,"
+                        + " 'budget-it') ON DUPLICATE KEY UPDATE value = VALUES(value)",
+                "{\"schemaVersion\":1,\"monthlyBudgetCny\":" + budgetCny + ",\"pricing\":null}");
+        jdbcTemplate.update(
+                "INSERT INTO llm_usage (scene, ok, estimated_cost_micro_cny, created_at)"
+                        + " VALUES ('budget-it', 1, ?, UTC_TIMESTAMP(6))",
+                spentMicroCny);
     }
 
     /** [AC-2] 三级优先序（1/3）：目录空 + 无覆盖 → legacy env 轨生效（端点/模型为 env 值，source=env）。 */
@@ -366,5 +391,124 @@ class TutorConfigRailIntegrationTest {
                                 Long.class,
                                 LlmProviderKeys.TUTOR_PROVIDER_ID))
                 .isZero();
+    }
+
+    /** [AC-5] 预算强制门（答疑）：本月已用 ≥100% 时 ask 一律 40306 固定文案——预算门先于三态门与可见性校验，不触达 LLM。 */
+    @Test
+    @DisplayName("[AC-5] 预算用尽答疑 40306（预算门先于三态门）")
+    void ac5_askRejectedWith40306WhenBudgetExhausted() {
+        // 预算 1 元，本月已用 10 元 → EXCEEDED；未播种题目：门若未生效会落到 40402 而非 40306。
+        seedBudget(1L, 10_000_000L);
+
+        assertThatThrownBy(() -> tutorService.ask(7L, "01HXXXBUDGETITSENTENCE0000", "为什么？"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> {
+                            assertThat(exception.apiCode())
+                                    .isEqualTo(ApiCode.MODEL_BUDGET_EXHAUSTED);
+                            assertThat(exception.getMessage())
+                                    .isEqualTo("本月模型预算已用尽，请下月再试或联系管理员调整预算");
+                        });
+    }
+
+    /** [AC-5] 预算未用尽：护栏直通不误拦——ask 走既有链路（无播种题目落到 40402），WARN 区间同样放行。 */
+    @Test
+    @DisplayName("[AC-5] 预算未用尽（含 80%+ WARN）护栏直通")
+    void ac5_askPassesWhenBudgetNotExhausted() {
+        // 预算 100 元，已用 10 元（10%）→ OK 直通；WARN 边界语义另由 BudgetGuardServiceTest 锁定。
+        seedBudget(100L, 10_000_000L);
+
+        // 直通后的落点：本类未开答疑（三态门之二 40304）——预算门没有把请求拦在 40306，
+        // 链路照常走到下一道门（若误拦会得到 40306 而非 40304）。
+        assertThatThrownBy(() -> tutorService.ask(7L, "01HXXXBUDGETITSENTENCE0000", "为什么？"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception ->
+                                assertThat(exception.apiCode()).isEqualTo(ApiCode.ASK_NOT_OPEN));
+    }
+
+    /**
+     * 播种一条 llm_usage 用量行（预算护栏/用量视图的事实数据）。
+     *
+     * @param scene 场景标识
+     * @param promptTokens 提示词 token
+     * @param completionTokens 回复 token
+     * @param costMicroCny 估算成本微元；null=未定价行
+     * @param createdAtSql created_at 的 SQL 表达式（如 {@code UTC_TIMESTAMP(6)}）
+     */
+    private void seedUsage(
+            String scene,
+            int promptTokens,
+            int completionTokens,
+            Long costMicroCny,
+            String createdAtSql) {
+        jdbcTemplate.update(
+                "INSERT INTO llm_usage (scene, ok, prompt_tokens, completion_tokens,"
+                        + " estimated_cost_micro_cny, created_at) VALUES (?, 1, ?, ?, ?, "
+                        + createdAtSql
+                        + ")",
+                scene,
+                promptTokens,
+                completionTokens,
+                costMicroCny);
+    }
+
+    /** [AC-6] 用量视图（空表 + 未设预算）：status=UNSET、预算/百分比为 null、已用 0、三场景零值兜底。 */
+    @Test
+    @DisplayName("[AC-6] 未设预算空表用量视图 UNSET 且三场景零值兜底")
+    void ac6_usageViewUnsetOnEmptyTable() {
+        LlmUsageView view = tutorService.getAdminUsage();
+
+        assertThat(view.monthUtc()).isEqualTo(YearMonth.now(ZoneOffset.UTC).toString());
+        assertThat(view.budgetCny()).isNull();
+        assertThat(view.spentCny()).isEqualByComparingTo("0");
+        assertThat(view.percent()).isNull();
+        assertThat(view.status()).isEqualTo(LlmUsageView.STATUS_UNSET);
+        Map<String, LlmUsageView.SceneUsage> byScene = view.byScene();
+        assertThat(byScene.keySet())
+                .containsExactlyInAnyOrder(
+                        LlmUsageView.SCENE_TUTOR_ASK,
+                        LlmUsageView.SCENE_REVIEW,
+                        LlmUsageView.SCENE_APPEAL);
+        byScene.values().forEach(scene -> assertThat(scene.tokens()).isZero());
+    }
+
+    /**
+     * [AC-6] 用量视图（跨场景聚合 + WARN）：多场景多行聚合（失败行与未知场景按实计入）、成本 NULL 行不进 已用金额、上月行被 UTC 月口径排除；已设预算时
+     * status/percent 按实算回显。
+     */
+    @Test
+    @DisplayName("[AC-6] 跨场景聚合已用并按 WARN 状态回显")
+    void ac6_usageViewAggregatesBySceneAndWarns() {
+        // 本月事实：tutor-ask 两行（其中一行未定价 cost=NULL，只进 token/次数不进金额）、
+        // review/appeal 各一行、未知场景一行、上月一行（跨月排除）。
+        seedUsage("tutor-ask", 100, 50, 12_000_000L, "UTC_TIMESTAMP(6)");
+        seedUsage("tutor-ask", 10, 0, null, "UTC_TIMESTAMP(6)");
+        seedUsage("review", 200, 100, 30_000_000L, "UTC_TIMESTAMP(6)");
+        seedUsage("appeal", 1, 1, 1_500_000L, "UTC_TIMESTAMP(6)");
+        seedUsage("custom-x", 0, 0, 1_000_000L, "UTC_TIMESTAMP(6)");
+        seedUsage("tutor-ask", 999, 999, 999_999_999L, "UTC_TIMESTAMP(6) - INTERVAL 1 MONTH");
+        jdbcTemplate.update(
+                "INSERT INTO app_settings (`key`, value, description) VALUES ('llm.budget', ?,"
+                        + " 'budget-it') ON DUPLICATE KEY UPDATE value = VALUES(value)",
+                "{\"schemaVersion\":1,\"monthlyBudgetCny\":50,\"pricing\":null}");
+
+        LlmUsageView view = tutorService.getAdminUsage();
+
+        // 已用 = 12M + 30M + 1.5M + 1M = 44.5 元（NULL 行与上月行不计入）。
+        assertThat(view.spentCny()).isEqualByComparingTo("44.5");
+        assertThat(view.budgetCny()).isEqualByComparingTo("50");
+        assertThat(view.percent()).isEqualTo(89);
+        assertThat(view.status()).isEqualTo(LlmUsageView.STATUS_WARN);
+        assertThat(view.byScene().get("tutor-ask").tokens()).isEqualTo(160);
+        assertThat(view.byScene().get("tutor-ask").costMicroCny()).isEqualTo(12_000_000L);
+        assertThat(view.byScene().get("tutor-ask").calls()).isEqualTo(2);
+        assertThat(view.byScene().get(LlmUsageView.SCENE_REVIEW).tokens()).isEqualTo(300);
+        assertThat(view.byScene().get(LlmUsageView.SCENE_REVIEW).costMicroCny())
+                .isEqualTo(30_000_000L);
+        assertThat(view.byScene().get(LlmUsageView.SCENE_APPEAL).tokens()).isEqualTo(2);
+        assertThat(view.byScene().get(LlmUsageView.SCENE_APPEAL).calls()).isEqualTo(1);
+        // 未知场景按实追加。
+        assertThat(view.byScene().get("custom-x").costMicroCny()).isEqualTo(1_000_000L);
     }
 }

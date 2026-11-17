@@ -69,7 +69,7 @@
 | admin | `error_log` | PRD §18.2 | M1 |
 | system | `app_settings` | PRD §17 | M1（只读配置；编辑 M3） |
 | analytics | `user_daily_stats` | PRD §16 | M3 预留，不建 |
-| ai | `llm_usage` | PRD §17 | **V11 已建**（§5.18，append-only 用量账本，内部表无端点） |
+| ai | `llm_usage` | PRD §17 | **V11 已建**（§5.18，append-only 用量账本，内部表无端点；V16 补估算成本列） |
 | ai | `llm_provider_keys` | PRD §17（provider 密钥管理） | **V14 已建**（§5.20，密钥投影表，内部表无端点） |
 | ai | `llm_providers` / `llm_models` / `prompt_templates` / `prompt_versions` | PRD §17 | M3 预留，不建 |
 
@@ -753,12 +753,12 @@ UI 三档映射（确定性投影）：
 
 ### 5.18 AI 域表
 
-#### `llm_usage`（V11 已建）
+#### `llm_usage`（V11 已建；V16 补估算成本列）
 
 append-only 用量账本：每次 LLM 调用的**终态**写一行，只记元数据——问题与回答内容一律不落
 （AGENTS §3.6 口径）。无物理外键（V10 决策）：`user_id`/`sentence_id` 为逻辑引用，仅建查询索引。
 由答疑链路（`TutorServiceImpl`）落库：结构化日志 + 落库双写，落库失败只记告警不阻塞主链路。
-内部表，不暴露端点（API.md §8.15 内部表注）。
+内部表，不暴露端点（API.md §8.15 内部表注；管理端用量视图为只读聚合端点，API.md §8.17，033）。
 
 | 字段 | 类型 | 可空 | 说明 |
 |---|---|---|---|
@@ -772,10 +772,16 @@ append-only 用量账本：每次 LLM 调用的**终态**写一行，只记元�
 | `completion_tokens` | INT | 是 | 回复 token；失败未取得为 NULL |
 | `duration_ms` | BIGINT | 是 | 调用耗时（毫秒）；失败路径同样记录 |
 | `ok` | BOOLEAN | 否 | 是否成功（拿到非空回复）；失败/空回复为 false |
+| `estimated_cost_micro_cny` | BIGINT | 是 | 估算成本（微元，1 CNY=1e6 微元，ROUND_HALF_UP；V16，033）：按当次模型定价（`app_settings` 键 `llm.budget`）推算，输入/输出分开计价后整体一次取整；**无定价为 NULL=不计入预算**（fail-open，护栏只对已定价模型生效，管理端补价后自下次调用生效，历史行不回填——append-only） |
 | `created_at` | DATETIME(6) | 否 | UTC，默认 CURRENT_TIMESTAMP(6) |
 
 索引：`(user_id, created_at)`（按用户聚合）、`(sentence_id)`（按题排障）、`(created_at)`（时段报表/清扫）。
 保留策略未定（M3 用量页一并裁决），先经 `idx_llm_usage_created` 支撑清扫扫描。
+
+> 预算护栏消费口径（033，PRD §17）：月度判定 = UTC 自然月 `created_at >= 月初` 的
+> `SUM(estimated_cost_micro_cny)`（整数域比较，杜绝浮点求和误差）对比月度预算（元→微元），
+> 三态 OK/WARN(≥80%)/EXCEEDED(≥100%)；管理端用量视图见 API.md §8.17。列语义是**估算值**
+> （定价 × token 推算），非厂商账单——列名以 `estimated_` 前缀如实表达。
 
 > 原 §5.18 形状（M3 预留版，含 provider_id/cost/purpose/attempt_grading_id 等）作废——
 > 全量模型配置域（`llm_providers`/`llm_models`/`prompt_templates`/`prompt_versions`）仍 M3 预留，
@@ -1134,7 +1140,8 @@ tutor 覆盖轨生效，密钥链为 **本行密文解密 > `YILIAN_LLM_API_KEY`
 | `llm.tutor` | `{"schemaVersion":1,"enabled":bool,"baseUrl":"…或null","model":"…或null"}` | 答疑开关 + legacy 形态覆盖值（017 建键只含 enabled；028 扩 baseUrl/model——null=无覆盖回退 `YILIAN_LLM_*` env；fail-closed 解析，兼容 017 早期裸布尔值；密钥不入本键，走 `llm_provider_keys` 预留 id=`tutor`，见 §5.20）。生效优先级：目录激活 > 本覆盖 > env（API.md §8.14） |
 | `llm.providers` | `{"schemaVersion":1,"providers":[{id,name,protocol,baseUrl,model}...]}` | provider 目录（022）；apiKey 不入目录 |
 | `llm.active` | `{"schemaVersion":1,"providerId":"…"}` | 激活 provider（022）；激活唯一 |
-| `llm.monthly_budget_cny` | `{"schemaVersion":1,"value":30}` | M3 |
+| `llm.budget` | `{"schemaVersion":1,"monthlyBudgetCny":数字或null,"pricing":{"模型名":{"inputPerMillionCny":数字,"outputPerMillionCny":数字}}或null}` | 月度预算与模型定价（033，PRD §17 预算护栏）：未设预算=护栏不生效、未设定价=成本不计入预算；fail-closed 解析（键不存在/JSON 损坏/版本不识别按未设预算+无定价处理，条目级非法条目跳过）；管理端经 §8.14.2 写入（API.md §8.14），判定与用量见 API.md §8.17 |
+| `llm.monthly_budget_cny` | `{"schemaVersion":1,"value":30}` | **作废**（原 M3 预留键）：033 已以 `llm.budget` 键投产（预算+定价一体），本键不再使用 |
 | `llm.default_model` | `{"schemaVersion":1,"providerId":"1","modelId":"2"}` | M3 |
 
 ---
@@ -1342,6 +1349,7 @@ RELEARNING --rating>=GOOD--> REVIEW
 | `V13__prompt_versions.sql` | `prompt_versions`（ask/review/appeal 首版种子） | 025 申诉裁决：prompt 版本注册与 prompt_version_id 落值 |
 | `V14__llm_provider_keys.sql` | `llm_provider_keys`（provider_id 主键/AES-GCM 密文/key_last4/updated_at） | 027B：provider 条目密钥管理端加密入库（主密钥 env `YILIAN_SECRET_MASTER_KEY`，AGENTS §3.4 修订） |
 | `V15__user_totp_2fa.sql` | `users` 加 `totp_secret_cipher/totp_enabled/totp_enrolled_at` 三列 + `user_2fa_recovery_codes` 表 | 032：管理员 2FA（TOTP 自研 RFC 6238）——密文列与恢复码投影表（§5.21），迁移前 mysqldump 快照 `server/data/pre-v15-2fa-snapshot.sql` |
+| `V16__llm_usage_estimated_cost.sql` | `llm_usage` 加 `estimated_cost_micro_cny BIGINT NULL` | 033：预算护栏（PRD §17）——估算成本微元列（无定价 NULL=不计入预算，append-only 不回填），迁移前 mysqldump 快照 `server/data/pre-v16-budget-snapshot.sql` |
 | 未来版本（M3） | `user_daily_stats`、`llm_*` 五表 | 暂不建，版本号顺延 |
 
 规则：
@@ -1465,3 +1473,4 @@ RELEARNING --rating>=GOOD--> REVIEW
 | 2026-11-17 | v0.3 | 027B provider 密钥加密入库：新增 §5.20 `llm_provider_keys`（V14，provider_id 主键逻辑引用目录条目、AES-256-GCM 密文、key_last4 尾 4 位辨识、updated_at 留痕；密钥投影表允许受控 UPDATE/DELETE，与 prompt_versions 的 append-only 区分）；§2 表清单补 ai/llm_provider_keys 行；§4 可变投影表清单补 llm_provider_keys；迁移清单 V14 行；主密钥 `YILIAN_SECRET_MASTER_KEY` 口径（prod fail-fast、local dev 值禁复用）与解析链 DB>env>legacy 见 §5.20 | 实现工程师 |
 | 2026-11-17 | v0.4 | 028 答疑 LLM 配置全可改：§6.11 登记 `llm.tutor` 键形状扩展（017 的 `{"schemaVersion":1,"enabled":bool}` → 028 扩 `baseUrl`/`model` 可空覆盖字段，fail-closed 解析 + 裸布尔兼容；生效优先级目录激活 > 覆盖 > env，API.md §8.14）；§5.20 注明 `llm_provider_keys` **预留 id=`tutor`** 行（答疑密钥复用本表与 027B 加密基建，不新建表、不新建迁移；不属于任何目录条目、目录增删不触碰；密钥链本行密文 > `YILIAN_LLM_API_KEY` env > 空；与覆盖写同事务）；§6.11 补登记 `llm.providers`/`llm.active` 两键形状（022 已投产，随本批一并入表） | 实现工程师 |
 | 2026-11-18 | v0.5 | 032 管理员 2FA：§5.1 `users` 补三列（totp_secret_cipher AES-256-GCM 密文/totp_enabled/totp_enrolled_at，存量账号默认未启用——黑盒套件登录路径零变化）；新增 §5.21 `user_2fa_recovery_codes`（V15，BCrypt 哈希投影、使用落 used_at 不删行、disable/reset-2fa 同事务删行——凭据投影删除非历史抹除）；§2 实体清单补 account 行；迁移清单 V15 行（快照 pre-v15-2fa-snapshot.sql）；主密钥纪律复用 §5.20 的 `YILIAN_SECRET_MASTER_KEY`（SecretCipher 由 027B 加密器抽取至 common/security，TOTP 密钥入库复用同一加密） | 实现工程师 |
+| 2026-11-18 | v0.6 | 033 预算护栏：§5.18 `llm_usage` 补 `estimated_cost_micro_cny BIGINT NULL` 列（V16，微元整数口径 ROUND_HALF_UP，按 `llm.budget` 定价推算——无定价 NULL=不计入预算 fail-open、历史行不回填 append-only）与预算护栏消费口径注（UTC 自然月 SUM、三态 OK/WARN/EXCEEDED，管理端用量视图 API.md §8.17）；§2 实体清单 llm_usage 行同步；迁移清单 V16 行（快照 pre-v16-budget-snapshot.sql）；配置事实键 `llm.budget`（`{"schemaVersion":1,"monthlyBudgetCny":数字或null,"pricing":对象或null}`，API.md §8.14.2）随 §6.11 app_settings 键域记档 | 实现工程师 |

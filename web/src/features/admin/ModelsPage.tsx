@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ErrorState, LoadingBlock } from "@/components/feedback";
 import { ConfirmDialog } from "@/features/settings/confirm-dialog";
 import {
@@ -8,9 +8,11 @@ import {
   deleteLlmProvider,
   getLlmConfig,
   getLlmProviders,
+  getLlmUsage,
   type LlmConfig,
   type LlmProtocol,
   type LlmProvider,
+  type LlmUsage,
   updateLlmConfig,
   updateLlmProvider,
 } from "@/lib/api/admin";
@@ -18,8 +20,6 @@ import { queryKeys } from "@/lib/query";
 import {
   AdminField,
   AdminSection,
-  Bars,
-  BarsCaption,
   Drawer,
   LiveMark,
   MetricRow,
@@ -72,29 +72,57 @@ const M3_FEATURES = [
   { id: "rewrite", name: "改写建议", meta: "生成更地道的表达" },
 ] as const;
 
-/** 近 14 天用量原型示例：确定性伪随机，仅作 M3 用量观测区块的视觉占位，非真实数据。 */
-const M3_USAGE = (() => {
-  let seed = 4242;
-  const random = () => {
-    seed = (seed * 1664525 + 1013904223) % 4294967296;
-    return seed / 4294967296;
-  };
-  return Array.from({ length: 14 }, (_, index) => {
-    const calls = 3 + Math.floor(random() * 17);
-    return {
-      calls,
-      tokens: calls * (520 + Math.floor(random() * 480)),
-      back: 13 - index,
-    };
-  });
-})();
-
 /** 协议下拉与徽标的展示文案（wire 值保持原样，附中文名便于识别）。 */
 const PROTOCOL_LABELS: Record<LlmProtocol, string> = {
   "anthropic-messages": "Anthropic Messages",
   "openai-chat": "OpenAI Chat Completions",
   "openai-responses": "OpenAI Responses",
 };
+
+/** 用量视图已知场景的展示文案（与服务端 scene 常量同域；未知场景原样展示键名）。 */
+const SCENE_LABELS: Record<string, string> = {
+  "tutor-ask": "题目答疑",
+  review: "模型复核",
+  appeal: "申诉初裁",
+};
+
+/**
+ * 预算护栏状态徽标的展示文案与配色（UNSET=未设预算=护栏不生效，如实口径）。
+ * @param status 服务端三态加 UNSET 的状态串
+ * @returns 徽标文案与 tone
+ */
+function budgetStatusBadge(status: LlmUsage["status"]): {
+  label: string;
+  tone: "ok" | "warn" | "muted";
+} {
+  if (status === "EXCEEDED") {
+    return { label: "≥100% 强制门已生效", tone: "warn" };
+  }
+  if (status === "WARN") {
+    return { label: "≥80% 提醒", tone: "warn" };
+  }
+  if (status === "OK") {
+    return { label: "正常", tone: "ok" };
+  }
+  return { label: "未设预算", tone: "muted" };
+}
+
+/** 预算与定价编辑表单的状态：预算空串=未设（提交时清除），定价行可增删。 */
+interface BudgetFormState {
+  /** 月度预算输入（元）；空串=清除预算。 */
+  budget: string;
+  /** 定价行（模型名 + 输入/输出每百万 token 单价）；id 为行内稳定键（增删不打乱未改行的受控输入）。 */
+  rows: Array<PricingRowState>;
+}
+
+/** 单个定价行的表单状态。 */
+interface PricingRowState {
+  /** 行内稳定键（模型名可能被清空重填，不能用模型名或数组下标当 key）。 */
+  id: string;
+  model: string;
+  input: string;
+  output: string;
+}
 
 /** 页面顶部的现状说明：只描述本页与密钥的当前解析方式，不对密钥通道做唯一性承诺。 */
 const PAGE_NOTE =
@@ -159,6 +187,57 @@ function formStateFor(provider?: LlmProvider): ProviderFormState {
     apiKey: "",
     existingLast4: provider?.keyLast4 ?? null,
   };
+}
+
+/**
+ * 本月用量卡片（033，API §8.16）：已用/预算/百分比指标 + 三态状态徽标 + 分场景小计。
+ * 金额读元（服务端微元精度换算后下发），分场景成本以微元换算展示（未知场景原样键名）。
+ * @param usage 用量视图
+ * @returns 卡片内容
+ */
+function UsageCard({ usage }: { usage: LlmUsage }) {
+  const badge = budgetStatusBadge(usage.status);
+  const scenes = Object.entries(usage.byScene);
+  return (
+    <div>
+      <MetricRow
+        items={[
+          { value: usage.spentCny, label: "本月已用（元）" },
+          {
+            value: usage.budgetCny === null ? "—" : usage.budgetCny,
+            label: "预算（元）",
+          },
+          { value: usage.percent === null ? "—" : `${usage.percent}%`, label: "已用百分比" },
+          { value: usage.monthUtc, label: "口径月份（UTC）" },
+        ]}
+      />
+      <p className="mt-4">
+        <StatePill tone={badge.tone}>{badge.label}</StatePill>
+        {usage.status === "EXCEEDED" ? (
+          <span className="ml-3 text-[12px] text-ink-muted">
+            答疑拒新调用（40306），复核/申诉初裁走降级路径；调整预算后自动恢复。
+          </span>
+        ) : null}
+      </p>
+      <ul className="m-0 mt-5 space-y-2 p-0">
+        {scenes.map(([scene, item]) => (
+          <li
+            key={scene}
+            className="flex items-baseline justify-between gap-4 border-b border-rule pb-2"
+          >
+            <span className="text-[13px] text-ink">{SCENE_LABELS[scene] ?? scene}</span>
+            <span className="font-mono text-[11px] text-ink-muted">
+              {item.calls} 次 · {item.tokens} tokens · 成本 {item.costMicroCny / 1_000_000} 元
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3.5 font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
+        成本为估算口径（定价 ×
+        token，ROUND_HALF_UP）；未定价模型的调用不计入预算（成本列如实为空）。
+      </p>
+    </div>
+  );
 }
 
 /** 单条 provider 卡：激活高亮 + 协议/密钥徽标 + 元数据与操作。 */
@@ -251,7 +330,8 @@ function ProviderCard({
 /**
  * 模型页签：统一模型配置状态卡（激活 provider 生效态）、Provider 目录管理（022，
  * CC Switch 式多 provider：列表/新增/编辑/删除/激活）、AI 功能清单按激活 provider 联动；
- * 下半区任务路由/Prompt 模板/本月用量/预算为 M3 占位（原型参照，只读）。
+ * 下半区本月用量（真实用量视图）与预算护栏编辑（预算 + 模型定价，保存即时生效）；
+ * 任务路由/Prompt 模板仍为 M3 占位（原型参照，只读）。
  * @returns 页签内容
  */
 export function ModelsPage() {
@@ -266,6 +346,11 @@ export function ModelsPage() {
     queryKey: queryKeys.admin.llmProviders,
     queryFn: ({ signal }) => getLlmProviders(signal),
   });
+  // 用量视图（033）：独立查询——失败只降级为区块内提示，不拖垮整页（配置与目录仍可用）。
+  const usageQuery = useQuery({
+    queryKey: queryKeys.admin.llmUsage,
+    queryFn: ({ signal }) => getLlmUsage(signal),
+  });
 
   // 表单与删除确认的本地态；form 为 null 时抽屉关闭。
   const [form, setForm] = useState<{ mode: "create" | "edit"; state: ProviderFormState } | null>(
@@ -276,6 +361,11 @@ export function ModelsPage() {
   // 期间服务端状态变化不回填（防后台 refetch 抹掉输入），保存/重置/开关成功后统一对齐并清 dirty。
   const [legacyForm, setLegacyForm] = useState<LegacyFormState | null>(null);
   const [legacyFormDirty, setLegacyFormDirty] = useState(false);
+  // 预算与定价编辑表单：null=待惰性初始化；dirty 守卫语义与 legacy 卡一致。
+  const [budgetForm, setBudgetForm] = useState<BudgetFormState | null>(null);
+  const [budgetFormDirty, setBudgetFormDirty] = useState(false);
+  /** 新增定价行的递增序号：行键要稳定（不能用数组下标，增删会打乱未改行的受控输入）。 */
+  const pricingRowSeqRef = useRef(0);
   // 「重置为环境默认」的确认弹窗：清端点/模型覆盖 + 删 tutor 密钥行，生效值回退环境变量。
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
@@ -310,10 +400,54 @@ export function ModelsPage() {
     });
   }, [configQuery.data, legacyFormDirty]);
 
-  /** 目录/配置双失效：激活与 CRUD 都影响 llm/config 的生效视图（服务端同一事实源）。 */
+  // 预算与定价表单惰性回填：config 到位后以存储值初始化（预算空串=未设）；dirty 守卫防外部 refetch 抹输入。
+  useEffect(() => {
+    const data = configQuery.data;
+    if (!data) {
+      return;
+    }
+    setBudgetForm((prev) => {
+      if (prev !== null && budgetFormDirty) {
+        return prev;
+      }
+      const next: BudgetFormState = {
+        budget: data.monthlyBudgetCny === null ? "" : String(data.monthlyBudgetCny),
+        rows: data.pricing
+          ? Object.entries(data.pricing).map(([model, pricing]) => ({
+              // 行键取模型名（定价表按模型名唯一）；新增行由递增序号出键。
+              id: `row-${model}`,
+              model,
+              input: String(pricing.inputPerMillionCny),
+              output: String(pricing.outputPerMillionCny),
+            }))
+          : [],
+      };
+      if (
+        prev !== null &&
+        prev.budget === next.budget &&
+        prev.rows.length === next.rows.length &&
+        prev.rows.every((row, index) => {
+          const other = next.rows[index];
+          return (
+            row.model === other.model && row.input === other.input && row.output === other.output
+          );
+        })
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [configQuery.data, budgetFormDirty]);
+
+  /** 目录/配置双失效：激活与 CRUD 都影响 llm/config 的生效视图（服务端同一事实源）；预算保存连带失效用量视图。 */
   function invalidateLlmQueries() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.admin.llmProviders });
     void queryClient.invalidateQueries({ queryKey: queryKeys.admin.llmConfig });
+  }
+
+  /** 用量视图失效：预算/定价保存后状态徽标与已用口径可能变化（护栏判定即时生效）。 */
+  function invalidateUsageQuery() {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.admin.llmUsage });
   }
 
   function onError(error: unknown) {
@@ -335,6 +469,7 @@ export function ModelsPage() {
 
   // 启停答疑：目录态只传 enabled（缺省覆盖字段=清除休眠覆盖，不伤及目录生效配置）；
   // legacy 态携带表单当前值一起提交（状态型字段语义下裸传 enabled 会清掉既有覆盖）。
+  // 预算护栏字段总是携带服务端当前值（同为状态型字段：缺省=清除，裸传会把预算清掉）。
   const toggleMutation = useMutation({
     mutationFn: updateLlmConfig,
     onSuccess: (next) => {
@@ -347,6 +482,7 @@ export function ModelsPage() {
   });
 
   // 保存 legacy 卡编辑（端点/模型覆盖 + 写-only 密钥）：服务端保存即时生效（覆盖轨换轨无需重启）。
+  // 预算护栏字段总是携带服务端当前值（本卡不改预算，透传即可）。
   const saveConfigMutation = useMutation({
     mutationFn: updateLlmConfig,
     onSuccess: (next) => {
@@ -356,6 +492,33 @@ export function ModelsPage() {
           ? "答疑配置已保存并即时生效"
           : "答疑配置已保存，端点与模型回退环境变量",
       );
+    },
+    onError,
+  });
+
+  /**
+   * 预算护栏字段的透传载荷：携带服务端当前值（null/缺省=清除，透传即无变更），
+   * 避免「改开关清预算」的状态型字段副作用。
+   * @param config 服务端当前配置视图
+   * @returns monthlyBudgetCny 与 pricing 的透传字段
+   */
+  function budgetPassthrough(config: LlmConfig): {
+    monthlyBudgetCny?: number | null;
+    pricing?: Record<string, { inputPerMillionCny: number; outputPerMillionCny: number }>;
+  } {
+    return {
+      monthlyBudgetCny: config.monthlyBudgetCny === null ? undefined : config.monthlyBudgetCny,
+      pricing: config.pricing ?? undefined,
+    };
+  }
+
+  // 保存预算与定价（033）：预算空串=清除（护栏不生效），定价行整体替换（空=清除定价）。
+  // 开关与端点/模型携带当前值不变更；成功后失效配置与用量视图（徽标即时对齐）。
+  const saveBudgetMutation = useMutation({
+    mutationFn: updateLlmConfig,
+    onSuccess: (next) => {
+      onConfigSaved(next, "预算与定价已保存，护栏即时生效");
+      invalidateUsageQuery();
     },
     onError,
   });
@@ -451,8 +614,6 @@ export function ModelsPage() {
     updateMutation.isPending ||
     activateMutation.isPending ||
     deleteMutation.isPending;
-  const usageCalls = M3_USAGE.reduce((sum, item) => sum + item.calls, 0);
-  const usageTokens = M3_USAGE.reduce((sum, item) => sum + item.tokens, 0);
 
   return (
     <div>
@@ -627,8 +788,12 @@ export function ModelsPage() {
             disabled={toggleMutation.isPending || (!activeProvider && !legacyForm)}
             onClick={() => {
               if (activeProvider) {
-                // 目录态：开关独立提交（缺省覆盖字段=清除休眠覆盖，不伤及目录生效配置）。
-                toggleMutation.mutate({ enabled: !config.enabled });
+                // 目录态：开关独立提交（缺省覆盖字段=清除休眠覆盖，不伤及目录生效配置）；
+                // 预算护栏字段透传当前值（裸传会把预算清掉）。
+                toggleMutation.mutate({
+                  enabled: !config.enabled,
+                  ...budgetPassthrough(config),
+                });
                 return;
               }
               // legacy 态（028）：开关与表单当前值一起提交——状态型字段语义下裸传 enabled 会清掉既有覆盖。
@@ -636,6 +801,7 @@ export function ModelsPage() {
                 enabled: !config.enabled,
                 baseUrl: legacyForm?.baseUrl.trim() ?? "",
                 model: legacyForm?.model.trim() ?? "",
+                ...budgetPassthrough(config),
               });
             }}
           >
@@ -651,12 +817,14 @@ export function ModelsPage() {
                   if (!legacyForm) {
                     return;
                   }
-                  // 状态型字段语义：总是携带端点/模型当前值（值=落覆盖，空串=清除回 env）；密钥写-only 非空白才发送。
+                  // 状态型字段语义：总是携带端点/模型当前值（值=落覆盖，空串=清除回 env）；密钥写-only 非空白才发送；
+                  // 预算护栏字段透传当前值（本卡不改预算）。
                   saveConfigMutation.mutate({
                     enabled: legacyForm.enabled,
                     baseUrl: legacyForm.baseUrl.trim(),
                     model: legacyForm.model.trim(),
                     apiKey: legacyForm.apiKey.trim() || undefined,
+                    ...budgetPassthrough(config),
                   });
                 }}
               >
@@ -813,32 +981,204 @@ export function ModelsPage() {
         </p>
       </AdminSection>
 
-      <AdminSection title="本月用量" action={<StatePill tone="muted">M3 预留</StatePill>}>
-        <MetricRow
-          items={[
-            { value: usageCalls, label: "近 14 天请求（示例）" },
-            { value: `${Math.round(usageTokens / 1000)}k`, label: "Tokens（示例）" },
-            { value: "—", label: "估算成本" },
-            { value: "—", label: "账户余额" },
-          ]}
-        />
-        <div className="mt-6">
-          <Bars
-            values={M3_USAGE.map((item) => item.calls)}
-            titles={M3_USAGE.map((item) => `${item.calls} 次 / ${item.tokens} tokens`)}
-          />
-          <BarsCaption left="14 天前" right="今天" />
-        </div>
-        <p className="mt-3.5 font-mono text-[11px] leading-[1.7] tracking-[0.06em] text-ink-faint">
-          用量观测随 M3 llm_usage 落库；当前 token/耗时记结构化日志，上图与数字为原型示例。
-        </p>
+      <AdminSection title="本月用量" action={<StatePill tone="muted">UTC 自然月</StatePill>}>
+        {usageQuery.isPending ? (
+          <LoadingBlock />
+        ) : usageQuery.isError || !usageQuery.data ? (
+          <div>
+            <p className="text-[13px] text-ink-muted">用量视图加载失败，其余配置不受影响。</p>
+            <button
+              type="button"
+              className="btn ghost mt-2"
+              onClick={() => void usageQuery.refetch()}
+            >
+              重试
+            </button>
+          </div>
+        ) : (
+          <UsageCard usage={usageQuery.data} />
+        )}
       </AdminSection>
 
-      <AdminSection title="预算" action={<StatePill tone="muted">M3 预留</StatePill>}>
-        <p className="text-[13px] leading-[1.9] text-ink-muted">
-          月度成本上限、到 80% 提醒、到 100% 自动降级为本地批改，随 M3 用量观测一并落地；当前答疑
-          走既有模型套餐计费，不会静默扣费。
+      <AdminSection title="预算" action={<StatePill tone="muted">护栏即时生效</StatePill>}>
+        <p className="mb-3.5 text-[13px] leading-[1.9] text-ink-muted">
+          月度成本上限（UTC 自然月口径）：到 80% 在日志与上方用量状态提醒管理员，到 100%
+          自动降级——答疑拒新调用（40306）、复核走降级文案、申诉初裁落「预算不可用」占位；
+          未设预算=护栏不生效。定价只对精确匹配的模型生效，未定价模型的调用不计入预算。
         </p>
+        {budgetForm ? (
+          <form
+            aria-label="预算与定价"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const trimmedBudget = budgetForm.budget.trim();
+              let monthlyBudgetCny: number | undefined;
+              if (trimmedBudget !== "") {
+                const parsed = Number(trimmedBudget);
+                if (!Number.isFinite(parsed) || parsed <= 0) {
+                  toast("月度预算需为正数（清空=不设预算）");
+                  return;
+                }
+                monthlyBudgetCny = parsed;
+              }
+              const pricing: Record<
+                string,
+                { inputPerMillionCny: number; outputPerMillionCny: number }
+              > = {};
+              for (const row of budgetForm.rows) {
+                // 全空行跳过（删除行的宽松口径）；有任一值则整行必须合法。
+                if (
+                  row.model.trim() === "" &&
+                  row.input.trim() === "" &&
+                  row.output.trim() === ""
+                ) {
+                  continue;
+                }
+                const input = Number(row.input);
+                const output = Number(row.output);
+                if (row.model.trim() === "") {
+                  toast("定价行模型名不能为空");
+                  return;
+                }
+                if (
+                  !Number.isFinite(input) ||
+                  input <= 0 ||
+                  !Number.isFinite(output) ||
+                  output <= 0
+                ) {
+                  toast("定价单价必须为正数");
+                  return;
+                }
+                pricing[row.model.trim()] = {
+                  inputPerMillionCny: input,
+                  outputPerMillionCny: output,
+                };
+              }
+              setBudgetFormDirty(false);
+              saveBudgetMutation.mutate({
+                enabled: config.enabled,
+                ...(activeProvider
+                  ? {}
+                  : {
+                      baseUrl: legacyForm?.baseUrl.trim() ?? "",
+                      model: legacyForm?.model.trim() ?? "",
+                    }),
+                monthlyBudgetCny,
+                pricing,
+              });
+            }}
+          >
+            <div className="flex flex-wrap items-end gap-x-8 gap-y-5">
+              <div className="min-w-[220px]">
+                <p className={configCellLabelClassName()}>月度预算（元）</p>
+                <input
+                  aria-label="月度预算（元）"
+                  inputMode="decimal"
+                  className="w-full border-b border-rule bg-transparent py-2 font-mono text-[12px] text-ink outline-none transition focus:border-vermilion"
+                  placeholder="未设预算（留空=不设）"
+                  value={budgetForm.budget}
+                  onChange={(event) => {
+                    setBudgetForm({ ...budgetForm, budget: event.target.value });
+                    setBudgetFormDirty(true);
+                  }}
+                />
+              </div>
+            </div>
+            <div className="mt-6">
+              <p className={configCellLabelClassName()}>模型定价（每百万 token 单价，元）</p>
+              {budgetForm.rows.length === 0 ? (
+                <p className="text-[12px] text-ink-faint">未设定价：所有调用不计入预算。</p>
+              ) : (
+                <ul className="m-0 space-y-2.5 p-0">
+                  {budgetForm.rows.map((row, index) => (
+                    <li key={row.id} className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                      <input
+                        aria-label={`定价行 ${index + 1} 模型名`}
+                        className="min-w-[180px] flex-1 border-b border-rule bg-transparent py-1.5 font-mono text-[12px] text-ink outline-none transition focus:border-vermilion"
+                        placeholder="模型名（与调用快照精确匹配）"
+                        value={row.model}
+                        onChange={(event) => {
+                          const rows = [...budgetForm.rows];
+                          rows[index] = { ...row, model: event.target.value };
+                          setBudgetForm({ ...budgetForm, rows });
+                          setBudgetFormDirty(true);
+                        }}
+                      />
+                      <input
+                        aria-label={`定价行 ${index + 1} 输入单价`}
+                        className="w-[140px] border-b border-rule bg-transparent py-1.5 font-mono text-[12px] text-ink outline-none transition focus:border-vermilion"
+                        placeholder="输入单价"
+                        value={row.input}
+                        onChange={(event) => {
+                          const rows = [...budgetForm.rows];
+                          rows[index] = { ...row, input: event.target.value };
+                          setBudgetForm({ ...budgetForm, rows });
+                          setBudgetFormDirty(true);
+                        }}
+                      />
+                      <input
+                        aria-label={`定价行 ${index + 1} 输出单价`}
+                        className="w-[140px] border-b border-rule bg-transparent py-1.5 font-mono text-[12px] text-ink outline-none transition focus:border-vermilion"
+                        placeholder="输出单价"
+                        value={row.output}
+                        onChange={(event) => {
+                          const rows = [...budgetForm.rows];
+                          rows[index] = { ...row, output: event.target.value };
+                          setBudgetForm({ ...budgetForm, rows });
+                          setBudgetFormDirty(true);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn ghost"
+                        aria-label={`删除定价行 ${index + 1}`}
+                        onClick={() => {
+                          const rows = budgetForm.rows.filter((_, rowIndex) => rowIndex !== index);
+                          setBudgetForm({ ...budgetForm, rows });
+                          setBudgetFormDirty(true);
+                        }}
+                      >
+                        删除
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <button
+                type="button"
+                className="btn ghost mt-3"
+                onClick={() => {
+                  pricingRowSeqRef.current += 1;
+                  setBudgetForm({
+                    ...budgetForm,
+                    rows: [
+                      ...budgetForm.rows,
+                      {
+                        id: `new-${pricingRowSeqRef.current}`,
+                        model: "",
+                        input: "",
+                        output: "",
+                      },
+                    ],
+                  });
+                  setBudgetFormDirty(true);
+                }}
+              >
+                增加定价行
+              </button>
+            </div>
+            <div className="mt-7 flex flex-wrap items-center gap-4">
+              <button type="submit" className="btn primary" disabled={saveBudgetMutation.isPending}>
+                保存预算与定价
+              </button>
+              <span className="font-mono text-[10px] leading-[1.7] tracking-[0.04em] text-ink-faint">
+                保存即时生效；定价与成本为估算口径，非厂商账单。
+              </span>
+            </div>
+          </form>
+        ) : (
+          <LoadingBlock />
+        )}
       </AdminSection>
 
       {/* 新增/编辑抽屉：id 仅创建时可填（服务端路径 id 不可改）。 */}
@@ -1037,6 +1377,7 @@ export function ModelsPage() {
             baseUrl: "",
             model: "",
             clearKey: true,
+            ...budgetPassthrough(config),
           });
         }}
         onCancel={() => setResetConfirmOpen(false)}

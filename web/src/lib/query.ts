@@ -52,6 +52,8 @@ export const queryKeys = {
     appeals: (params: Record<string, unknown>) => ["admin", "appeals", params] as const,
     /** provider 目录（022）：列表 + 每项 hasKey/active；激活切换后连带失效 llmConfig。 */
     llmProviders: ["admin", "llm-providers"] as const,
+    /** 本月用量视图（033 预算护栏）：配置保存后连带失效（预算改变影响状态徽标）。 */
+    llmUsage: ["admin", "llm-usage"] as const,
   },
 };
 

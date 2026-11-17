@@ -1,4 +1,5 @@
 import { gradeCloze, gradeFree, normalizeAnswer } from "@/features/practice/grading";
+import type { LlmConfig, LlmUsage } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api-error";
 import { localDateString } from "@/lib/format";
 import { registerRequestSchema } from "@/lib/schemas/account";
@@ -2865,7 +2866,104 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     return { id: db.auditLogs[0]?.id ?? "" };
   }
 
+  // ---- 管理端 LLM 配置与本月用量（API §8.14/§8.16，033 契约形状） ----
+  if (pathname === "/admin/llm/config" && method === "GET") {
+    requireAdmin(db);
+    return db.llmConfig;
+  }
+  if (pathname === "/admin/llm/config" && method === "PUT") {
+    const admin = requireAdmin(db);
+    const input = asObject(body);
+    // 状态型字段语义与真实服务端一致：非空=落值，空/缺省=清除；预算/定价先校验后落（40000 信封）。
+    const monthlyBudget = input.monthlyBudgetCny;
+    if (monthlyBudget !== undefined && monthlyBudget !== null) {
+      const parsed = Number(monthlyBudget);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        fail(400, 40000, "monthlyBudgetCny 必须为正数（0/负数不合法）");
+      }
+    }
+    const pricingInput = input.pricing;
+    let nextPricing: LlmConfig["pricing"] = null;
+    if (pricingInput !== undefined && pricingInput !== null) {
+      const pricing: NonNullable<LlmConfig["pricing"]> = {};
+      for (const [model, entry] of Object.entries(asObject(pricingInput))) {
+        const prices = asObject(entry);
+        const inputPrice = Number(prices.inputPerMillionCny);
+        const outputPrice = Number(prices.outputPerMillionCny);
+        if (
+          model.trim() === "" ||
+          !Number.isFinite(inputPrice) ||
+          inputPrice <= 0 ||
+          !Number.isFinite(outputPrice) ||
+          outputPrice <= 0
+        ) {
+          fail(400, 40000, "pricing 单价必须为正数");
+        }
+        pricing[model.trim()] = {
+          inputPerMillionCny: inputPrice,
+          outputPerMillionCny: outputPrice,
+        };
+      }
+      if (Object.keys(pricing).length > 0) {
+        nextPricing = pricing;
+      }
+    }
+    const apiKeyGiven = typeof input.apiKey === "string" && input.apiKey.trim() !== "";
+    db.llmConfig = {
+      ...db.llmConfig,
+      enabled: Boolean(input.enabled),
+      monthlyBudgetCny:
+        monthlyBudget === undefined || monthlyBudget === null ? null : Number(monthlyBudget),
+      pricing: nextPricing,
+      hasKey: apiKeyGiven ? true : input.clearKey === true ? false : db.llmConfig.hasKey,
+      keyLast4: apiKeyGiven
+        ? String(input.apiKey).slice(-4)
+        : input.clearKey === true
+          ? null
+          : db.llmConfig.keyLast4,
+    };
+    appendAudit(db, admin, "LLM_CONFIG_UPDATE", "SETTING", "llm.config", null);
+    persistMockDb();
+    return db.llmConfig;
+  }
+  if (pathname === "/admin/llm/usage" && method === "GET") {
+    requireAdmin(db);
+    return buildLlmUsageDemo();
+  }
+
   return fail(404, 40400, "请求的资源不存在");
+}
+
+/**
+ * 组装演示态本月用量视图（API §8.16 形状）：预算三态按 mock 配置投影，已用金额用确定性演示值。
+ * @returns 用量视图 data
+ */
+function buildLlmUsageDemo(): LlmUsage {
+  const config = getMockDb().llmConfig;
+  const budget = config.monthlyBudgetCny;
+  const spent = 12.5;
+  let status: LlmUsage["status"] = budget === null ? "UNSET" : "OK";
+  let percent: number | null = null;
+  if (budget !== null) {
+    percent = Math.round((spent * 100) / budget);
+    if (percent >= 100) {
+      status = "EXCEEDED";
+    } else if (percent >= 80) {
+      status = "WARN";
+    }
+  }
+  return {
+    monthUtc: new Date().toISOString().slice(0, 7),
+    budgetCny: budget,
+    spentCny: spent,
+    percent,
+    status,
+    byScene: {
+      "tutor-ask": { tokens: 15420, costMicroCny: 8_200_000, calls: 34 },
+      review: { tokens: 9000, costMicroCny: 4_300_000, calls: 12 },
+      appeal: { tokens: 0, costMicroCny: 0, calls: 0 },
+    },
+  };
 }
 
 /**

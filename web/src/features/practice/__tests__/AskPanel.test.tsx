@@ -107,6 +107,26 @@ describe("AskPanel", () => {
     await waitFor(() => expect(onUnavailable).toHaveBeenCalledTimes(1), { timeout: 3000 });
   });
 
+  /** 40306：预算强制门展示定向文案，问句与输入保留，面板不收起（预算是月度状态，恢复后入口无需重新发现）。 */
+  it("showsBudgetExhaustedMessageOn40306WithoutCollapsing_ac5", async () => {
+    askTutorMock.mockRejectedValue(
+      new ApiError(403, 40306, "本月模型预算已用尽，请下月再试或联系管理员调整预算"),
+    );
+    const { onUnavailable } = renderPanel();
+
+    await ask("这里介词为什么用 to？");
+
+    // 定向文案：点明预算原因与两条出路（下月再试 / 管理员调整预算）。
+    expect(await screen.findByRole("alert")).toHaveTextContent("本月模型预算已用尽");
+    expect(screen.getByRole("alert").textContent).toContain("请下月再试");
+    expect(screen.getByRole("alert").textContent).toContain("联系管理员调整预算");
+    // 与 40304/40400 不同：面板不收起（onUnavailable 不触发），问句与输入都保留。
+    expect(onUnavailable).not.toHaveBeenCalled();
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(
+      "这里介词为什么用 to？",
+    );
+  });
+
   /** 等待回复时写明「最长约 30 秒」的预期，回复到位后等待提示消失。 */
   it("showsPendingExpectationWhileWaiting_obs2", async () => {
     let resolveAsk: (reply: { answer: string; disclaimer: string }) => void = () => {};

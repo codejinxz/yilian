@@ -36,6 +36,7 @@ import org.springframework.test.context.ActiveProfiles;
 
 import tools.jackson.databind.ObjectMapper;
 
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayDeque;
@@ -123,6 +124,47 @@ class PracticeAppealAdjudicationIntegrationTest {
         baseUrl = "http://localhost:" + environment.getProperty("local.server.port");
     }
 
+    /**
+     * [AC-5] 预算强制门（申诉初裁）：本月已用 ≥100% 时跳过初裁（零模型调用零记账），落 {"verdict":"UNAVAILABLE","reason":"BUDGET"}
+     * 占位——申诉本身不拒不阻塞（200 + PENDING 等人工终审）， 与限流跳过同形态，reason=BUDGET 让读端可归因于预算而非通用不可用。
+     */
+    @Test
+    @DisplayName("[AC-5] 预算用尽初裁落 BUDGET 占位且申诉不阻塞")
+    void ac5_budgetExhaustedPlacesBudgetPlaceholder() {
+        AttemptView submitted = submitWrongAttempt();
+        // 预算 1 元，本月已用 10 元 → EXCEEDED。
+        jdbcTemplate.update(
+                "INSERT INTO app_settings (`key`, value, description) VALUES ('llm.budget', ?, 'it')"
+                        + " ON DUPLICATE KEY UPDATE value = VALUES(value)",
+                "{\"schemaVersion\":1,\"monthlyBudgetCny\":1,\"pricing\":null}");
+        jdbcTemplate.update(
+                "INSERT INTO llm_usage (scene, ok, estimated_cost_micro_cny, created_at)"
+                        + " VALUES ('budget-it', 1, 10000000, UTC_TIMESTAMP(6))");
+
+        AppealView appeal =
+                practiceService.submitAppeal(
+                        USER_ID, submitted.attemptId(), "slot:0", PROPOSED, "主语可换她");
+
+        // 申诉不阻塞：200 + PENDING，占位回执 verdict=UNAVAILABLE（decidedBy=null=无 AI 意见）。
+        assertThat(appeal.status()).isEqualTo("PENDING");
+        assertThat(appeal.verdict()).isEqualTo("UNAVAILABLE");
+        assertThat(appeal.decidedBy()).isNull();
+        assertThat(appeal.decisionReason())
+                .isEqualTo(PracticeServiceImpl.APPEAL_ADJUDICATION_BUDGET_REASON);
+        // 存储真相：decision 列落 BUDGET 占位 JSON。
+        Map<String, Object> row =
+                jdbcTemplate.queryForMap(
+                        "SELECT decision FROM appeals WHERE id = ?", appeal.appealId());
+        // JSON 列落库后键序与空白被 MySQL 归一：只断言两个语义值在位（UNAVAILABLE + BUDGET 归因）。
+        assertThat((String) row.get("decision")).contains("UNAVAILABLE").contains("BUDGET");
+        // 零模型调用零记账：预算门在调用前拦下。
+        assertThat(stubChatClient().calls.get()).isZero();
+        Long appealUsageRows =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM llm_usage WHERE scene = 'appeal'", Long.class);
+        assertThat(appealUsageRows).isZero();
+    }
+
     // ---------- [AC-2] 初裁成功 ----------
 
     /** [AC-2] 初裁成功：裁决列落值且 status 保持 PENDING；回执带 AI 意见；llm_usage scene=appeal 记账。 */
@@ -167,6 +209,31 @@ class PracticeAppealAdjudicationIntegrationTest {
                         "SELECT COUNT(*) FROM llm_usage WHERE scene = 'appeal' AND ok = b'1'",
                         Long.class);
         assertThat(usageRows).isEqualTo(1L);
+    }
+
+    /**
+     * [AC-3] 已定价模型的初裁用量行落估算成本列：llm.budget 配置 stub-review-model 单价（输入 1 元/百万、 输出 2 元/百万），桩用量
+     * prompt=100/completion=25 → 100×1 + 25×2 = 150 微元（预算未设，护栏不生效）。
+     */
+    @Test
+    @DisplayName("[AC-3] 已定价模型初裁落估算成本 150 微元")
+    void ac3_appealUsageRowRecordsEstimatedCost() {
+        AttemptView submitted = submitWrongAttempt();
+        jdbcTemplate.update(
+                "INSERT INTO app_settings (`key`, value, description) VALUES ('llm.budget', ?, 'it')"
+                        + " ON DUPLICATE KEY UPDATE value = VALUES(value)",
+                "{\"schemaVersion\":1,\"monthlyBudgetCny\":null,"
+                        + "\"pricing\":{\"stub-review-model\":"
+                        + "{\"inputPerMillionCny\":1,\"outputPerMillionCny\":2}}}");
+        stubChatClient().reply("{\"verdict\": \"SUPPORT\", \"reason\": \"语义等价，可以接受\"}");
+
+        practiceService.submitAppeal(USER_ID, submitted.attemptId(), "slot:0", PROPOSED, "主语可换她");
+
+        BigDecimal costMicroCny =
+                jdbcTemplate.queryForObject(
+                        "SELECT estimated_cost_micro_cny FROM llm_usage WHERE scene = 'appeal'",
+                        BigDecimal.class);
+        assertThat(costMicroCny).isEqualByComparingTo("150");
     }
 
     /** [AC-2] 调用失败重试 1 次仍败：落 UNAVAILABLE 占位，decided_by 为 NULL（无 AI 意见），申诉不被拒。 */
@@ -612,6 +679,7 @@ class PracticeAppealAdjudicationIntegrationTest {
         jdbcTemplate.update("DELETE FROM review_logs");
         jdbcTemplate.update("DELETE FROM reviews");
         jdbcTemplate.update("DELETE FROM appeals");
+        jdbcTemplate.update("DELETE FROM app_settings WHERE `key` = 'llm.budget'");
         jdbcTemplate.update("DELETE FROM attempt_gradings");
         jdbcTemplate.update("DELETE FROM llm_usage");
         jdbcTemplate.update("DELETE FROM attempts WHERE retry_of_id IS NOT NULL");

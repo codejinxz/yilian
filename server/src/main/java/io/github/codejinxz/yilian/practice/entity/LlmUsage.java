@@ -54,6 +54,13 @@ public class LlmUsage {
     @Column(name = "duration_ms")
     private Long durationMs;
 
+    /**
+     * 估算成本（微元整数，1 CNY = 1e6 微元，ROUND_HALF_UP）；按当次模型定价推算的估算值而非厂商账单。 当次调用时该模型无定价配置为
+     * null——护栏只对已定价模型生效，未定价=免费语义如实（不计入预算）。
+     */
+    @Column(name = "estimated_cost_micro_cny")
+    private Long estimatedCostMicroCny;
+
     /** 调用是否成功（拿到非空回复）；失败/空回复为 false。 */
     @Column(nullable = false)
     private boolean ok;
@@ -77,6 +84,7 @@ public class LlmUsage {
      * @param promptTokens 提示词 token，可为 null
      * @param completionTokens 回复 token，可为 null
      * @param durationMs 耗时毫秒，可为 null
+     * @param estimatedCostMicroCny 估算成本微元（无定价时为 null，不计入预算）
      * @param ok 是否成功
      * @param now 记录时刻
      * @return 未持久化的用量记录
@@ -90,6 +98,7 @@ public class LlmUsage {
             Integer promptTokens,
             Integer completionTokens,
             Long durationMs,
+            Long estimatedCostMicroCny,
             boolean ok,
             Instant now) {
         LlmUsage usage = new LlmUsage();
@@ -101,6 +110,7 @@ public class LlmUsage {
         usage.promptTokens = promptTokens;
         usage.completionTokens = completionTokens;
         usage.durationMs = durationMs;
+        usage.estimatedCostMicroCny = estimatedCostMicroCny;
         usage.ok = ok;
         usage.createdAt = now;
         return usage;
@@ -185,6 +195,15 @@ public class LlmUsage {
      */
     public Long getDurationMs() {
         return durationMs;
+    }
+
+    /**
+     * 估算成本微元。
+     *
+     * @return 微元整数（ROUND_HALF_UP 口径）；当次模型无定价时为 null
+     */
+    public Long getEstimatedCostMicroCny() {
+        return estimatedCostMicroCny;
     }
 
     /**

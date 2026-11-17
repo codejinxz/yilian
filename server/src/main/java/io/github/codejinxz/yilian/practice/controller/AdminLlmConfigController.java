@@ -6,6 +6,7 @@ import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
 import io.github.codejinxz.yilian.practice.service.TutorService;
 import io.github.codejinxz.yilian.practice.service.dto.LlmConfigUpdateRequest;
 import io.github.codejinxz.yilian.practice.service.vo.LlmConfigView;
+import io.github.codejinxz.yilian.practice.service.vo.LlmUsageView;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -112,5 +113,37 @@ public class AdminLlmConfigController {
             @Valid @RequestBody LlmConfigUpdateRequest request,
             @AuthenticationPrincipal YilianUserPrincipal principal) {
         return ApiResponse.success(tutorService.updateAdminConfig(request, principal.id()));
+    }
+
+    /**
+     * 读取本月用量视图（预算护栏用量观测）。
+     *
+     * @param principal 当前管理员
+     * @return UTC 自然月已用/预算/百分比/三态与分场景小计
+     */
+    @Operation(
+            summary = "读取本月 LLM 用量",
+            description =
+                    "预算护栏用量观测（UTC 自然月口径）：monthUtc、budgetCny（null=未设预算）、"
+                            + "spentCny（估算成本，元）、percent（可超 100；未设预算为 null）、"
+                            + "status（UNSET|OK|WARN(≥80%)|EXCEEDED(≥100%)）与 byScene 分场景小计"
+                            + "（tokens/costMicroCny/calls）。读接口不标操作日志。")
+    @ApiResponses({
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "200",
+                description = "返回 LlmUsageView"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "401",
+                description = "未登录（40100）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "403",
+                description = "非管理员（40300）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class)))
+    })
+    @GetMapping("/usage")
+    public ApiResponse<LlmUsageView> getUsage(
+            @AuthenticationPrincipal YilianUserPrincipal principal) {
+        return ApiResponse.success(tutorService.getAdminUsage());
     }
 }

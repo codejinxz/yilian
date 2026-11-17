@@ -40,6 +40,7 @@ import org.springframework.test.context.ActiveProfiles;
 
 import tools.jackson.databind.ObjectMapper;
 
+import java.math.BigDecimal;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -319,6 +320,90 @@ class PracticeModelReviewIntegrationTest {
                         "SELECT COUNT(*) FROM llm_usage WHERE scene = 'review' AND ok = b'1'",
                         Long.class);
         assertThat(usageRows).isEqualTo(2L);
+    }
+
+    // ---------- [AC-3] 记账补成本 ----------
+
+    /**
+     * [AC-3] 已定价模型的复核用量行落估算成本列：llm.budget 配置 stub-review-model 单价（输入 1 元/百万、 输出 2 元/百万），桩用量
+     * prompt=120/completion=30 → 120×1 + 30×2 = 180 微元。
+     */
+    @Test
+    @DisplayName("[AC-3] 已定价模型复核落估算成本 180 微元")
+    void ac3_reviewUsageRowRecordsEstimatedCost() {
+        AttemptView submitted = submitWrongAttempt();
+        jdbcTemplate.update(
+                "INSERT INTO app_settings (`key`, value, description) VALUES ('llm.budget', ?, 'it')"
+                        + " ON DUPLICATE KEY UPDATE value = VALUES(value)",
+                "{\"schemaVersion\":1,\"monthlyBudgetCny\":null,"
+                        + "\"pricing\":{\"stub-review-model\":"
+                        + "{\"inputPerMillionCny\":1,\"outputPerMillionCny\":2}}}");
+        stubChatClient().reply("{\"score\": 88, \"reason\": \"" + REVIEW_REASON + "\"}");
+
+        practiceService.reviewAttempt(USER_ID, submitted.attemptId());
+
+        BigDecimal costMicroCny =
+                jdbcTemplate.queryForObject(
+                        "SELECT estimated_cost_micro_cny FROM llm_usage WHERE scene = 'review'",
+                        BigDecimal.class);
+        assertThat(costMicroCny).isEqualByComparingTo("180");
+    }
+
+    /** [AC-3] 未定价模型的复核用量行成本列落 NULL（fail-open：成本 NULL=不计入预算，不拦调用）。 */
+    @Test
+    @DisplayName("[AC-3] 未定价模型复核成本列落 NULL")
+    void ac3_reviewUsageRowNullCostWithoutPricing() {
+        AttemptView submitted = submitWrongAttempt();
+        stubChatClient().reply("{\"score\": 88, \"reason\": \"" + REVIEW_REASON + "\"}");
+
+        practiceService.reviewAttempt(USER_ID, submitted.attemptId());
+
+        BigDecimal costMicroCny =
+                jdbcTemplate.queryForObject(
+                        "SELECT estimated_cost_micro_cny FROM llm_usage WHERE scene = 'review'",
+                        BigDecimal.class);
+        assertThat(costMicroCny).isNull();
+    }
+
+    /**
+     * [AC-5] 预算强制门（模型复核）：本月已用 ≥100% 时复核直接走既有降级路径（50000 + 文案带预算原因），
+     * 不调模型（零调用）也不落复核行/用量行——幂等回读语义不受影响，原判分保留。
+     */
+    @Test
+    @DisplayName("[AC-5] 预算用尽复核降级 50000 零模型调用零落行")
+    void ac5_budgetExhaustedDegradesWithoutModelCallOrRow() {
+        AttemptView submitted = submitWrongAttempt();
+        // 预算 1 元，本月已用 10 元 → EXCEEDED。
+        jdbcTemplate.update(
+                "INSERT INTO app_settings (`key`, value, description) VALUES ('llm.budget', ?, 'it')"
+                        + " ON DUPLICATE KEY UPDATE value = VALUES(value)",
+                "{\"schemaVersion\":1,\"monthlyBudgetCny\":1,\"pricing\":null}");
+        jdbcTemplate.update(
+                "INSERT INTO llm_usage (scene, ok, estimated_cost_micro_cny, created_at)"
+                        + " VALUES ('budget-it', 1, 10000000, UTC_TIMESTAMP(6))");
+
+        assertThatThrownBy(() -> practiceService.reviewAttempt(USER_ID, submitted.attemptId()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> {
+                            assertThat(exception.apiCode()).isEqualTo(ApiCode.INTERNAL_ERROR);
+                            assertThat(exception.getMessage())
+                                    .isEqualTo(PracticeServiceImpl.MODEL_REVIEW_BUDGET_MESSAGE);
+                        });
+
+        // 零模型调用：预算门在调用前拦下。
+        assertThat(stubChatClient().calls.get()).isZero();
+        // 零落行：无新 MODEL 判分行（只有首判 LOCAL 行）、无 review 用量行。
+        Long gradingRows =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM attempt_gradings WHERE attempt_id = ?",
+                        Long.class,
+                        submitted.attemptId());
+        assertThat(gradingRows).isEqualTo(1L);
+        Long reviewUsageRows =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM llm_usage WHERE scene = 'review'", Long.class);
+        assertThat(reviewUsageRows).isZero();
     }
 
     /** [AC-4] 重试后成功：第一次异常、第二次合法输出 → 复核照常落行（重试路径可用）。 */
@@ -731,6 +816,7 @@ class PracticeModelReviewIntegrationTest {
         jdbcTemplate.update("DELETE FROM review_logs");
         jdbcTemplate.update("DELETE FROM reviews");
         jdbcTemplate.update("DELETE FROM appeals");
+        jdbcTemplate.update("DELETE FROM app_settings WHERE `key` = 'llm.budget'");
         jdbcTemplate.update("DELETE FROM attempt_gradings");
         jdbcTemplate.update("DELETE FROM llm_usage");
         jdbcTemplate.update("DELETE FROM attempts WHERE retry_of_id IS NOT NULL");

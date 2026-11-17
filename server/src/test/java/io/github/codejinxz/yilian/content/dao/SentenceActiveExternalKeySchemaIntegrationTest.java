@@ -217,6 +217,7 @@ class SentenceActiveExternalKeySchemaIntegrationTest {
                                 12,
                                 34,
                                 120L,
+                                null,
                                 true,
                                 Instant.now()));
 

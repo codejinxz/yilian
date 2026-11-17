@@ -76,6 +76,7 @@
 | `40303` | 403 | `PASSWORD_CHANGE_REQUIRED` | 请先修改初始密码 | 首次登录强制改密 |
 | `40304` | 403 | `ASK_NOT_OPEN` | 答疑未开放 | 017：模型凭证已配置但管理员未开启答疑 |
 | `40305` | 403 | `TOTP_REQUIRED` | 需要两步验证 | 密码正确但账号已启用 TOTP：`data` 携 5 分钟有效的 `challengeToken`，凭它走 `POST /api/auth/login/totp` 完成第二步（§4.10） |
+| `40306` | 403 | `MODEL_BUDGET_EXHAUSTED` | 本月模型预算已用尽，请下月再试或联系管理员调整预算 | 033 预算护栏 100% 强制门：本月已用估算成本 ≥ 月度预算时答疑拒新调用（§6.12）；复核/初裁不走本码（各自既有降级语义，§6.13/§6.4） |
 | `40400` | 404 | `NOT_FOUND` | 请求的资源不存在 | 通用路由/资源 |
 | `40401` | 404 | `BANK_NOT_FOUND` | 题库不存在 | 题库 |
 | `40402` | 404 | `SENTENCE_NOT_FOUND` | 题目不存在 | 题目 |
@@ -1182,7 +1183,7 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 
 实现口径：`key` 必须存在于该提交最新判分结果的批注列表（`slot:N` / `free:0`），未命中按 40000；归属校验（只能对自己提交）40300；同 `(attemptId, key, kind)` 重复提交 40900（预检 + `uk_appeal_annotation` 唯一约束兜底）；申诉不改判分、不影响统计。
 
-初裁口径（025）：同步调用（复用答疑/复核护栏：超时 15s、maxTokens 2048、重试 1 次），提示词只含题目中文/语块与参考答案结构/本人该槽提交/本地批注理由/用户主张（`proposedAnswer`+`reason`），不喂其他用户数据；输出 strict JSON `{"verdict":"SUPPORT|OPPOSE|UNCERTAIN","reason"(≤300 字)}`。成功 → `decision`/`decision_reason`/`decided_by='LLM'`/`decided_at`/`model_snapshot`/`prompt_version_id` 落列；失败/超时/非法输出/限流 → `decision` 落 `{"verdict":"UNAVAILABLE"}` + 占位理由（`decided_by` 保持 NULL=无 AI 意见）。任何初裁失败都**不阻塞提交**（响应仍 200、status 仍 PENDING）；初裁限流为独立 scene `appeal-adjudication`（5 次/分钟/账号，程序化判定，429 只跳过初裁不拒申诉）。llm_usage `scene='appeal'` 三终态双写。
+初裁口径（025）：同步调用（复用答疑/复核护栏：超时 15s、maxTokens 2048、重试 1 次），提示词只含题目中文/语块与参考答案结构/本人该槽提交/本地批注理由/用户主张（`proposedAnswer`+`reason`），不喂其他用户数据；输出 strict JSON `{"verdict":"SUPPORT|OPPOSE|UNCERTAIN","reason"(≤300 字)}`。成功 → `decision`/`decision_reason`/`decided_by='LLM'`/`decided_at`/`model_snapshot`/`prompt_version_id` 落列；失败/超时/非法输出/限流 → `decision` 落 `{"verdict":"UNAVAILABLE"}` + 占位理由（`decided_by` 保持 NULL=无 AI 意见）；预算用尽（033 预算强制门）→ 跳过初裁，`decision` 落 `{"verdict":"UNAVAILABLE","reason":"BUDGET"}` + 预算占位理由（零模型调用零记账，申诉仍 200+PENDING 不阻塞，读端凭 `reason=BUDGET` 归因）。任何初裁失败都**不阻塞提交**（响应仍 200、status 仍 PENDING）；初裁限流为独立 scene `appeal-adjudication`（5 次/分钟/账号，程序化判定，429 只跳过初裁不拒申诉）。llm_usage `scene='appeal'` 三终态双写。
 
 响应（025 扩展）：
 
@@ -1412,10 +1413,11 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 { "answer": "先比较两个介词的搭配对象……", "disclaimer": "AI 生成，可能有误" }
 ```
 
+- 预算强制门（033，三态门前置）：已设月度预算（app_settings 键 `llm.budget`）且本月已用估算成本 ≥ 100% 时一律 `40306`「本月模型预算已用尽，请下月再试或联系管理员调整预算」——预算门先于客户端三态与可见性校验，不触达 LLM；未设预算键=护栏不生效（现行为），80% WARN 只留痕不拦截（结构化 WARN 日志 + §8.17 用量视图状态）。
 - 限流：`@RateLimit(scene="tutor-ask", ACCOUNT, 5 次/60 秒)`；`42900` 带 `Retry-After`。
 - 模型调用超时 15s（`YILIAN_LLM_TIMEOUT`）；网络/超时/供应商错误统一降级 `50000`（文案「答疑暂时不可用，请稍后再试」），不外抛堆栈。
 - 可见性复用 016 口径（`accessibleForPractice`）：`40402` 题目不存在/不可练、`40300` 库不可见且无练习史豁免。
-- 用量观测（V11 起双写）：token 数/耗时/成败记结构化日志 **并落 `llm_usage` 表**（DATA-MODEL §5.18，V11 建表；017 的「落库待批」项已批）。内部表不暴露任何端点（§10.1 矩阵注），行 append-only 只记元数据，问题与回答内容不入日志也不入库；落库失败只记告警，不阻塞答疑主链路。
+- 用量观测（V11 起双写）：token 数/耗时/成败记结构化日志 **并落 `llm_usage` 表**（DATA-MODEL §5.18，V11 建表；017 的「落库待批」项已批）。内部表不暴露任何端点（§10.1 矩阵注），行 append-only 只记元数据，问题与回答内容不入日志也不入库；落库失败只记告警，不阻塞答疑主链路。033 起落库补估算成本列 `estimated_cost_micro_cny`（按当次模型定价推算，微元口径；无定价为 NULL=不计入预算，§8.17 消费）。
 - 定级声明：答疑不贴等级、不改 FSRS 排程；会话历史仅存前端组件 state。
 
 字段回溯：派生（LLM 输出）；`disclaimer` 为服务端常量。
@@ -1450,6 +1452,7 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 - 排程与错题不变：复核不写 `review_logs`、不改复习卡；错题池/`wrongCount` 读首判行（`sequence=1`），复核分不参与错题进出池。
 - 限流：`@RateLimit(scene="model-review", ACCOUNT, 5 次/60 秒)`；`42900` 带 `Retry-After`。与答疑（`tutor-ask`）同参数不同 scene，配额互不占用。
 - 降级形态（镜像 §6.12 的 50000 模式）：无可用客户端（目录空且 legacy 未配置/目录未激活/凭证不齐）`40400` 功能不存在；调用异常、空回复或解析失败（重试 1 次后仍败）统一 `50000` 固定文案「模型复核暂时不可用，请稍后再试」——**不落任何新行**，原判分保留，主链路不阻塞。
+- 预算强制门（033）：幂等回读与功能存在性之后、调模型之前判定——本月已用 ≥ 100% 时直接走既有降级语义 `50000`、文案带预算原因（「模型复核暂时不可用：本月模型预算已用尽，请下月再试或联系管理员调整预算」），不调模型不落行；已落复核行的重复请求按幂等回读返回，不受预算影响。80% WARN 不拦截只留痕（§8.17 状态可见）。
 - 用量观测：`llm_usage` 双写 `scene='review'`（成功/空回复/异常三终态各记一行；非空但不可解析的回复 `ok=true`——token 消耗真实发生）；落库失败只记告警不阻塞复核主链路（与 §6.12 同纪律）。
 - 前端：仅登录态且有服务端判分记录（游客/本地引擎提交的 `grading.id` 为 local 占位）时显示复核入口；成功展示新分 + 理由 + 「复核不影响复习计划」注记并刷新 attempt 查询；失败 toast 保留原分。
 
@@ -1979,16 +1982,16 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 
 字段回溯：`fsrs_parameter_versions.*`。
 
-### 8.14 `/api/admin/llm/config`（implemented，017；022 扩展目录维度；028 legacy 形态全字段可编辑）
+### 8.14 `/api/admin/llm/config`（implemented，017；022 扩展目录维度；028 legacy 形态全字段可编辑；033 扩预算护栏字段）
 
-答疑 LLM 配置：服务端 `ROLE_ADMIN`（AGENTS §3.7）。**生效值优先级（028）：目录激活条目（022 语义不变，高于一切 legacy 形态）> tutor 覆盖（`app_settings` 键 `llm.tutor` 的 `baseUrl`/`model` + `llm_provider_keys` 预留 id=`tutor` 密钥，目录空时生效）> legacy 环境变量（`YILIAN_LLM_*`）**。027B 起目录条目密钥解析链为 **DB 密文解密（AES-256-GCM，管理端录入）> `YILIAN_LLM_KEY_<大写ID>` env > legacy**；028 起 tutor 覆盖轨密钥链为 **`llm_provider_keys` 预留 id=`tutor` 行密文解密 > `YILIAN_LLM_API_KEY` env > 空**（复用 027B 加密基建，主密钥只走 env `YILIAN_SECRET_MASTER_KEY`）。覆盖与密钥变更经注册表状态指纹即时换轨（无需重启）。契约演进链：017「baseUrl/model/apiKey 只经环境变量、PUT 非空值 40000 拒绝」→ 027B 密钥可加密入库（AGENTS §3.4 修订）→ **028 废除 40000 env-only 拒绝，legacy 形态（目录空/未激活）端点/模型/密钥全字段可编辑**。
+答疑 LLM 配置：服务端 `ROLE_ADMIN`（AGENTS §3.7）。**生效值优先级（028）：目录激活条目（022 语义不变，高于一切 legacy 形态）> tutor 覆盖（`app_settings` 键 `llm.tutor` 的 `baseUrl`/`model` + `llm_provider_keys` 预留 id=`tutor` 密钥，目录空时生效）> legacy 环境变量（`YILIAN_LLM_*`）**。027B 起目录条目密钥解析链为 **DB 密文解密（AES-256-GCM，管理端录入）> `YILIAN_LLM_KEY_<大写ID>` env > legacy**；028 起 tutor 覆盖轨密钥链为 **`llm_provider_keys` 预留 id=`tutor` 行密文解密 > `YILIAN_LLM_API_KEY` env > 空**（复用 027B 加密基建，主密钥只走 env `YILIAN_SECRET_MASTER_KEY`）。覆盖与密钥变更经注册表状态指纹即时换轨（无需重启）。契约演进链：017「baseUrl/model/apiKey 只经环境变量、PUT 非空值 40000 拒绝」→ 027B 密钥可加密入库（AGENTS §3.4 修订）→ **028 废除 40000 env-only 拒绝，legacy 形态（目录空/未激活）端点/模型/密钥全字段可编辑** → **033 扩预算护栏字段（PRD §17）：`monthlyBudgetCny`/`pricing` 存 `app_settings` 键 `llm.budget`，与覆盖同「状态型字段」语义（非空=落值，空/缺省=清除）**；预算判定与用量观测见 §8.17。
 
 #### 8.14.1 `GET /api/admin/llm/config`
 
 响应：
 
 ```json
-{ "enabled": false, "baseUrl": "http://127.0.0.1:47860/gateway/zcode", "model": "glm-5.3", "hasKey": false, "providerId": "zcode-gateway", "protocol": "anthropic-messages", "credentialsComplete": true, "source": "env", "keyLast4": null }
+{ "enabled": false, "baseUrl": "http://127.0.0.1:47860/gateway/zcode", "model": "glm-5.3", "hasKey": false, "providerId": "zcode-gateway", "protocol": "anthropic-messages", "credentialsComplete": true, "source": "env", "keyLast4": null, "monthlyBudgetCny": null, "pricing": null }
 ```
 
 - `baseUrl`/`model`：**生效值**——目录激活时为激活条目端点/模型（022）；legacy 形态（目录空或未激活）逐字段按「覆盖 > env」投影（覆盖值非空取覆盖，否则取 `YILIAN_LLM_BASE_URL`/`YILIAN_LLM_MODEL`，模型缺省回落 `glm-4.7`）。
@@ -1999,23 +2002,26 @@ FSRS 参数版本管理：SGD 优化产出候选、版本与训练摘要、启�
 - `credentialsComplete`：凭证按协议口径是否齐备（anthropic-messages 轨 key 可空、齐备只看端点）——前端判定答疑可用性用它，不能用 `hasKey` 代替（anthropic 轨无 key 也可用，022）。目录非空但未激活时轨道 fail-closed（022 语义不变），`credentialsComplete=false`。
 - **API Key 不回读**（AGENTS §3.4），只回 `hasKey` 布尔与 `keyLast4` 尾号；响应无 `apiKey` 字段。
 - `enabled` 读 `app_settings`；键不存在/JSON 损坏/版本不识别一律按 `false`（fail-closed）。
+- `monthlyBudgetCny`（033 新增）：月度预算（元），读 `app_settings` 键 `llm.budget` 直投影；`null`=未设预算（护栏不生效，现行为）。与 §8.17 用量视图同源。
+- `pricing`（033 新增）：模型定价表 `{模型名 → {"inputPerMillionCny":数字,"outputPerMillionCny":数字}}`（每百万 token 单价）；`null`=未设定价（成本不计入预算）。键与 `llm_usage.model` 快照精确匹配。
 
 #### 8.14.2 `PUT /api/admin/llm/config`
 
-请求（028）：
+请求（028；033 扩预算护栏字段）：
 
 ```json
-{ "enabled": true, "baseUrl": "http://10.0.0.8:8080/v4", "model": "glm-5.3-flash", "apiKey": "可选", "clearKey": false }
+{ "enabled": true, "baseUrl": "http://10.0.0.8:8080/v4", "model": "glm-5.3-flash", "apiKey": "可选", "clearKey": false, "monthlyBudgetCny": 100, "pricing": { "glm-5.3-flash": { "inputPerMillionCny": 2, "outputPerMillionCny": 8 } } }
 ```
 
 - `enabled` 必填，语义不变：`true` 且无可用客户端（激活 provider 凭证不齐 / 目录未激活且覆盖轨与 legacy 均不可用）→ `40000` 拒绝，**本次全部变更（覆盖/密钥/开关）同事务回滚**；文案按配置形态分口径（目录缺密钥→条目录入/env 索引；覆盖轨缺密钥→卡内录入或 `YILIAN_LLM_API_KEY`；纯 env→两件套文案，anthropic 轨提示「无需 API Key」）。
 - `baseUrl`/`model` 为**状态型字段**（028）：非空白（trim 后）=落 tutor 覆盖（存 `app_settings` 键 `llm.tutor`，即时生效——`baseUrl` 需 `http(s)://` 前缀且无空白、≤500 字符；`model` ≤2048 字符，违规 `40000`）；**空串/缺省=清除该项覆盖**（生效值回退 env）。只传 `enabled` 的调用会同时清除既有覆盖——客户端应总是携带表单当前值。存在任一覆盖（含 model-only）即进覆盖轨：端点缺省回退 `YILIAN_LLM_BASE_URL`，模型覆盖在 env 端点上真实生效。
 - `apiKey` 写-only（028）：非空白（trim 后 ≤2048 字符）=AES-256-GCM 加密 upsert 到 `llm_provider_keys` 预留 id=`tutor`（明文只在加密前内存短暂存在，不入库明文列、不入日志/审计/响应）；空/缺省=不变更；清除密钥用 `clearKey=true`（删该行，无行幂等）。
+- `monthlyBudgetCny`/`pricing` 同为**状态型字段**（033，预算护栏）：`monthlyBudgetCny` 非 null 必须 >0（0/负 `40000`）、`pricing` 非 null 按整体替换（模型名 trim 后非空白且 ≤128 字符——与 `llm_usage.model` 同宽，单价非 null 且 >0，任一违规 `40000`），落 `app_settings` 键 `llm.budget`（`{"schemaVersion":1,"monthlyBudgetCny":数字或null,"pricing":对象或null}`，保存即时生效）；**null/缺省=清除对应项**（未设预算=护栏不生效、未设定价=成本不计入预算）。与 `baseUrl`/`model` 同口径：只传 `enabled` 的调用会同时清除预算与定价——客户端应总是携带表单当前值。
 - 校验失败（形状/长度）先于任何写路径 `40000`；覆盖写（`app_settings`）与密钥写（`llm_provider_keys`）同事务，任何失败一并回滚。
 - 审计：`@OperationLog(module="llm", action="LLM_CONFIG_UPDATE")`；GET 不标（§3.6）。
 - 错误：`40100`、`40300`、`40000`、`40001`。
 
-字段回溯：`app_settings.value`（JSON，键 `llm.tutor`，028 形状 `{"schemaVersion":1,"enabled":bool,"baseUrl":"…或null","model":"…或null"}`）+ provider 目录（键 `llm.providers`/`llm.active`）+ `llm_provider_keys`（027B 条目密钥 + 028 预留 id=`tutor` 行，密文列，DATA-MODEL §5.20）+ 环境变量；`credentialsComplete`/`hasKey` 按解析链实时口径（入库密钥解密失败按「密钥不存在」回退 env，不阻塞装配）。
+字段回溯：`app_settings.value`（JSON，键 `llm.tutor`，028 形状 `{"schemaVersion":1,"enabled":bool,"baseUrl":"…或null","model":"…或null"}`）+ `app_settings.value`（JSON，键 `llm.budget`，033 形状 `{"schemaVersion":1,"monthlyBudgetCny":数字或null,"pricing":{模型名:{inputPerMillionCny,outputPerMillionCny}}或null}`）+ provider 目录（键 `llm.providers`/`llm.active`）+ `llm_provider_keys`（027B 条目密钥 + 028 预留 id=`tutor` 行，密文列，DATA-MODEL §5.20）+ 环境变量；`credentialsComplete`/`hasKey` 按解析链实时口径（入库密钥解密失败按「密钥不存在」回退 env，不阻塞装配）。
 
 前端消费（019，022 升级，027B 更新，028 更新）：ModelsPage「统一模型配置」状态卡读 GET 回显；目录激活态字段只读展示、编辑走 provider 抽屉（§8.15）；legacy 态（目录空/未激活）当前模型/生效端点 inline 可编辑（默认回显生效值），密钥 password 写-only（留空=不变更，永不回填），保存/「重置为环境默认」（清覆盖 + 删 tutor 密钥，确认弹窗）走 PUT，成功先落回执再失效本地缓存；来源徽标按激活态/`source` 三态展示（目录/自定义/环境变量）；「题目答疑」行与 AI 功能清单按 credentialsComplete && enabled 联动展示启用中/未生效（缺凭证）/未开放。legacy 态启停开关与表单当前值一起提交（状态型字段语义下裸传 enabled 会清掉既有覆盖）；目录态开关只传 `{ "enabled": bool }`。
 
@@ -2081,6 +2087,29 @@ provider 目录（022，CC Switch 式多 provider；027B 扩密钥录入）：�
 字段回溯：`appeals.*`；`sentenceZh` → `sentence_versions.zh`（经 `sentences.current_version_id`）；`username` → `users.username`；`decisionVerdict` → `JSON_EXTRACT(appeals.decision,'$.verdict')`。
 
 前端消费（025）：管理端第十页签「申诉」（`?tab=appeals`）：状态筛选 + 行内状态 pill + AI 意见摘要（tooltip 展开全文）/初裁不可用占位/终审理由、题目、槽位、用户提议、理由、相对时间；行操作「通过/驳回」走必填理由弹窗（`ReasonDialog` 预设 + 自定义）；概览待办「N 条答案申诉待裁决」跳转本页签。
+
+### 8.17 `GET /api/admin/llm/usage`（implemented，033）
+
+本月 LLM 用量视图（PRD §17 预算护栏的用量观测面）：服务端 `ROLE_ADMIN`；**读接口不标操作日志**（§3.6）。月度口径 = **UTC 自然月**（AGENTS §3 全 UTC 存储：`created_at >= UTC 月初` 起算，跨月自然重置）。聚合实现：JPA 单表 GROUP BY 构造器表达式（`sumBySceneSince`，留 MyBatis 席位给后续跨表报表——本聚合单表可表达）。判定与 §6.12/§6.13 强制门同内核（`BudgetGuardService` 快照直查不缓存，AGENTS §3.8 L2 预留不接线）。
+
+响应：
+
+```json
+{ "monthUtc": "2026-11", "budgetCny": 100, "spentCny": 82.5, "percent": 83, "status": "WARN", "byScene": { "tutor-ask": { "tokens": 1540, "costMicroCny": 296000, "calls": 12 }, "review": { "tokens": 0, "costMicroCny": 0, "calls": 2 }, "appeal": { "tokens": 0, "costMicroCny": 0, "calls": 0 } } }
+```
+
+- `monthUtc`：判定月份（UTC 自然月，如 `2026-11`）。
+- `budgetCny`：月度预算（元，§8.14 `monthlyBudgetCny` 同源）；`null`=未设预算（护栏不生效）。
+- `spentCny`：本月已用**估算成本**（元，微元精度如实保留；只聚合 `estimated_cost_micro_cny` 非空的行——未定价模型调用不计入金额，PRD §17 的 cost 以估算值承接，非厂商账单）。
+- `percent`：已用百分比（四舍五入到整数，可超 100）；未设预算为 `null`。
+- `status` 三态 + 未设态：`UNSET`=未设预算（护栏不生效，现行为）；`OK`=<80%；`WARN`=≥80%（**不拦截只留痕**：结构化 WARN 日志 + 本视图状态可见——无邮件/推送渠道，PRD「提醒管理员」的如实落地口径）；`EXCEEDED`=≥100%（强制门生效：答疑 `40306`、复核/初裁走各自降级，§6.12/§6.13/§6.4）。
+- `byScene`：分场景小计 `{tokens, costMicroCny, calls}`——已知三场景（`tutor-ask`/`review`/`appeal`）固定零值兜底，其他场景按实追加；`tokens` 为提示+回复合计，`calls` 成功与失败都计（调用即发生）。
+
+错误：`40100`、`40300`（非管理员）。
+
+字段回溯：`llm_usage.estimated_cost_micro_cny`（V16，DATA-MODEL §5.18）/`prompt_tokens`/`completion_tokens`/`created_at`；`budgetCny` → `app_settings` 键 `llm.budget`。
+
+前端消费（033）：ModelsPage 下半区「本月用量」卡片（已用/预算/百分比指标 + 三态状态徽标 + 分场景小计；EXCEEDED 时展示降级说明「答疑拒新调用（40306），复核/申诉初裁走降级路径」），预算与定价编辑表单走 §8.14.2 PUT（状态型字段语义：预算空串=清除、定价行可增删整体替换）；用量视图独立查询，失败只降级为区块内提示不拖垮整页；预算/定价保存连带失效配置与用量两个查询。
 
 ## 9. 字段回溯对照
 
@@ -2221,7 +2250,7 @@ provider 目录（022，CC Switch 式多 provider；027B 扩密钥录入）：�
 | Practice | `POST /api/practice/attempts/{attemptId}/review`（024，§6.13；029 并发串行化） | 模型复核：追加 grader=MODEL 判分行（sequence=首判+1，append-only），回看/统计取最新 sequence 而排程与错题维持首判口径（wrongCount/countWrong 限定 sequence=1）；可见性复用 §6.3 口径（40403/40300，REVEAL 无判分 40000）；幂等=已有 MODEL 行回读不再调模型（有意非 409），029 起并发复核在 READ_COMMITTED 事务内锁 attempts 父行串行化——后到者幂等回读、模型只调一次、MODEL 行恰一条，uk_grading_attempt_sequence 保留为兜底（命中即数据异常按 50000 降级回滚）；strict JSON 输出解析失败重试 1 次仍败降级 50000 不落行（镜像答疑模式），无可用客户端 40400；score 钳制 0–100、reason ≤200 字码点截断；限流 model-review 5 次/分钟（账号）；llm_usage scene='review' 三终态双写（029 起旁路记账走 REQUIRES_NEW 独立事务，不随复核主事务回滚丢失）；prompt_version_id 落 PromptRegistry 的 review 版本 id（025 V13 注册表，缺行时 NULL 降级） | `PracticeControllerTest`（切片：匿名 401、委托与信封形状、限流注解契约 5 次/60 秒/账号）；`PracticeModelReviewIntegrationTest`（真实 MySQL + 桩注册表/桩客户端：[AC-1] 落行 sequence+1/grader=MODEL/快照/耗时/口径版本沿用与 result 批注结构、[AC-2] 幂等读 LLM 调用数=1、[AC-3] 匿名 401/他人与不存在/REVEAL 拒绝且零模型调用、[AC-4] 异常与非法输出降级不落行+重试后成功+101 钳制 100、[AC-5] llm_usage 三终态、[AC-6] 限流脚本化 429+Retry-After 且被拒请求零业务副作用（真实 ZSET 窗口语义由 RateLimitServiceTest/RateLimitAspectTest 覆盖，CI 无 Redis 不可复现）、[AC-7] 回看/今日全对率取复核分而卡与 review_logs/错题池 lastScore 维持首判）；`PracticeModelReviewConcurrencyIntegrationTest`（029 [AC-2]：同 attempt 双线程并发复核 MODEL 行恰 1/双方 200 其一幂等回读/LLM 调用数=1/首判行不动，串行重复复核幂等回归）；`ModelReviewPromptBuilderTest`（prompt 五段上下文、系统提示 strict JSON 契约、定界剥离防伪造、解析/钳制/码点截断）；前端 `PracticePage.test.tsx`（[AC-8] 入口门禁匿名与本地占位隐藏、成功新分+理由+复核不影响复习计划注记+attempt 刷新、失败 toast 保留原分、无演示占位残留） |
 | Practice | `POST /api/practice/attempts/{attemptId}/annotations/{key}/appeal`（025 扩展，§6.4） | 申诉同步 LLM 初裁：落库（status 保持 PENDING）后同步调模型，成功落 decision/decision_reason/decided_by=LLM/decided_at/model_snapshot/prompt_version_id（V8 裁决列启用）；失败/超时/非法输出（重试 1 次）与限流（独立 scene `appeal-adjudication` 5 次/分钟账号、程序化判定）落 `{"verdict":"UNAVAILABLE"}` 占位且回执 verdict=`"UNAVAILABLE"`（029 对齐：以存储 decision JSON 为真相，「初裁不可用」回执态真实可达），**不阻塞提交**（响应 200、status PENDING）；llm_usage scene='appeal' 三终态双写；提示词只含被申诉批注上下文与本人主张（系统提示走 PromptRegistry ask/review/appeal 三链路注册表，V13）；`dispute`（§6.5）语义不变 | `PracticeControllerTest`（切片：appeal/dispute 200 信封与缺体、40000/40300/40403/40900 映射）；`PracticeAppealAdjudicationIntegrationTest`（真实 MySQL + 桩注册表/桩限流：[AC-2] 初裁成功落裁决六列且 status=PENDING/失败与非法输出占位 decided_by=NULL/限流跳过且申诉不拒/重试恢复/DISPUTE 零模型调用、[AC-5] ACCEPTED 进 overlay 后 proposed_answer 判对而 PENDING/REJECTED 不影响、DISPUTE 不进 overlay、[AC-6] 初裁行与 MODEL 复核行 prompt_version_id 落注册表 id）；prompt 契约另由 `AppealAdjudicationPromptBuilderTest`（五段上下文不含整句参考译文/strict JSON/verdict 枚举/300 字截断/围栏容错）、V13 形状由 `V13PromptVersionsSchemaIntegrationTest` 锁定；前端 `PracticePage-appeal-opinion.test.tsx`（[AC-7] 批注行 AI 意见/初裁不可用/终审通过/驳回/无意见原文案/DISPUTE 已排除回归；029 起回执夹具与 `PracticeAppealAdjudicationIntegrationTest` 的真实回执断言同形） |
 | Admin | `GET /api/admin/appeals`、`POST /api/admin/appeals/{id}/decision`（025，§8.16） | 申诉分页检索（status/kind 精确过滤、011 分页口径 size 上限 100、非法筛选 40000、行内含 AI 意见/题目摘要/用户主张；复杂查询走 MyBatis 只读 JOIN）与人工终审（仅 PENDING 可裁决否则 40900、status/decision_reason/decided_by=ADMIN/decided_at 定向 UPDATE、decision JSON 保留初裁意见；ACCEPTED 进判分 overlay 不改题目、REJECTED 不回写；审计 `@OperationLog(action=APPEAL_DECIDE)` + OperationLogContext 落对象与理由） | `AdminAppealControllerTest`（切片：匿名 401/非管理员 403、筛选透传与非法筛选 40000、PageResponse+AdminAppealView 形状、终审 200/绑定校验 400/40900 透传、审计注解口径 [AC-3]）；终审落库与 overlay 消费另由 `PracticeAppealAdjudicationIntegrationTest`（真实 MySQL）覆盖 |
-| Admin | `GET/PUT /api/admin/llm/config`（017）、`GET/POST /api/admin/llm/providers`、`PUT/DELETE /api/admin/llm/providers/{id}`、`PUT /api/admin/llm/providers/{id}/activate`（022） | 答疑 LLM 配置（§8.14）与 provider 目录（§8.15）：enabled 与 tutor 覆盖存 `app_settings` 键 `llm.tutor`（fail-closed 解析；028 扩 baseUrl/model 覆盖）；目录存键 `llm.providers`/`llm.active`（激活唯一、激活中不可删、id `[a-z0-9-]+` 唯一、协议白名单 fail-closed）；027B：目录 POST/PUT 收写-only 可选 apiKey（非空白=加密 upsert，空/缺省=不变更），GET 回 hasKey（DB 或 env 任一）/keyLast4（仅 DB 态）/active 不回读明文（响应无 apiKey 字段），DELETE 同事务删密钥行，元数据与密钥行同事务；028：PUT config 收 baseUrl/model 覆盖（非空白=落覆盖、空/缺省=清除，形状/长度校验 40000）与写-only apiKey（加密 upsert 到 `llm_provider_keys` 预留 id=`tutor`）及 clearKey（删行），GET 回 source（custom\|env）/keyLast4（tutor 行），原 40000 env-only 拒绝废除；enabled=true 无可用客户端 40000 且同事务回滚（文案按目录/覆盖轨/legacy 分口径）；审计 LLM_CONFIG_UPDATE（GET 不标，切面不读请求体） | `AdminLlmConfigControllerTest`（切片：匿名 401/非管理员 403、GET 投影形状 source/keyLast4 无 apiKey 回显、PUT 全字段透传/clearKey、校验拒绝信封、审计注解口径）、`AdminLlmProviderControllerTest`（切片：401/403、GET 形状含 keyLast4、POST/PUT/DELETE/activate 透传与 id 校验 40000、40400 信封、审计注解口径、apiKey 透传与响应无明文）；service 分支另由 `TutorServiceImplTest`（覆盖落库/清除/tutor 密钥 upsert/clearKey/校验零写入/定向文案）、`LlmProviderAdminServiceImplTest`（CRUD 规则/激活幂等/写-only apiKey/删除联动密钥行）、`LlmClientRegistryTest`（覆盖轨>env 轨/即时换轨/三态门）与集成 `TutorConfigRailIntegrationTest`、`LlmProviderKeyResolutionIntegrationTest`（真实 MySQL：三级优先序/覆盖即时换轨/tutor 密钥加密入库与 last4/开启被拒回滚）覆盖 |
+| Admin | `GET/PUT /api/admin/llm/config`（017）、`GET /api/admin/llm/usage`（033）、`GET/POST /api/admin/llm/providers`、`PUT/DELETE /api/admin/llm/providers/{id}`、`PUT /api/admin/llm/providers/{id}/activate`（022） | 答疑 LLM 配置（§8.14）、本月用量视图（§8.17，033）与 provider 目录（§8.15）：enabled 与 tutor 覆盖存 `app_settings` 键 `llm.tutor`（fail-closed 解析；028 扩 baseUrl/model 覆盖）；预算护栏字段 `monthlyBudgetCny`/`pricing` 存键 `llm.budget`（033，状态型字段：非空=落值、空/缺省=清除，预算>0、模型名 ≤128、单价>0 违规 40000）；目录存键 `llm.providers`/`llm.active`（激活唯一、激活中不可删、id `[a-z0-9-]+` 唯一、协议白名单 fail-closed）；027B：目录 POST/PUT 收写-only 可选 apiKey（非空白=加密 upsert，空/缺省=不变更），GET 回 hasKey（DB 或 env 任一）/keyLast4（仅 DB 态）/active 不回读明文（响应无 apiKey 字段），DELETE 同事务删密钥行，元数据与密钥行同事务；028：PUT config 收 baseUrl/model 覆盖（非空白=落覆盖、空/缺省=清除，形状/长度校验 40000）与写-only apiKey（加密 upsert 到 `llm_provider_keys` 预留 id=`tutor`）及 clearKey（删行），GET 回 source（custom\|env）/keyLast4（tutor 行），原 40000 env-only 拒绝废除；enabled=true 无可用客户端 40000 且同事务回滚（文案按目录/覆盖轨/legacy 分口径）；033 usage 视图按 UTC 自然月聚合 `llm_usage`（金额只聚合估算成本非空行，status 三态 UNSET/OK/WARN/EXCEEDED 与强制门同内核，读接口不标审计）；审计 LLM_CONFIG_UPDATE（GET/usage 不标，切面不读请求体） | `AdminLlmConfigControllerTest`（切片：匿名 401/非管理员 403、GET 投影形状 source/keyLast4/预算定价字段无 apiKey 回显、PUT 全字段透传/clearKey/预算与定价透传 [AC-2]、校验拒绝信封、审计注解口径、usage 匿名 401/非管理员 403/投影形状 [AC-6]）、`AdminLlmProviderControllerTest`（切片：401/403、GET 形状含 keyLast4、POST/PUT/DELETE/activate 透传与 id 校验 40000、40400 信封、审计注解口径、apiKey 透传与响应无明文）；service 分支另由 `TutorServiceImplTest`（覆盖落库/清除/tutor 密钥 upsert/clearKey/校验零写入/定向文案；033：预算写入回显/清除/非法 40000 [AC-2]、40306 预算门 [AC-5]、成本落列与无定价 NULL [AC-3]、用量视图 UNSET 与状态回显 [AC-6]）、`BudgetGuardServiceTest`（80/100 边界三态/跨月重置/未设预算直通 [AC-4]）、`LlmCostCalculatorTest`（输入输出分开计价/ROUND_HALF_UP/无定价 null）、`LlmBudgetSettingsTest`（fail-closed 解析/条目校验）、`LlmProviderAdminServiceImplTest`（CRUD 规则/激活幂等/写-only apiKey/删除联动密钥行）、`LlmClientRegistryTest`（覆盖轨>env 轨/即时换轨/三态门）与集成 `TutorConfigRailIntegrationTest`、`LlmProviderKeyResolutionIntegrationTest`（真实 MySQL：三级优先序/覆盖即时换轨/tutor 密钥加密入库与 last4/开启被拒回滚；033：预算门 40306 与直通 [AC-5]、用量视图空表 UNSET/跨场景聚合 WARN/跨月排除 [AC-6]）覆盖 |
 | Practice/llm | （022 支撑 §6.12 的三协议客户端与 provider 目录装配，无独立端点） | `LlmChatClient` 三协议统一接口：`OpenAiChatLlmClient`（Spring AI OpenAI 轨收编）、`AnthropicMessagesLlmClient`（021 网关轨；022 改官方 SDK 直调+手写 content 提取）、`OpenAiResponsesLlmClient`（新，手写 java.net.http）；`LlmClientRegistry` 按激活 provider 装配+目录指纹缓存+legacy 回退。V11：`llm_usage` 用量账本（DATA-MODEL §5.18）落库为内部表，无端点、不进矩阵行 | `AnthropicMessagesLlmClientTest`（JDK 桩：/v1/messages 请求形状与头、**thinking 块只拼 text 块**/max_tokens 吃尽空正文、usage 映射、429（网关非标准错误体）与 5xx 退避重试一次、4xx 不重试）；`OpenAiResponsesLlmClientTest`（JDK 桩：/v1/responses 请求形状与 Bearer 头、output 取 message/output_text、reasoning 跳过、非 2xx 不重试）；`OpenAiChatLlmClientTest`（离线装配）；`LlmClientRegistryTest`（协议装配选择、目录指纹缓存失效、legacy 回退、凭证口径按协议分、三态门）；`LlmProviderCatalogTest`（app_settings 解析 fail-closed、写入形状、env 索引连字符→下划线）；`LlmPropertiesTest`（env 绑定+legacy 映射）；V11 落库形状/失败旁路由 `TutorServiceImplTest`（[AC-V11-1]/[AC-V11-2]）与 `SentenceActiveExternalKeySchemaIntegrationTest`（真实 MySQL 全字段读回）覆盖——矩阵注：内部表无端点，无接口级测试行 |
 | Upload | `POST /api/admin/uploads/preview`、`POST /api/admin/uploads/{batchId}/commit`、`GET /api/admin/uploads/{batchId}`、`GET /api/admin/uploads`、`POST /api/admin/uploads/{batchId}/rollback` | 导入 preview→commit→rollback（波次二）；§5.4–§5.8 | `ImportBatchControllerTest`（切片：匿名 401/非管理员 403、multipart 绑定与缺参 40000、缺请求体 40001、40405/40904、PageResponse 信封）；`ImportBatchServiceIntegrationTest`（真实 MySQL：五端点语义、commit 原子性（回写失败整体回滚可恢复）、COMMITTING 残留对账收敛、重复 commit 幂等、回滚 tombstone） |
 | Admin | `GET /api/admin/overview`、`GET /api/admin/users`、`PATCH /api/admin/users/{id}/status`、`PATCH /api/admin/users/{id}/role`、`POST /api/admin/invites`、`GET /api/admin/invites`（011-a）、`POST /api/admin/users/{id}/reset-password`、`DELETE /api/admin/users/{id}`（018）、`POST /api/admin/users/{id}/reset-2fa`（032） | 概览聚合（活跃=attempts 当日去重用户，UTC 日界）、用户检索分页、启停/改角色（审计经 `OperationLogContext`）、邀请码生成（明文一次性）/前缀列表、重置密码（一次性临时口令+40303 强制改密+吊销全部会话，§8.2b）、删除账号（软删+吊销会话+40400 幂等口径，§8.2c）、重置两步验证（清 TOTP 注册+恢复码+吊销全部会话，原因必填审计 RESET_2FA，允许自愈式自重置——唯一管理员丢码解救，未注册幂等 200、已删 40400，§8.2d；users 列表行新增 totpEnabled 只读投影） | `AdminOverviewControllerTest`、`AdminUserControllerTest`、`AdminInviteControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse 形状、reason 越界 40000、40001、审计上下文断言；018 补 reset-password/delete 绑定校验与 403/401 矩阵；032 补 reset-2fa 原因透传与审计上下文/缺原因 40000/403/40400 与列表行 totpEnabled 投影）；service 分支另由 `UserAccountServiceImplTest`（自己停自己/自己降自己/邀请码哈希落库；018 补重置成功与自重置/已删/原因必填、删除成功与自删/已删/最后管理员；032 补 reset-2fa 清列+删恢复码+吊销会话/未注册幂等/缺失与已删与空白原因）、`AdminOverviewServiceImplTest`（补 0 与活动组装）覆盖 |
@@ -2287,6 +2316,7 @@ provider 目录（022，CC Switch 式多 provider；027B 扩密钥录入）：�
 | 2026-11-17 | v1.8 | 029 双 skill 第一轮消缺：§6.13 复核并发语义修订（READ_COMMITTED 事务内锁 attempts 父行串行化，后到者幂等回读、模型只调一次、MODEL 行恰一条，uk_grading_attempt_sequence 降为兜底——命中即数据异常按 50000 降级回滚；llm_usage 旁路记账改 REQUIRES_NEW 独立事务不随主事务回滚丢失）；§6.4/§8.16 申诉语义收口（终审 UPDATE WHERE 携带 status='PENDING' 条件——并发双管理员裁决恰一人成功，后到者 40900「该申诉已被终审」；占位回执 verdict="UNAVAILABLE" 如实发送，与存储 decision JSON 同源，「初裁不可用」回执态真实可达）；§10.1 矩阵两行同步 | 实现工程师 |
 | 2026-11-18 | v1.9 | 030 过时声明修正：§10.4 删「§6.1 D7 四参数未开发」条目（已随 014 落地，§10.1 Practice 行在案）、删「FSRS 排程真值/申诉 LLM 裁决」（分别已随 014/025 落地，§8.13/§6.4/§8.16 在案，深度批改 M3 保留）；§10.5 错误码行改写为已落地口径（40302/40303、40404–40405、40901–40905、41300、42200 已全量定义于 `ApiCode.java`，40303/40404/40405/40904 有端点与测试在用）；登录「用户名或邮箱」条目按代码实态改写（语义已随基线经 `findByUsernameOrEmail` 单查询实现，余项收窄为补邮箱登录接口级测试）；§10 头部日期 2026-10-31→2026-11-18 | 实现工程师 |
 | 2026-11-18 | v2.0 | 032 管理员 2FA（TOTP 自研 RFC 6238，零新依赖）：新增 §4.10（`POST /api/auth/login/totp` 公开+CSRF、`GET /api/auth/2fa/status`、`POST /api/auth/2fa/setup|activate|disable` 登录态）与 §8.2d `POST /api/admin/users/{id}/reset-2fa`；§4.2 登录密码步 40305（data 携 5 分钟 purpose 限定 challengeToken，challenge 与 access token 分 purpose 互不冒用）；§1.3 增 40305 TOTP_REQUIRED；恢复码 10×8 位 BCrypt 落 user_2fa_recovery_codes（使用落 used_at 不删行，DATA-MODEL §5.21/V15）；限流 login-totp 10/min(IP+challengeToken)、setup/activate/disable 5/min(账号)；审计 TOTP_SETUP/ACTIVATE/DISABLE 与 RESET_2FA；§2/§3/§10.1 矩阵同步 | 实现工程师 |
+| 2026-11-18 | v2.1 | 033 预算护栏（PRD §17，V16）：§6.12 答疑前置预算强制门（已设 `llm.budget` 月度预算且本月已用估算成本 ≥100% 时 `40306` 固定文案拒新调用，预算门先于三态门；80% WARN 只留痕：WARN 日志+§8.17 状态可见——无推送渠道的如实口径）；§6.13 复核预算门走既有 50000 降级且文案带预算原因（零模型调用零落行）；§6.4 初裁预算门落 `{"verdict":"UNAVAILABLE","reason":"BUDGET"}` 占位不阻塞提交；V16 建 `llm_usage.estimated_cost_micro_cny`（微元整数口径 ROUND_HALF_UP，无定价 NULL=不计入预算，三记账点补成本）；§8.14.1/8.14.2 扩 `monthlyBudgetCny`/`pricing`（键 `llm.budget`，状态型字段）；新增 §8.17 `GET /api/admin/llm/usage`（UTC 自然月用量视图：monthUtc/budgetCny/spentCny/percent/status/byScene，JPA 单表聚合）；§1.3 增 40306 MODEL_BUDGET_EXHAUSTED；§10.1 Admin 行同步 | 实现工程师 |
 
 ---
 

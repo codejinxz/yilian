@@ -26,6 +26,7 @@ import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
 import io.github.codejinxz.yilian.practice.service.TutorService;
 import io.github.codejinxz.yilian.practice.service.dto.LlmConfigUpdateRequest;
 import io.github.codejinxz.yilian.practice.service.vo.LlmConfigView;
+import io.github.codejinxz.yilian.practice.service.vo.LlmUsageView;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -283,5 +284,172 @@ class AdminLlmConfigControllerTest {
                         .getDeclaredMethod("getConfig", YilianUserPrincipal.class)
                         .getAnnotation(OperationLog.class);
         assertThat(get).isNull();
+    }
+
+    /** [AC-6] 匿名访问 usage：401 信封（code=40100），不触达 Service。 */
+    @Test
+    void usageEndpointRejectsAnonymousWith401_ac6() throws Exception {
+        mockMvc.perform(get("/api/admin/llm/usage"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(ApiCode.AUTH_REQUIRED.code()));
+        verifyNoInteractions(tutorService);
+    }
+
+    /** [AC-6] 非 ADMIN 登录用户访问 usage：403 信封（code=40300），权限在服务端。 */
+    @Test
+    void usageEndpointRejectsNonAdminWith403_ac6() throws Exception {
+        mockMvc.perform(
+                        get("/api/admin/llm/usage")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        USER, null, "ROLE_USER"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(ApiCode.ACCESS_DENIED.code()));
+        verifyNoInteractions(tutorService);
+    }
+
+    /**
+     * [AC-6] GET /usage：200 信封 data 为 {monthUtc, budgetCny, spentCny, percent, status,
+     * byScene.{tokens,costMicroCny,calls}}；读接口不标 @OperationLog（切面口径由注解测试承担）。
+     */
+    @Test
+    void getUsageReturnsProjection_ac6() throws Exception {
+        when(tutorService.getAdminUsage())
+                .thenReturn(
+                        new LlmUsageView(
+                                "2026-11",
+                                new java.math.BigDecimal("100"),
+                                new java.math.BigDecimal("82.500000"),
+                                83,
+                                LlmUsageView.STATUS_WARN,
+                                java.util.Map.of(
+                                        "tutor-ask",
+                                        new LlmUsageView.SceneUsage(154, 296, 1),
+                                        "review",
+                                        new LlmUsageView.SceneUsage(0, 0, 2),
+                                        "appeal",
+                                        new LlmUsageView.SceneUsage(0, 0, 0))));
+
+        mockMvc.perform(
+                        get("/api/admin/llm/usage")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.monthUtc").value("2026-11"))
+                .andExpect(jsonPath("$.data.budgetCny").value(100))
+                .andExpect(jsonPath("$.data.spentCny").value(82.5))
+                .andExpect(jsonPath("$.data.percent").value(83))
+                .andExpect(jsonPath("$.data.status").value("WARN"))
+                .andExpect(jsonPath("$.data.byScene['tutor-ask'].tokens").value(154))
+                .andExpect(jsonPath("$.data.byScene['tutor-ask'].costMicroCny").value(296))
+                .andExpect(jsonPath("$.data.byScene.review.calls").value(2))
+                .andExpect(jsonPath("$.data.byScene.appeal.calls").value(0));
+    }
+
+    /** [AC-2] PUT：月度预算与定价字段透传 Service（7 参整形状）；非法值由 Service 校验返回 40000 信封。 */
+    @Test
+    void putConfigPassesBudgetAndPricing_ac2() throws Exception {
+        when(tutorService.updateAdminConfig(
+                        new LlmConfigUpdateRequest(
+                                false,
+                                null,
+                                null,
+                                null,
+                                null,
+                                new java.math.BigDecimal("80.5"),
+                                java.util.Map.of(
+                                        "glm-4.7",
+                                        new io.github.codejinxz.yilian.practice.llm.LlmModelPricing(
+                                                new java.math.BigDecimal("2"),
+                                                new java.math.BigDecimal("8")))),
+                        1L))
+                .thenReturn(
+                        new LlmConfigView(false, "", "", false, null, null, false, "env", null));
+
+        mockMvc.perform(
+                        put("/api/admin/llm/config")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"enabled\":false,\"monthlyBudgetCny\":80.5,"
+                                                + "\"pricing\":{\"glm-4.7\":{"
+                                                + "\"inputPerMillionCny\":2,\"outputPerMillionCny\":8}}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
+        verify(tutorService)
+                .updateAdminConfig(
+                        new LlmConfigUpdateRequest(
+                                false,
+                                null,
+                                null,
+                                null,
+                                null,
+                                new java.math.BigDecimal("80.5"),
+                                java.util.Map.of(
+                                        "glm-4.7",
+                                        new io.github.codejinxz.yilian.practice.llm.LlmModelPricing(
+                                                new java.math.BigDecimal("2"),
+                                                new java.math.BigDecimal("8")))),
+                        1L);
+
+        // Service 校验拒绝（0/负预算）以 40000 信封返回。
+        when(tutorService.updateAdminConfig(any(), eq(1L)))
+                .thenThrow(
+                        new BusinessException(
+                                ApiCode.VALIDATION_FAILED, "monthlyBudgetCny 必须为正数（0/负数不合法）"));
+        mockMvc.perform(
+                        put("/api/admin/llm/config")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN")))
+                                .with(csrf())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"enabled\":false,\"monthlyBudgetCny\":0}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ApiCode.VALIDATION_FAILED.code()))
+                .andExpect(jsonPath("$.message").value("monthlyBudgetCny 必须为正数（0/负数不合法）"));
+    }
+
+    /** [AC-2] GET config 回显预算护栏字段（monthlyBudgetCny/pricing，未设为 null）。 */
+    @Test
+    void getConfigEchoesBudgetFields_ac2() throws Exception {
+        when(tutorService.getAdminConfig())
+                .thenReturn(
+                        new LlmConfigView(
+                                true,
+                                "http://10.0.0.8:8080/v4",
+                                "glm-5.3-flash",
+                                true,
+                                "legacy",
+                                "openai-chat",
+                                true,
+                                "custom",
+                                null,
+                                new java.math.BigDecimal("80.5"),
+                                java.util.Map.of(
+                                        "glm-4.7",
+                                        new io.github.codejinxz.yilian.practice.llm.LlmModelPricing(
+                                                new java.math.BigDecimal("2"),
+                                                new java.math.BigDecimal("8")))));
+
+        mockMvc.perform(
+                        get("/api/admin/llm/config")
+                                .with(
+                                        authentication(
+                                                new TestingAuthenticationToken(
+                                                        ADMIN, null, "ROLE_ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.monthlyBudgetCny").value(80.5))
+                .andExpect(jsonPath("$.data.pricing['glm-4.7'].inputPerMillionCny").value(2))
+                .andExpect(jsonPath("$.data.pricing['glm-4.7'].outputPerMillionCny").value(8));
     }
 }

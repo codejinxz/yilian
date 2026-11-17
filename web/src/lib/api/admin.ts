@@ -672,12 +672,21 @@ export const llmConfigSchema = z.object({
   source: z.enum(["custom", "env"]),
   /** tutor 密钥行尾 4 位辨识号（028 新增）；env 态密钥/目录激活态为 null（明文永不回读）。 */
   keyLast4: z.string().nullable(),
+  /** 月度预算（元，预算护栏）；null=未设预算（护栏不生效）。 */
+  monthlyBudgetCny: z.number().nullable(),
+  /** 模型定价表（每百万 token 输入/输出单价）；null=未设定价（成本不计入预算）。 */
+  pricing: z
+    .record(
+      z.string(),
+      z.object({ inputPerMillionCny: z.number(), outputPerMillionCny: z.number() }),
+    )
+    .nullable(),
 });
 
 /** 管理端 LLM 配置视图类型。 */
 export type LlmConfig = z.infer<typeof llmConfigSchema>;
 
-/** 更新答疑 LLM 配置的请求形状（API §8.14.2，028）：baseUrl/model 为状态型字段，apiKey 写-only。 */
+/** 更新答疑 LLM 配置的请求形状（API §8.14.2，028）：baseUrl/model 为状态型字段，apiKey 写-only；033 扩预算与定价（同为状态型字段）。 */
 export interface LlmConfigUpdateInput {
   /** 答疑开关；true 且无可用客户端时服务端 40000 拒绝并回滚本次全部变更。 */
   enabled: boolean;
@@ -689,6 +698,10 @@ export interface LlmConfigUpdateInput {
   apiKey?: string;
   /** 清除 tutor 密钥行（重置为环境默认时置 true）。 */
   clearKey?: boolean;
+  /** 月度预算（元，>0）；undefined/缺省=清除预算（状态型字段语义，调用方应总是携带当前值）。 */
+  monthlyBudgetCny?: number | null;
+  /** 模型定价表；undefined/缺省=清除定价（状态型字段语义）。 */
+  pricing?: Record<string, { inputPerMillionCny: number; outputPerMillionCny: number }>;
 }
 
 /**
@@ -723,8 +736,50 @@ export async function updateLlmConfig(input: LlmConfigUpdateInput): Promise<LlmC
   if (input.clearKey) {
     body.clearKey = true;
   }
+  // 预算护栏字段（状态型语义）：字段出现即表达完整意图（数字=落预算/整体替换定价，缺省=清除）。
+  if (input.monthlyBudgetCny !== undefined) {
+    body.monthlyBudgetCny = input.monthlyBudgetCny;
+  }
+  if (input.pricing !== undefined) {
+    body.pricing = input.pricing;
+  }
   const data = await jsonRequest<unknown>("/admin/llm/config", "PUT", body);
   return parseData(llmConfigSchema, data);
+}
+
+// ---------------------------------------------------------------------------
+// 本月用量视图（033 预算护栏，API §8.16）：UTC 自然月口径的已用/预算/百分比/三态
+// 与分场景小计。只读端点，管理端 ModelsPage 用量卡片的数据源。
+// ---------------------------------------------------------------------------
+
+/** 管理端本月用量视图（API §8.16）：status 三态 UNSET=未设预算（护栏不生效）。 */
+export const llmUsageSchema = z.object({
+  monthUtc: z.string(),
+  /** 月度预算（元）；null=未设预算。 */
+  budgetCny: z.number().nullable(),
+  /** 本月已用估算成本（元，微元精度如实保留）。 */
+  spentCny: z.number(),
+  /** 已用百分比（可超 100）；未设预算为 null。 */
+  percent: z.number().int().nullable(),
+  /** 三态：UNSET=未设预算 | OK | WARN(≥80%) | EXCEEDED(≥100% 强制门生效)。 */
+  status: z.enum(["UNSET", "OK", "WARN", "EXCEEDED"]),
+  byScene: z.record(
+    z.string(),
+    z.object({ tokens: z.number(), costMicroCny: z.number(), calls: z.number() }),
+  ),
+});
+
+/** 管理端本月用量视图类型。 */
+export type LlmUsage = z.infer<typeof llmUsageSchema>;
+
+/**
+ * 读取本月 LLM 用量（管理端只读端点）。
+ * @param signal 取消信号
+ * @returns UTC 自然月已用/预算/百分比/三态与分场景小计
+ */
+export async function getLlmUsage(signal?: AbortSignal): Promise<LlmUsage> {
+  const data = await apiRequest<unknown>("/admin/llm/usage", { signal });
+  return parseData(llmUsageSchema, data);
 }
 
 // ---------------------------------------------------------------------------

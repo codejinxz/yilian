@@ -22,6 +22,12 @@ const UNAVAILABLE_MESSAGES: Record<number, string> = {
 };
 
 /**
+ * 预算强制门（40306）的定向文案：预算用尽是月度状态（下月或调预算后自动恢复），
+ * 与「未开放/未配置」不同——面板不收起、入口保留，用户重试即可随恢复自动可用。
+ */
+const BUDGET_EXHAUSTED_MESSAGE = "本月模型预算已用尽：请下月再试，或联系管理员调整预算";
+
+/**
  * 收起前的停留时长：让用户来得及读到原因、看到自己的问题还在，
  * 再触发 {@link AskPanelProps.onUnavailable} 收起；约 1.5s 够扫一眼又不至于像卡死。
  */
@@ -108,6 +114,12 @@ export function AskPanel({
       ]);
     },
     onError: (error: unknown) => {
+      if (error instanceof ApiError && error.code === 40306) {
+        // 预算强制门：展示定向文案、问句与输入原样保留，面板不收起（入口保留——
+        // 预算是月度状态，恢复后无需重新发现入口）。
+        setErrorText(BUDGET_EXHAUSTED_MESSAGE);
+        return;
+      }
       if (error instanceof ApiError && (error.code === 40304 || error.code === 40400)) {
         // 未开放/未配置：先讲清原因、问句与输入原样保留（submit 失败不清
         // input，问句气泡已在 messages 里），停留约 1.5s 再通知父级收起——此前直接

@@ -360,4 +360,29 @@ describe("PracticePage 模型复核（API §6.13）", () => {
     expect(screen.queryByText(/复核不影响复习计划/)).toBeNull();
     expect(screen.queryByText(/演示占位/)).toBeNull();
   });
+
+  /** [AC-5] 预算用尽：复核走 50000 降级（文案带预算原因），toast 如实透出，原判分保留。 */
+  it("toastsBudgetDegradeMessageWhenBudgetExhausted_ac5", async () => {
+    useSessionStore.setState({ status: "authenticated" });
+    await renderAttemptView(SERVER_ATTEMPT);
+    practiceApi.reviewAttempt.mockRejectedValue(
+      new ApiError(
+        500,
+        50000,
+        "模型复核暂时不可用：本月模型预算已用尽，请下月再试或联系管理员调整预算",
+      ),
+    );
+
+    await userEvent.setup().click(await screen.findByRole("button", { name: "让模型复核" }));
+
+    // 降级文案带预算原因：点明「预算已用尽」与出路，而非笼统的不可用。
+    expect(
+      await screen.findByText(
+        "模型复核暂时不可用：本月模型预算已用尽，请下月再试或联系管理员调整预算",
+      ),
+    ).toBeTruthy();
+    // 原判分保留，无复核注记。
+    expect(screen.getByText("61")).toBeTruthy();
+    expect(screen.queryByText(/复核不影响复习计划/)).toBeNull();
+  });
 });

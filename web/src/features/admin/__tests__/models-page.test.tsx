@@ -25,6 +25,20 @@ interface LlmConfigFixture {
   source: "custom" | "env";
   /** tutor 密钥行尾 4 位；env 态密钥/目录激活态为 null。 */
   keyLast4: string | null;
+  /** 月度预算（元）；null=未设预算（护栏不生效）。 */
+  monthlyBudgetCny: number | null;
+  /** 模型定价表；null=未设定价。 */
+  pricing: Record<string, { inputPerMillionCny: number; outputPerMillionCny: number }> | null;
+}
+
+/** 服务端 LlmUsageView 的合法形状（API §8.16）。 */
+interface LlmUsageFixture {
+  monthUtc: string;
+  budgetCny: number | null;
+  spentCny: number;
+  percent: number | null;
+  status: "UNSET" | "OK" | "WARN" | "EXCEEDED";
+  byScene: Record<string, { tokens: number; costMicroCny: number; calls: number }>;
 }
 
 /** 服务端 LlmProviderView 的合法形状（API §8.15.1；027B 增 keyLast4）。 */
@@ -50,6 +64,8 @@ const CONFIGURED_ON: LlmConfigFixture = {
   credentialsComplete: true,
   source: "env",
   keyLast4: null,
+  monthlyBudgetCny: null,
+  pricing: null,
 };
 
 /** ZCode 网关的目录条目夹具（anthropic-messages 轨、无 env key、已激活）。 */
@@ -115,12 +131,15 @@ function stubAdminLlmFetch(
     putMode?: "ok" | "no-credentials";
     providers?: LlmProviderFixture[];
     providersMode?: "ok" | "delete-active-rejected";
+    usage?: LlmUsageFixture;
+    usageMode?: "ok" | "error";
   } = {},
 ) {
   let current = initial;
   const providers = [...(options.providers ?? [])];
   const observed = {
     getCalls: 0,
+    usageGets: 0,
     putBodies: [] as Array<Record<string, unknown>>,
     providerPosts: [] as Array<Record<string, unknown>>,
     providerPuts: [] as Array<{ path: string; body: Record<string, unknown> | null }>,
@@ -151,6 +170,51 @@ function stubAdminLlmFetch(
       const model = typeof body.model === "string" ? body.model : "";
       const apiKeyGiven = typeof body.apiKey === "string" && body.apiKey !== "";
       const clearKey = body.clearKey === true;
+      // 033 预算护栏：状态型字段语义（非空=落值，空/缺省=清除）；0/负预算服务端 40000。
+      const monthlyBudget = body.monthlyBudgetCny;
+      let nextBudget: number | null = current.monthlyBudgetCny;
+      if (monthlyBudget !== undefined) {
+        if (monthlyBudget === null || monthlyBudget === "") {
+          nextBudget = null;
+        } else {
+          const parsed = Number(monthlyBudget);
+          if (!Number.isFinite(parsed) || parsed <= 0) {
+            return jsonResponse(
+              { code: 40000, message: "monthlyBudgetCny 必须为正数（0/负数不合法）" },
+              400,
+            );
+          }
+          nextBudget = parsed;
+        }
+      }
+      let nextPricing: LlmConfigFixture["pricing"] = current.pricing;
+      if (body.pricing !== undefined) {
+        if (body.pricing === null) {
+          nextPricing = null;
+        } else {
+          const pricing: NonNullable<LlmConfigFixture["pricing"]> = {};
+          for (const [key, entry] of Object.entries(
+            body.pricing as Record<string, Record<string, unknown>>,
+          )) {
+            const inputPrice = Number(entry.inputPerMillionCny);
+            const outputPrice = Number(entry.outputPerMillionCny);
+            if (
+              key.trim() === "" ||
+              !Number.isFinite(inputPrice) ||
+              inputPrice <= 0 ||
+              !Number.isFinite(outputPrice) ||
+              outputPrice <= 0
+            ) {
+              return jsonResponse({ code: 40000, message: "pricing 单价必须为正数" }, 400);
+            }
+            pricing[key.trim()] = {
+              inputPerMillionCny: inputPrice,
+              outputPerMillionCny: outputPrice,
+            };
+          }
+          nextPricing = Object.keys(pricing).length > 0 ? pricing : null;
+        }
+      }
       current = {
         ...current,
         enabled: Boolean(body.enabled),
@@ -159,8 +223,42 @@ function stubAdminLlmFetch(
         source: baseUrl !== "" || model !== "" ? "custom" : "env",
         hasKey: apiKeyGiven ? true : clearKey ? false : current.hasKey,
         keyLast4: apiKeyGiven ? String(body.apiKey).slice(-4) : clearKey ? null : current.keyLast4,
+        monthlyBudgetCny: nextBudget,
+        pricing: nextPricing,
       };
       return jsonResponse(successEnvelope(current));
+    }
+    if (url.endsWith("/api/admin/llm/usage") && method === "GET") {
+      observed.usageGets += 1;
+      if (options.usageMode === "error") {
+        return jsonResponse({ code: 50000, message: "服务响应异常，请稍后重试" }, 500);
+      }
+      const budget = options.usage?.budgetCny ?? null;
+      const spent = options.usage?.spentCny ?? 12.5;
+      let status: LlmUsageFixture["status"] = budget === null ? "UNSET" : "OK";
+      let percent: number | null = null;
+      if (budget !== null) {
+        percent = Math.round((spent * 100) / budget);
+        if (percent >= 100) {
+          status = "EXCEEDED";
+        } else if (percent >= 80) {
+          status = "WARN";
+        }
+      }
+      return jsonResponse(
+        successEnvelope({
+          monthUtc: options.usage?.monthUtc ?? "2026-11",
+          budgetCny: budget,
+          spentCny: spent,
+          percent,
+          status,
+          byScene: options.usage?.byScene ?? {
+            "tutor-ask": { tokens: 15420, costMicroCny: 8_200_000, calls: 34 },
+            review: { tokens: 9000, costMicroCny: 4_300_000, calls: 12 },
+            appeal: { tokens: 0, costMicroCny: 0, calls: 0 },
+          },
+        }),
+      );
     }
     if (url.endsWith("/api/admin/llm/providers") && method === "GET") {
       observed.getCalls += 1;
@@ -1005,5 +1103,177 @@ describe("ModelsPage 答疑 LLM 卡 legacy 态编辑（028 AC-4）", () => {
     // 徽标与实际轨一致：任一覆盖存在即「自定义」（模型覆盖经 env 端点真实生效）。
     expect(await screen.findByRole("status")).toHaveTextContent(/答疑配置已保存并即时生效/);
     await waitFor(() => expect(screen.getAllByText("自定义")).toHaveLength(1));
+  });
+});
+
+describe("ModelsPage 本月用量与预算护栏（033）", () => {
+  beforeEach(() => {
+    resetApiState();
+    // biome-ignore lint/suspicious/noDocumentCookie: 测试需要写入可读的 CSRF cookie
+    document.cookie = "XSRF-TOKEN=test-token; path=/";
+  });
+
+  /** 用量夹具：预算 100 元、已用 82.5（82.5% → WARN）。 */
+  const USAGE_WARN: LlmUsageFixture = {
+    monthUtc: "2026-11",
+    budgetCny: 100,
+    spentCny: 82.5,
+    percent: 83,
+    status: "WARN",
+    byScene: {
+      "tutor-ask": { tokens: 15420, costMicroCny: 8_200_000, calls: 34 },
+      review: { tokens: 9000, costMicroCny: 4_300_000, calls: 12 },
+      appeal: { tokens: 0, costMicroCny: 0, calls: 0 },
+    },
+  };
+
+  it("033 AC-7: 用量卡片渲染已用/预算/百分比/状态徽标与分场景小计（含场景中文名）", async () => {
+    stubAdminLlmFetch(CONFIGURED_ON, { usage: USAGE_WARN });
+
+    renderModelsPage();
+
+    // 指标行：已用/预算/百分比/口径月份。
+    expect(await screen.findByText("82.5")).toBeInTheDocument();
+    expect(screen.getByText("本月已用（元）")).toBeInTheDocument();
+    expect(screen.getByText("预算（元）")).toBeInTheDocument();
+    expect(screen.getByText("83%")).toBeInTheDocument();
+    expect(screen.getByText("口径月份（UTC）")).toBeInTheDocument();
+    // 状态徽标：WARN ≥80% 提醒。
+    expect(screen.getByText("≥80% 提醒")).toBeInTheDocument();
+    // 分场景小计：已知场景出中文名（「题目答疑」与 AI 功能清单行重名，取「至少一处可见」口径），
+    // 数字来自聚合。
+    expect(screen.getAllByText("题目答疑").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("模型复核").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("申诉初裁").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/34 次 · 15420 tokens/)).toBeInTheDocument();
+    expect(screen.getByText(/12 次 · 9000 tokens/)).toBeInTheDocument();
+    expect(screen.getByText(/0 次 · 0 tokens/)).toBeInTheDocument();
+  });
+
+  it("033 AC-7: 未设预算显示「未设预算」徽标与预算/百分比占位（护栏不生效如实口径）", async () => {
+    stubAdminLlmFetch(CONFIGURED_ON, {
+      usage: { ...USAGE_WARN, budgetCny: null, percent: null, status: "UNSET" },
+    });
+
+    renderModelsPage();
+
+    expect(await screen.findByText("未设预算")).toBeInTheDocument();
+    // 预算与百分比位如实占位。
+    const budgetCell = screen.getByText("预算（元）").parentElement;
+    expect(budgetCell?.textContent).toContain("—");
+  });
+
+  it("033 AC-7: EXCEEDED 状态显示强制门徽标与降级说明文案", async () => {
+    stubAdminLlmFetch(CONFIGURED_ON, {
+      usage: {
+        ...USAGE_WARN,
+        spentCny: 120,
+        percent: 120,
+        status: "EXCEEDED",
+      },
+    });
+
+    renderModelsPage();
+
+    expect(await screen.findByText("≥100% 强制门已生效")).toBeInTheDocument();
+    expect(screen.getByText(/答疑拒新调用（40306），复核\/申诉初裁走降级路径/)).toBeInTheDocument();
+  });
+
+  it("033 AC-7: 用量视图加载失败时区块内降级提示可重试，不拖垮整页配置卡", async () => {
+    stubAdminLlmFetch(CONFIGURED_ON, { usageMode: "error" });
+
+    renderModelsPage();
+
+    // 用量查询失败有 1s 重试退避：放宽等待窗口。
+    expect(await screen.findByText(/用量视图加载失败/, {}, { timeout: 5000 })).toBeInTheDocument();
+    // 配置卡不受用量失败影响：答疑卡仍在（启用中徽标可见）。
+    expect(screen.getAllByText("启用中").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
+  });
+
+  it("033 AC-7: 预算编辑保存 PUT 携带预算与定价（legacy 态同载端点/模型），成功后提示并回显", async () => {
+    const observed = stubAdminLlmFetch(CONFIGURED_ON, { usage: USAGE_WARN });
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    const budgetInput = await screen.findByLabelText("月度预算（元）");
+    // 缺省回显：CONFIGURED_ON 未设预算 → 空输入；定价空表 → 「未设定价」提示。
+    expect(budgetInput).toHaveValue("");
+    expect(screen.getByText(/未设定价：所有调用不计入预算/)).toBeInTheDocument();
+
+    await user.type(budgetInput, "99.9");
+    await user.click(screen.getByRole("button", { name: "增加定价行" }));
+    await user.type(screen.getByLabelText("定价行 1 模型名"), "glm-4.7");
+    await user.type(screen.getByLabelText("定价行 1 输入单价"), "2");
+    await user.type(screen.getByLabelText("定价行 1 输出单价"), "8");
+    await user.click(screen.getByRole("button", { name: "保存预算与定价" }));
+
+    // 请求形状：预算+定价（状态型字段）与端点/模型当前值一起提交（本卡不改开关/覆盖）。
+    await waitFor(() => expect(observed.putBodies).toHaveLength(1));
+    expect(observed.putBodies[0]).toEqual({
+      enabled: true,
+      baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      model: "glm-4.7",
+      monthlyBudgetCny: 99.9,
+      pricing: { "glm-4.7": { inputPerMillionCny: 2, outputPerMillionCny: 8 } },
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent(/预算与定价已保存/);
+    // 保存后回显：预算输入换新值，定价行在列。
+    await waitFor(() => expect(screen.getByLabelText("月度预算（元）")).toHaveValue("99.9"));
+    expect(screen.getByLabelText("定价行 1 模型名")).toHaveValue("glm-4.7");
+    // 用量视图已失效重拉（护栏状态即时对齐）。
+    await waitFor(() => expect(observed.usageGets).toBeGreaterThanOrEqual(2));
+  });
+
+  it("033 AC-7: 清空预算保存 = 清除语义（无 monthlyBudgetCny 字段、定价空对象），并拦截非正数输入", async () => {
+    const observed = stubAdminLlmFetch(
+      { ...CONFIGURED_ON, monthlyBudgetCny: 80, pricing: null },
+      {
+        usage: USAGE_WARN,
+      },
+    );
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    const budgetInput = await screen.findByLabelText("月度预算（元）");
+    expect(budgetInput).toHaveValue("80");
+
+    // 非正数被前端拦截：不发 PUT。
+    await user.clear(budgetInput);
+    await user.type(budgetInput, "0");
+    await user.click(screen.getByRole("button", { name: "保存预算与定价" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/月度预算需为正数/);
+    expect(observed.putBodies).toHaveLength(0);
+
+    // 清空 = 清除：PUT 不携带 monthlyBudgetCny（缺省=清除），定价无行时空对象=清除。
+    await user.clear(budgetInput);
+    await user.click(screen.getByRole("button", { name: "保存预算与定价" }));
+    await waitFor(() => expect(observed.putBodies).toHaveLength(1));
+    expect(observed.putBodies[0]).not.toHaveProperty("monthlyBudgetCny");
+    expect(observed.putBodies[0]).toHaveProperty("pricing", {});
+  });
+
+  it("033 AC-7: 服务端 40000（定价非法）文案透出为提示，表单输入保留", async () => {
+    const observed = stubAdminLlmFetch(CONFIGURED_ON, { usage: USAGE_WARN });
+
+    renderModelsPage();
+
+    const user = userEvent.setup();
+    await screen.findByLabelText("月度预算（元）");
+    await user.type(screen.getByLabelText("月度预算（元）"), "80");
+    await user.click(screen.getByRole("button", { name: "增加定价行" }));
+    await user.type(screen.getByLabelText("定价行 1 模型名"), "glm-4.7");
+    await user.type(screen.getByLabelText("定价行 1 输入单价"), "-2");
+    await user.type(screen.getByLabelText("定价行 1 输出单价"), "8");
+    await user.click(screen.getByRole("button", { name: "保存预算与定价" }));
+
+    // 前端先拦（单价必须为正数），不发出 PUT。
+    expect(await screen.findByRole("status")).toHaveTextContent(/定价单价必须为正数/);
+    expect(observed.putBodies).toHaveLength(0);
+    // 输入保留：预算与定价行未丢。
+    expect(screen.getByLabelText("月度预算（元）")).toHaveValue("80");
+    expect(screen.getByLabelText("定价行 1 模型名")).toHaveValue("glm-4.7");
   });
 });
