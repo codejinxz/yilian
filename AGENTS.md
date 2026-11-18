@@ -24,7 +24,7 @@
 
 - 命名一律以 [docs/NAMING.md](docs/NAMING.md) 为准：`io.github.codejinxz.yilian`、`yilian-server`、`@yilian/web`。
 - 数据库 MySQL 8：全 UTC 存储，展示用用户 IANA 时区；日界用 `LocalDate.now(ZoneId)`。
-- 迁移用 Flyway；禁止手改生产库；迁移前自动快照。
+- 迁移用 Flyway；禁止手改生产库；迁移前自动快照。编辑已应用迁移的注释会变更 Flyway checksum：已有库先执行 repair（docs/BACKUP-RESTORE.md §5）再重启。
 - 判分 append-only：`attempts` 绑定 normalizer / rubric / prompt / model 版本；改判写新记录。
 - 密钥只进环境变量、secret、或经管理端加密后入库（存储用 AES-256-GCM 密文，主密钥只来自环境变量且 prod 缺失启动失败；密文不回显、不进 git、不出现在日志）；唯一例外是 local 的 `application-local.yml`，只允许本机开发值且禁止复用。
 - 缓存分层：**Caffeine 一级 + Redis 二级**；Redis 同时承担限流计数；refresh 会话存 Spring Session JDBC。
@@ -54,6 +54,7 @@
   - 跨模块只依赖对方的 `service` 接口，不引用 `service.impl`、`dao`、`entity`；跨模块传递数据用 DTO / VO。
   - Dao 接口的包位置与命名见 §3.1。
   - `common` 是横切基础设施，不强制 `service`/`service.impl` 双层，也不强制 `Impl` 后缀；模块内（auth/system/upload 等）必须遵守接口+`service.impl/*Impl`。
+- 注释与 Javadoc/TSDoc 只述 what/why（这段代码做什么/为什么这样设计），禁止过程性引用（批次号、评审轮次/条目号、指示来源、gitignored 文档引用、阶段词）；由 Checkstyle（Java）与 scripts/check-comments.mjs（TS/TSX/迁移 SQL）在 CI 强制。
 
 ### 3.3 依赖
 

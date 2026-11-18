@@ -135,6 +135,7 @@ pnpm --dir web dev
 
 - local：默认用户名 `admin`，密码 `change-me-now`。用于本机启动，不要用于任何
   共享环境。
+- 既有 local 库继续使用时，实际口令以 `server/config/application-local.yml` 为准；两者不一致属配置-库漂移，以配置文件对齐为准。
 - prod：必须提供 `YILIAN_BOOTSTRAP_ADMIN_USERNAME` 与
   `YILIAN_BOOTSTRAP_ADMIN_PASSWORD`；密码至少 12 字符，且不能等于用户名、不能是
   `change-me-now` 或常见弱口令，否则**启动直接失败**。同时必须提供
