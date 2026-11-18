@@ -116,7 +116,7 @@ class LlmBudgetSettingsTest {
                 .upsert(
                         eq(LlmBudgetSettings.SETTING_KEY),
                         value.capture(),
-                        eq("月度模型预算与定价（033 预算护栏）"),
+                        eq("月度模型预算与定价（预算护栏）"),
                         eq(1L));
         LlmBudgetSettings.StoredBudget stored =
                 objectMapper.readValue(

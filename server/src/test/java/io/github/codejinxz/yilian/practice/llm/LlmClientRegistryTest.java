@@ -24,7 +24,7 @@ import java.util.Optional;
 /**
  * {@link LlmClientRegistryImpl} 单测 [AC-1]/[AC-2]：按激活 provider 的 protocol 装配三协议客户端、运行时缓存（目录
  * 未变复用同一实例、目录变更即失效换轨）、legacy 族回退（目录空：tutor 覆盖轨 &gt; YILIAN_LLM_* 三件套）与三态门（无可用配置 → chatHandle
- * 空），凭证口径按协议分（anthropic-messages key 可空，openai 两轨 key 必填）；覆盖变更即时换轨（028）。
+ * 空），凭证口径按协议分（anthropic-messages key 可空，openai 两轨 key 必填）；覆盖变更即时换轨。
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -75,7 +75,7 @@ class LlmClientRegistryTest {
         lenient().when(providerCatalog.envKey("zai")).thenReturn("");
         lenient().when(providerCatalog.envKey("zhipu")).thenReturn("sk-zhipu");
         lenient().when(providerCatalog.envKey("oai-responses")).thenReturn("sk-oai");
-        // 027B 解析链：单测里密钥链退化为纯 env 轨（DB 行由集成测试覆盖），保持既有断言语义。
+        // 密钥解析链：单测里密钥链退化为纯 env 轨（DB 行由集成测试覆盖），保持既有断言语义。
         lenient()
                 .doAnswer(
                         invocation -> {
@@ -84,7 +84,7 @@ class LlmClientRegistryTest {
                         })
                 .when(providerKeys)
                 .resolve(any());
-        // tutor 预留行（028）：单测无入库行，resolveDecrypted 返回空。
+        // tutor 预留行：单测无入库行，resolveDecrypted 返回空。
         lenient()
                 .when(providerKeys.resolveDecrypted(LlmProviderKeys.TUTOR_PROVIDER_ID))
                 .thenReturn(Optional.empty());
@@ -232,7 +232,7 @@ class LlmClientRegistryTest {
                             assertThat(config.credentialsComplete()).isTrue();
                         });
 
-        // DB tutor 预留行解密值优先于 env 密钥（028 密钥链，复用 027B 解析口）。
+        // DB tutor 预留行解密值优先于 env 密钥（覆盖轨密钥链的既有解析口径）。
         when(providerKeys.resolveDecrypted(LlmProviderKeys.TUTOR_PROVIDER_ID))
                 .thenReturn(Optional.of("sk-tutor-db"));
         assertThat(registry.chatHandle()).isPresent();
@@ -384,7 +384,7 @@ class LlmClientRegistryTest {
                 .hasValueSatisfying(
                         handle -> assertThat(handle.model()).isEqualTo("glm-5.3-flash"));
 
-        // 修改覆盖模型 → 即时换轨到新模型（028 即时生效语义）。
+        // 修改覆盖模型 → 即时换轨到新模型（覆盖即时生效语义）。
         when(appSettingService.findValue(TutorOverrides.SETTING_KEY))
                 .thenReturn(
                         Optional.of(
@@ -405,7 +405,7 @@ class LlmClientRegistryTest {
                                         .isEqualTo("https://env.example.com/v4"));
     }
 
-    /** [AC-2] 022 语义不变：目录非空时覆盖轨休眠——目录未激活仍是 fail-closed（不回落覆盖/env）。 */
+    /** [AC-2] 语义不变：目录非空时覆盖轨休眠——目录未激活仍是 fail-closed（不回落覆盖/env）。 */
     @Test
     void overrideRailDormantWhenDirectoryExists_ac2() {
         legacyProperties =

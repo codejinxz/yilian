@@ -71,7 +71,7 @@ class PracticeFlowIntegrationTest {
 
     private static final long USER_ID = 8L;
 
-    /** 私有题库所有者（016 可见性矩阵的「本人」视角）。 */
+    /** 私有题库所有者（可见性矩阵的「本人」视角）。 */
     private static final long OWNER_ID = 9L;
 
     private static final String REF = "He is paying more and more attention to this matter.";
@@ -1011,7 +1011,7 @@ class PracticeFlowIntegrationTest {
                         USER_ID, NextQuery.normalize(null, null, null, null, null, null));
         assertThat(afterRecycle).isNotNull();
         assertThat(afterRecycle.sentence().id()).isNotEqualTo(practiced.sentenceId());
-        // 显式 bankId 的入口校验按库判定、不豁免:私有库非 owner 一律 40300(与 016-1 口径一致)。
+        // 显式 bankId 的入口校验按库判定、不豁免:私有库非 owner 一律 40300(与私有库可见性口径一致)。
         assertThatThrownBy(
                         () ->
                                 practiceService.next(
@@ -1190,7 +1190,7 @@ class PracticeFlowIntegrationTest {
     }
 
     /**
-     * [AC-4] 乐观锁令牌（018，review-verify-2 01#02）：两个「同时读到同一张卡」的写者， 同一 last_review_at 令牌只允许一个条件 UPDATE
+     * [AC-4] 乐观锁令牌（review 链路的并发收口）：两个「同时读到同一张卡」的写者， 同一 last_review_at 令牌只允许一个条件 UPDATE
      * 生效；持新令牌的后续更新正常通过。
      */
     @Test
@@ -1236,10 +1236,7 @@ class PracticeFlowIntegrationTest {
         assertThat(thirdWrite).isEqualTo(1);
     }
 
-    /**
-     * [AC-4] 双端并发更新既有卡经服务层收敛（018）：两笔失败提交同时打到同一张学习卡， 乐观锁输家重试一档后落库——两张 review_logs、reps 累加到
-     * 3，无异常无丢更新。
-     */
+    /** [AC-4] 双端并发更新既有卡经服务层收敛：两笔失败提交同时打到同一张学习卡， 乐观锁输家重试一档后落库——两张 review_logs、reps 累加到 3，无异常无丢更新。 */
     @Test
     @DisplayName("[AC-4] 双端并发既有卡更新收敛")
     void ac4_concurrentExistingCardUpdatesConverge() throws Exception {
@@ -1553,7 +1550,7 @@ class PracticeFlowIntegrationTest {
     }
 
     /**
-     * 播种一个私有发布题库及其唯一题目（016 可见性矩阵用）。
+     * 播种一个私有发布题库及其唯一题目（可见性矩阵用例用）。
      *
      * @param bankId 题库 id
      * @param ownerId 所有者用户 id

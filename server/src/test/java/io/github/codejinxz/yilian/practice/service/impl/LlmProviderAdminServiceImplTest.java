@@ -33,7 +33,7 @@ import java.util.Optional;
 
 /**
  * {@link LlmProviderAdminServiceImpl} 单测 [AC-2]/[AC-4]：目录 CRUD 与激活切换的服务端规则——id 形态/唯一性、
- * 协议白名单、激活中不可删、激活唯一与幂等；027B 密钥口径——写-only apiKey（非空白=加密 upsert、 空/缺省=不变更）、hasKey=解析链口径（DB 或 env
+ * 协议白名单、激活中不可删、激活唯一与幂等；密钥口径——写-only apiKey（非空白=加密 upsert、 空/缺省=不变更）、hasKey=解析链口径（DB 或 env
  * 任一）、keyLast4 只在 DB 态给值、删除同事务删密钥行。
  */
 @ExtendWith(MockitoExtension.class)

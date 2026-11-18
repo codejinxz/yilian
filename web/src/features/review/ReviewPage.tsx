@@ -144,7 +144,7 @@ function ReviewToast({ message, visible }: { message: string | null; visible: bo
  *
  * 冷启动会话恢复期间（me 未确认、探针未确认登录）整页数据区渲染加载态而非游客空态：
  * 本地引擎会瞬时回空队列，先渲染「这里还是空的」与全零计数、会话确认后再跳真实数据的
- * 闪变（022 巡检 DEF-02）由此而来。
+ * 闪变（冷启动竞态）由此而来。
  */
 export function ReviewPage() {
   const queryClient = useQueryClient();
@@ -288,7 +288,7 @@ export function ReviewPage() {
     ? (engineQueueQuery.data?.summary ?? { due: 0, learning: 0, mastered: 0 })
     : (summaryQuery.data ?? { due: 0, learning: 0, mastered: 0 });
 
-  // 冷启动会话恢复竞态（022 巡检 DEF-02）：me 未确认前 isGuestSession 暂按游客语义，
+  // 冷启动会话恢复竞态：me 未确认前 isGuestSession 暂按游客语义，
   // 本地引擎瞬时回空队列会把「这里还是空的」空态与全零计数先渲染出来，会话确认后才跳真实数据。
   // 会话恢复期间（mock 无此竞态）数据区按加载态渲染，空态与零计数都不落屏。
   const me = useQuery(meQueryOptions);

@@ -25,13 +25,13 @@ import java.util.Set;
 @Service
 public class AdminAppealServiceImpl implements AdminAppealService {
 
-    /** 每页条数缺省值（011 分页口径同款）。 */
+    /** 每页条数缺省值（统一分页口径同款）。 */
     static final int DEFAULT_PAGE_SIZE = 20;
 
     /** 每页条数上限；前端可传更大值，越界归 100 而不是报错。 */
     static final int MAX_PAGE_SIZE = 100;
 
-    /** 页码上限：offset = (page-1)*size 需落在 int 内，同时拦住无意义的深翻页（011 口径）。 */
+    /** 页码上限：offset = (page-1)*size 需落在 int 内，同时拦住无意义的深翻页（统一分页口径）。 */
     private static final int MAX_PAGE = 10_000;
 
     /** 状态过滤合法取值；WITHDRAWN 无入口但存量/枚举在案，筛选放行。 */
@@ -90,7 +90,7 @@ public class AdminAppealServiceImpl implements AdminAppealService {
         int updated =
                 appealDao.updateFinalDecision(appealId, status, reason.strip(), Instant.now());
         if (updated == 0) {
-            // 029 并发原子门：UPDATE 的 WHERE 携带 status='PENDING'，行数为 0 说明预检之后记录已被
+            // 并发原子门：UPDATE 的 WHERE 携带 status='PENDING'，行数为 0 说明预检之后记录已被
             // 并发终审（记录本身在上面的 findById 已排除不存在），按冲突拒绝而不是 NOT_FOUND——
             // 先到者的终审理由与时间不被覆盖，后到者拿到 40900 刷新即可看到先到者的结论。
             throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "该申诉已被终审");

@@ -7,7 +7,7 @@ import java.util.List;
  *
  * @param metrics 指标组
  * @param active7d 近 7 天每日活跃，从旧到新，缺数日期补 0
- * @param todos 待办引导；011-b 接入真实待办前为静态引导项
+ * @param todos 待办引导；接入真实待办前为静态引导项
  * @param activity 最近管理活动，取 admin_audit_log 倒序 5 条
  */
 public record AdminOverviewView(
@@ -22,7 +22,7 @@ public record AdminOverviewView(
      * @param totalUsers 注册用户总数（含已软删，口径为注册总量）
      * @param activeToday 当日活跃用户数
      * @param totalAttempts 答题总数
-     * @param estimatedCost 模型调用估算成本；011-a 无模型调用恒为 0，011-b 接入后接真实口径
+     * @param estimatedCost 模型调用估算成本；当前无模型调用恒为 0，接入计量后取真实口径
      */
     public record Metrics(
             long totalUsers, long activeToday, long totalAttempts, long estimatedCost) {}

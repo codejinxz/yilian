@@ -19,7 +19,7 @@ import java.util.List;
 /**
  * {@link PickerSentenceQueryDao} 的 MyBatis 链路集成测试：真实 MySQL + XML 动态 SQL。
  *
- * <p>对拍四件事：题库可见性下推（016 口径复用）、练过态按用户 LEFT JOIN（匿名/无卡为 NULL、不串用户）、 动态筛选（keyword/level/status
+ * <p>对拍四件事：题库可见性下推（可见性口径复用）、练过态按用户 LEFT JOIN（匿名/无卡为 NULL、不串用户）、 动态筛选（keyword/level/status
  * 缺省隐藏回收站）、分页与排序（题库录入序）。 测试库由 {@code YILIAN_TEST_DB_NAME} 指定（如 {@code yilian_test_020}），
  * 每个用例前清空内容三表与复习卡重新播种。
  */

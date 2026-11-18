@@ -26,9 +26,9 @@ import java.time.LocalDateTime;
  * V11 迁移落库形状与「仅活跃行唯一」语义集成测试（真实 MySQL，Flyway V1→V11 自动跑）。
  *
  * <p>核心语义：{@code uk_sentence_active_external (bank_id, active_external_key)} 只约束未删行——
- * 回收行（deleted_at 非空）的 active_external_key 恒为 NULL，唯一索引对 NULL 不去重， 因此批次 回滚后同文件重导放行（016 评审 05#01
- * 的收口）；活跃行互斥不变，作为并发导入的数据库兜底。 同时验证 llm_usage 表形状与 Dao 落库链路（实体映射由 Hibernate ddl-auto=validate 在上下文
- * 启动时校验，此处补真实读写）。
+ * 回收行（deleted_at 非空）的 active_external_key 恒为 NULL，唯一索引对 NULL 不去重， 因此批次 回滚后同文件重导放行 （V11
+ * 迁移的设计目标）；活跃行互斥不变，作为并发导入的数据库兜底。 同时验证 llm_usage 表形状与 Dao 落库链路（实体映射由 Hibernate ddl-auto=validate
+ * 在上下文 启动时校验，此处补真实读写）。
  */
 @SpringBootTest(
         properties = {

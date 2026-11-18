@@ -253,7 +253,7 @@ class SelfAccountLifecycleIntegrationTest {
         assertThat(refresh.statusCode()).isEqualTo(401);
         assertThat(refresh.body()).contains("\"code\":40100");
 
-        // 已删账号登录被拒（与 018 软删登录口径一致）。
+        // 已删账号登录被拒（与软删登录口径一致）。
         HttpClient loginClient = newClient();
         String loginCsrf = csrfToken(loginClient);
         HttpResponse<String> login =

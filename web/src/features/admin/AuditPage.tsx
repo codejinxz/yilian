@@ -16,7 +16,7 @@ import { AdminSearch, AdminSelect, EmptyRow, Row, RowList, RowText } from "./ui"
 
 /**
  * 操作日志页签：搜索、操作筛选、时间筛选与分页。
- * 页脚固定保留期说明；数据走真实 audit-logs 检索（012），管理端每个写操作的审计都会出现在这里。
+ * 页脚固定保留期说明；数据走真实 audit-logs 检索，管理端每个写操作的审计都会出现在这里。
  */
 export function AuditPage() {
   const [keyword, setKeyword] = useState("");

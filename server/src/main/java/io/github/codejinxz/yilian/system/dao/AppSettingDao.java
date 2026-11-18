@@ -18,8 +18,8 @@ public interface AppSettingDao {
     /**
      * 原生 upsert：无键插入，有键覆盖 value 并递增 version（末写胜出，单语句原子）。
      *
-     * <p>不用「先读后写 + 异常回退」：015/016 的教训——并发首写撞主键时，同一事务内已标记 rollback-only，回退分支的重读与重写在原事务里根本跑不完（表现为
-     * 500）；MySQL 方言的 INSERT ... ON DUPLICATE KEY UPDATE 在数据库层一次完成，无竞态窗口。
+     * <p>不用「先读后写 + 异常回退」：并发首写撞主键时，同一事务内已标记 rollback-only，回退分支的重读与重写在原事务里根本跑不完（表现为 500）；MySQL 方言的
+     * INSERT ... ON DUPLICATE KEY UPDATE 在数据库层一次完成，无竞态窗口。
      *
      * @param key 配置键
      * @param value JSON 文本

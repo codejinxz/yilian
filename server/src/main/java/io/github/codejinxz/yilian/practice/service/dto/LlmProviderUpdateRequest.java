@@ -7,8 +7,7 @@ import jakarta.validation.constraints.Size;
 
 /**
  * 管理端更新 provider 请求体（API §8.15.3）：id 走路径、不可改；元数据字段语义同 {@link LlmProviderCreateRequest}。apiKey
- * 是<strong>写-only 字段</strong>（027B）：空/缺省=不变更（保留已入库 密钥与 env 态），非空白=加密 upsert
- * 覆盖（明文永不入库/入日志/入审计）；响应侧永不回显明文。
+ * 是<strong>写-only 字段</strong>：空/缺省=不变更（保留已入库 密钥与 env 态），非空白=加密 upsert 覆盖（明文永不入库/入日志/入审计）；响应侧永不回显明文。
  *
  * @param name 展示名
  * @param protocol 对话协议 wire 值

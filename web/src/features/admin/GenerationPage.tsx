@@ -222,7 +222,7 @@ export function GenerationPage() {
     <div>
       <p className="font-mono text-[11px] tracking-[0.06em] text-ink-faint">
         演示标注：「{generateLabel}」不调用真实模型，只填入固定样本；粘贴校验后的导入、
-        最近批次与回滚走真实接口（012）。
+        最近批次与回滚走真实接口。
       </p>
 
       <div className="mt-6 grid gap-10 lg:grid-cols-2">

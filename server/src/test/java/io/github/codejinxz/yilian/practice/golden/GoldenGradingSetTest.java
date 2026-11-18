@@ -21,7 +21,7 @@ import java.util.stream.Stream;
 /**
  * 黄金集 grading 层回归（AC-5①）：确定性本地判分对拍主链（{@link Grader} + norm-1）， CI 常跑。
  *
- * <p>期望值语义（AC-4 预披露）：score/hitCount/totalCount/summary 与逐槽批注（key/tag/correct/
+ * <p>期望值语义（AC-4）：score/hitCount/totalCount/summary 与逐槽批注（key/tag/correct/
  * message/minimalFix）逐字段精确对拍——判分是纯函数，锁定精确值才有回归价值； 每条期望值都在资产 rationale 字段中带人工推导依据，不抄实现输出。
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)

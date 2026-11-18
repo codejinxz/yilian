@@ -6,7 +6,7 @@ import { ReviewPage } from "@/features/review/ReviewPage";
 import { createQueryClient } from "@/lib/query";
 
 /**
- * ReviewPage 冷启动会话恢复竞态（022 巡检 DEF-02）：
+ * ReviewPage 冷启动会话恢复竞态：
  * me 未确认前 isGuestSession 暂按游客语义，本地引擎瞬时回空队列会让
  * 「这里还是空的」空态与全零计数先落屏、会话确认后再跳真实数据。
  * mock 策略：router 用最小桩；@/lib/api/practice 与 @/lib/local-engine 在模块边界整体替换；

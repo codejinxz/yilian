@@ -197,7 +197,7 @@ public class PracticeServiceImpl implements PracticeService {
     private final TransactionTemplate freshTxTemplate;
 
     /**
-     * LLM 用量旁路记账的独立新事务（REQUIRES_NEW）：llm_usage 是与主链路成败无关的旁路账本—— 029 起复核在事务内跑，若沿用外层事务，降级抛 50000
+     * LLM 用量旁路记账的独立新事务（REQUIRES_NEW）：llm_usage 是与主链路成败无关的旁路账本—— 模型复核在事务内跑，若沿用外层事务，降级抛 50000
      * 时记账会随回滚一起丢（三终态契约破坏）； 内层独立提交保证「调用即记账」与主事务成败解耦（答疑/初裁链路无外层事务，行为不变）。
      */
     private final TransactionTemplate usageTxTemplate;
@@ -578,7 +578,7 @@ public class PracticeServiceImpl implements PracticeService {
             Instant decidedAt) {}
 
     /**
-     * 申诉同步 LLM 初裁（预披露裁决：同步不引队列，申诉低频，≤15s 可接受）。
+     * 申诉同步 LLM 初裁（设计取舍：同步不引队列，申诉低频，≤15s 可接受）。
      *
      * <p>四种终态都把申诉留在 PENDING 等人工终审，任何失败都不阻塞提交、不改判分：
      *
@@ -600,7 +600,7 @@ public class PracticeServiceImpl implements PracticeService {
     private AdjudicationOutcome adjudicateAppeal(
             Appeal appeal, GradingAnnotation annotation, String proposedAnswer, String reason) {
         try {
-            // 初裁限流：程序化判定而不是端点注解——429 只跳过初裁，申诉本身不拒（预披露裁决）。
+            // 初裁限流：程序化判定而不是端点注解——429 只跳过初裁，申诉本身不拒。
             RateLimitDecision decision =
                     rateLimitService.acquire(
                             APPEAL_ADJUDICATION_RATE_SCENE,
@@ -729,9 +729,9 @@ public class PracticeServiceImpl implements PracticeService {
      * 落初裁占位（限流/无模型/失败统一路径）：decision 落 UNAVAILABLE JSON + 占位理由， decided_by/decided_at/快照/版本保持
      * NULL。占位写失败也不外抛（申诉已在库，管理端可无 AI 意见终审）。
      *
-     * <p>029（F-01 修复）：回执 verdict 对齐存储真相——decision 列落的是 UNAVAILABLE JSON，回执也发
-     * verdict="UNAVAILABLE"，让「初裁不可用」回执态真实可达（GAP 025 声明的回执四态分化成立， 前端对应分支不再是对真实服务的死代码）；
-     * decided_by=null 仍是无 AI 意见的判据。
+     * <p>回执 verdict 对齐存储真相——decision 列落的是 UNAVAILABLE JSON，回执也发
+     * verdict="UNAVAILABLE"，让「初裁不可用」回执态真实可达（申诉回执四态分化的既定口径成立， 前端对应分支不再是对真实服务的死代码）； decided_by=null
+     * 仍是无 AI 意见的判据。
      *
      * @param appealId 申诉行 id
      * @return 占位终态（verdict=UNAVAILABLE，decidedBy=null）
@@ -2166,7 +2166,7 @@ public class PracticeServiceImpl implements PracticeService {
     @Override
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public ModelReviewView reviewAttempt(Long userId, String attemptId) {
-        // 029 事务化（A-02 修复）：整个复核在一个 READ_COMMITTED 事务内。模型外呼在事务里持着
+        // 整个复核在一个 READ_COMMITTED 事务内。模型外呼在事务里持着
         // attempts 行锁与一条连接（最长约 31.5s）——这是已批准计划的明示取舍：复核低频
         // （5 次/分钟限流），行级锁只串行化同一 attempt 的复核，不碰其他提交的并发；
         // 换来的是幂等闸、sequence 计算、MODEL 行落库三步的原子性，并发复核不再可能落两条
@@ -2291,7 +2291,7 @@ public class PracticeServiceImpl implements PracticeService {
                     grading.getLatencyMs());
             return toReviewView(grading, first.getScore());
         } catch (DataIntegrityViolationException exception) {
-            // uk_grading_attempt_sequence 兜底（幂等以数据库唯一约束为准）：029 起 attempt 行锁 +
+            // uk_grading_attempt_sequence 兜底（幂等以数据库唯一约束为准）：attempt 行锁 +
             // RC 快照已让并发复核在锁上串行化、后到者幂等回读，正常路径撞不到该唯一键；
             // 一旦命中即是数据异常（如 sequence 被外部改写）。撞键后本事务的持久化上下文
             // 不再可信（提交阶段可能重放失败的 INSERT），按既有先例（提交链撞幂等键后不

@@ -19,7 +19,7 @@ public interface PromptAdminService {
      * @param name 场景名过滤（ask/review/appeal），null 不过滤；非法值 40000
      * @param label 标签过滤（ACTIVE/CANDIDATE），null 不过滤；非法值 40000
      * @param page 页码，从 1 起
-     * @param size 每页大小（1–100，越界归 100，011 分页口径）
+     * @param size 每页大小（1–100，越界归 100，统一分页口径）
      * @return 分页版本行
      */
     PageResponse<PromptVersionView> list(String name, String label, int page, int size);

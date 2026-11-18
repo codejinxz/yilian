@@ -245,7 +245,7 @@ class AuthTotpFlowIntegrationTest {
         // 验证码登录不消费恢复码：无剩余数字段（null）。
         assertThat(secondStep.body()).contains("\"remainingRecoveryCodes\":null");
 
-        // 反向隔离（R1-3）：access token 冒充 challengeToken 调第二步——verifyLoginChallenge 的
+        // 反向隔离：access token 冒充 challengeToken 调第二步——verifyLoginChallenge 的
         // purpose 校验拒绝（access token 不携带 purpose 声明），统一 40101「请重新登录」口径。
         HttpResponse<String> accessAsChallenge =
                 send(
@@ -335,7 +335,7 @@ class AuthTotpFlowIntegrationTest {
         assertThat(totpLogin.body()).contains("\"remainingRecoveryCodes\":null");
     }
 
-    /** [AC-5][R1-1] 同一恢复码两线程并发登录：Dao 条件更新原子化消费，恰一 200 一 40101，库内 used_at 只落一次。 */
+    /** [AC-5] 同一恢复码两线程并发登录：Dao 条件更新原子化消费，恰一 200 一 40101，库内 used_at 只落一次。 */
     @Test
     @DisplayName("[AC-5] 恢复码并发单次语义（条件更新原子化，镜像 029 AC-1 并发样式）")
     void ac5_recoveryCodeConcurrentSingleUse() throws Exception {

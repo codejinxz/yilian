@@ -13,12 +13,12 @@ import { jsonRequest } from "./shared";
  * 40402（题目已不在题库，如定级自造句）或 40903（载荷冲突）跳过该批继续后续批，
  * 网络失败立即中止。
  *
- * 完成标记是增量语义（browser-smoke-wave4 缺陷修复）：记录「已成功迁入服务端的
+ * 完成标记是增量语义（端到端联调曾暴露「标记后新练记录漏迁」缺陷）：记录「已成功迁入服务端的
  * attemptId 集合」而不是布尔 done——标记之后登出又练的新记录不在集合内，下次登录的
  * 自动迁移仍会捕获；跳过批的行不进集合记为欠账，下次迁移仍会重试。
  */
 
-/** 迁移增量标记（任务书指定键名）；值为 JSON `{ migratedIds: string[] }`，只记已成功迁入的 attemptId。 */
+/** 迁移增量标记（存储键名，契约已定）；值为 JSON `{ migratedIds: string[] }`，只记已成功迁入的 attemptId。 */
 const GUEST_UPGRADED_KEY = "yilian.guest-upgraded.v1";
 /** 未同步数量状态；迁移有跳过/失败批时写入，全部成功后清除。 */
 const GUEST_UPGRADE_STATE_KEY = "yilian.guest-upgrade.v1";
@@ -215,7 +215,7 @@ export async function syncGuestAttempts(): Promise<GuestUpgradeResult> {
         continue;
       }
       // 业务失败（40402 题目不在题库 / 40903 载荷冲突等）：跳过该批继续后续批，
-      // 这些行下次迁移仍会重试（欠账语义，决策登记 docs/retro/friction-wave4.md）。
+      // 这些行下次迁移仍会重试（欠账语义：失败批不进增量标记）。
       unsynced += batch.length;
     }
   }

@@ -56,7 +56,7 @@ public record NextQuery(
             }
         }
         // 截断到 ≤100：归一化走「脏值不报错、只是失效」的静默语义，超出上限的排除项
-        // 静默丢弃（URL 长度防御，015 缺陷 #8）；LinkedHashSet 保序，保留最早出现的 100 个。
+        // 静默丢弃（URL 长度防御）；LinkedHashSet 保序，保留最早出现的 100 个。
         List<String> capped =
                 excluded.size() <= MAX_EXCLUDE_IDS
                         ? List.copyOf(excluded)

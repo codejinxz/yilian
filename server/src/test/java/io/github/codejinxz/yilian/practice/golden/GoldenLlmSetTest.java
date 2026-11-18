@@ -38,7 +38,7 @@ import java.util.stream.Stream;
 
 /**
  * 黄金集 LLM 三层回归（AC-5②）：review / appeal / ask 走 {@link LlmClientRegistry} 真实客户端， 断言按 AC-4
- * 结构与方向验收（不逐字对拍——LLM 非确定性，预披露裁决）。
+ * 结构与方向验收（不逐字对拍——LLM 非确定性）。
  *
  * <p>双闸跳过（CI 默认绿）：① {@code -Dgolden.enabled=true} 未设置 → {@code Assumptions} 跳过； ②设置后网关不可达/无可用客户端 →
  * 探活失败 Assumptions 跳过。跳过逻辑由 {@link GoldenAssetsIntegrityTest} 在 CI 侧证明。
@@ -81,7 +81,7 @@ class GoldenLlmSetTest {
         org.junit.jupiter.api.Assumptions.assumeTrue(
                 handle != null, "无可用 LLM 客户端（目录未配置或凭证不齐），golden LLM 套件跳过");
         try {
-            // 探活：一次最小调用验证网关可达（DEF-01 实验：网关典型延迟 5-14s）。
+            // 探活：一次最小调用验证网关可达（网关典型延迟 5-14s）。
             LlmChatClient.Reply probe = handle.client().ask("你是探活助手。", "只回复两个字：在线");
             org.junit.jupiter.api.Assumptions.assumeTrue(
                     probe.content() != null && !probe.content().isBlank(), "LLM 网关探活空回复，跳过");

@@ -593,7 +593,7 @@ export async function deleteAdminUser(userId: string, reason: string): Promise<A
 /**
  * 演示动作的通用审计入口：重置密码、导出数据、模型配置、运维吊销等
  * 目前没有专属服务端写端点的动作，用它在操作日志留下可见、有理由的审计记录。
- * 服务端校验动作白名单（012），未知动作回 40000。
+ * 服务端校验动作白名单，未知动作回 40000。
  * @param input 动作、对象与原因
  * @returns 新审计条目 id
  */
@@ -642,15 +642,15 @@ export async function updateAdminBankStatus(
 }
 
 // ---------------------------------------------------------------------------
-// 答疑 LLM 配置（017 落地，019 ModelsPage 状态中心接入；022 扩 provider 目录；
-// 028 起 legacy 形态全字段可编辑）。GET 回生效值（目录激活 > tutor 覆盖 > env）、
+// 答疑 LLM 配置（ModelsPage 状态中心消费；含 provider 目录与 legacy 形态编辑）。
+// GET 回生效值（目录激活 > tutor 覆盖 > env）、
 // source（custom|env）与 keyLast4（tutor 密钥行尾号），apiKey 明文永不回读；PUT 为
 // 状态型字段语义——baseUrl/model 非空白=落覆盖（即时生效）、空串/缺省=清除覆盖回
 // env（只传 enabled 的调用会同时清除既有覆盖）；apiKey 写-only（非空白=加密入库，
 // 空/缺省=不变更），clearKey=true 删 tutor 密钥行（API §8.14.2）。
 // ---------------------------------------------------------------------------
 
-/** 对话协议 wire 值（022，与服务端 LlmProtocol 一致；发布后不改号）。 */
+/** 对话协议 wire 值（与服务端 LlmProtocol 一致；发布后不改号）。 */
 export const llmProtocols = ["anthropic-messages", "openai-chat", "openai-responses"] as const;
 
 /** 对话协议类型。 */
@@ -662,15 +662,15 @@ export const llmConfigSchema = z.object({
   baseUrl: z.string(),
   model: z.string(),
   hasKey: z.boolean(),
-  /** 生效 provider id；legacy 形态与环境变量直配时为 "legacy"，未配置时为 null（022 新增）。 */
+  /** 生效 provider id；legacy 形态与环境变量直配时为 "legacy"，未配置时为 null。 */
   providerId: z.string().nullable(),
-  /** 生效协议 wire 值；未配置时为 null（022 新增）。 */
+  /** 生效协议 wire 值；未配置时为 null。 */
   protocol: z.string().nullable(),
   /** 凭证按协议口径是否齐备（anthropic-messages 轨 key 可空；不能用 hasKey 代替判断可用性）。 */
   credentialsComplete: z.boolean(),
-  /** legacy 形态取值来源（028 新增）：custom=存在 tutor 覆盖；env=纯环境变量（目录激活态恒为 env）。 */
+  /** legacy 形态取值来源：custom=存在 tutor 覆盖；env=纯环境变量（目录激活态恒为 env）。 */
   source: z.enum(["custom", "env"]),
-  /** tutor 密钥行尾 4 位辨识号（028 新增）；env 态密钥/目录激活态为 null（明文永不回读）。 */
+  /** tutor 密钥行尾 4 位辨识号；env 态密钥/目录激活态为 null（明文永不回读）。 */
   keyLast4: z.string().nullable(),
   /** 月度预算（元，预算护栏）；null=未设预算（护栏不生效）。 */
   monthlyBudgetCny: z.number().nullable(),
@@ -686,7 +686,7 @@ export const llmConfigSchema = z.object({
 /** 管理端 LLM 配置视图类型。 */
 export type LlmConfig = z.infer<typeof llmConfigSchema>;
 
-/** 更新答疑 LLM 配置的请求形状（API §8.14.2，028）：baseUrl/model 为状态型字段，apiKey 写-only；033 扩预算与定价（同为状态型字段）。 */
+/** 更新答疑 LLM 配置的请求形状（API §8.14.2）：baseUrl/model 为状态型字段，apiKey 写-only；预算与定价（同为状态型字段）。 */
 export interface LlmConfigUpdateInput {
   /** 答疑开关；true 且无可用客户端时服务端 40000 拒绝并回滚本次全部变更。 */
   enabled: boolean;
@@ -715,7 +715,7 @@ export async function getLlmConfig(signal?: AbortSignal): Promise<LlmConfig> {
 }
 
 /**
- * 更新答疑 LLM 配置（028：legacy 形态端点/模型/密钥可编辑）。
+ * 更新答疑 LLM 配置（legacy 形态端点/模型/密钥可编辑）。
  * @param input 开关 + 覆盖字段（baseUrl/model 状态型；apiKey 写-only 非空白才发送）
  * @returns 更新后的配置视图
  */
@@ -748,7 +748,7 @@ export async function updateLlmConfig(input: LlmConfigUpdateInput): Promise<LlmC
 }
 
 // ---------------------------------------------------------------------------
-// 本月用量视图（033 预算护栏，API §8.17）：UTC 自然月口径的已用/预算/百分比/三态
+// 本月用量视图（预算护栏，API §8.17）：UTC 自然月口径的已用/预算/百分比/三态
 // 与分场景小计。只读端点，管理端 ModelsPage 用量卡片的数据源。
 // ---------------------------------------------------------------------------
 
@@ -783,14 +783,14 @@ export async function getLlmUsage(signal?: AbortSignal): Promise<LlmUsage> {
 }
 
 // ---------------------------------------------------------------------------
-// provider 目录（022，API §8.15；027B 扩密钥入库）：CC Switch 式多 provider 元数据
-// CRUD 与激活切换。027B 起 apiKey 为写-only 字段：请求可带（非空白=服务端 AES-GCM
+// provider 目录（API §8.15，含密钥入库）：CC Switch 式多 provider 元数据
+// CRUD 与激活切换。apiKey 为写-only 字段：请求可带（非空白=服务端 AES-GCM
 // 加密入库，空/缺省=不变更），响应永不回显明文——条目只回 hasKey（入库或 env 任一）
 // 与 keyLast4（仅入库态有值，env 态 null）；激活中的 provider 服务端拒绝删除；
 // 激活条目即答疑等 AI 功能的数据源。
 // ---------------------------------------------------------------------------
 
-/** provider 目录条目（API §8.15.1；027B 增 keyLast4）。 */
+/** provider 目录条目（API §8.15.1，含 keyLast4）。 */
 export const llmProviderSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -950,7 +950,7 @@ export async function decideAdminAppeal(
 }
 
 // ---------------------------------------------------------------------------
-// Prompt 版本治理（034，API §8.18）：prompt_versions 注册表写半边的管理端入口。
+// Prompt 版本治理（API §8.18）：prompt_versions 注册表写半边的管理端入口。
 // 版本行 append-only（name/version/content 一经登记不改写），启用态由 label 流转；
 // 激活同事务完成「旧 ACTIVE 降 CANDIDATE → 新行 ACTIVE → 注册表缓存失效」即时换轨。
 // ---------------------------------------------------------------------------

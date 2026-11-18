@@ -8,7 +8,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * provider 目录条目的入库密钥行（llm_provider_keys 表，DATA-MODEL §5.20）：027B 起管理端可 把条目 API Key 以 AES-256-GCM
+ * provider 目录条目的入库密钥行（llm_provider_keys 表，DATA-MODEL §5.20）：管理端可 把条目 API Key 以 AES-256-GCM
  * 密文形态落本表，主密钥只走环境变量（不入库）。
  *
  * <p>与 {@code prompt_versions} 这类 append-only 快照不同，<strong>本表是密钥投影表</strong>： 录入即 upsert（同

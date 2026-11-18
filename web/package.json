@@ -15,7 +15,8 @@
     "biome:check": "biome check .",
     "biome:write": "biome check --write .",
     "format": "biome format --write .",
-    "lint": "biome lint ."
+    "lint": "biome lint .",
+    "check:comments": "node ../scripts/check-comments.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.80.0",

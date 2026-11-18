@@ -19,7 +19,7 @@ import org.springframework.test.context.ActiveProfiles;
 import java.util.Optional;
 
 /**
- * 027B 条目密钥解析链集成测试（真实 MySQL）[AC-3]： <strong>DB 密文解密 &gt; {@code YILIAN_LLM_KEY_<大写ID>} env &gt;
+ * 条目密钥解析链集成测试（真实 MySQL）[AC-3]： <strong>DB 密文解密 &gt; {@code YILIAN_LLM_KEY_<大写ID>} env &gt;
  * legacy</strong>—— UI 入库值生效优先于同名 env；删除入库值（目录条目删除同事务删密钥行）回退 env； 密文损坏按「密钥不存在」回退 env 不阻塞目录读；hasKey
  * =「DB 或 env 任一」； credentialsComplete 与 chatHandle 按 hasKey 新口径联动（anthropic 轨 key 可空语义保留）。
  *

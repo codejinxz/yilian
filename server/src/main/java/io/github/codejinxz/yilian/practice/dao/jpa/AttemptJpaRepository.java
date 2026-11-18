@@ -17,7 +17,7 @@ import java.util.Optional;
 public interface AttemptJpaRepository extends JpaRepository<Attempt, String> {
 
     /**
-     * 锁定单条提交行（SELECT ... FOR UPDATE），用于模型复核对同 attempt 的并发串行化（029）。
+     * 锁定单条提交行（SELECT ... FOR UPDATE），用于模型复核对同 attempt 的并发串行化。
      *
      * <p>attempts 行是复核写入的唯一天然锁点：复核的幂等闸、sequence 计算与 MODEL 行落库都以它为界串行化，
      * 后到者在锁上等待先到者提交后再读，幂等回读语义不变。只锁已存在的行且 attempt append-only 无删除， 锁等待超时由 InnoDB 默认值兜底；参照 {@code

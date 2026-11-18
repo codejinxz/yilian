@@ -405,7 +405,7 @@ describe("admin shell", () => {
     await user.clear(descriptionInput);
     await user.click(screen.getByRole("button", { name: "保存" }));
 
-    // 011 熔断遗留修复：清空说明必须把空串发给后端（null 会被理解为「不修改」）。
+    // 清空说明必须把空串发给后端（null 会被理解为「不修改」）。
     await waitFor(() => expect(patchBodies).toHaveLength(1));
     expect(patchBodies[0]).toEqual({
       name: "编辑目标库",

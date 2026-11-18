@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * {@link AnthropicMessagesLlmClient} 桩服务单测 [AC-1]：用 JDK 内置 HttpServer 模拟 Anthropic Messages 端点 （含
  * ZCode 网关的非标准 429 错误体），离线验证请求形状（/v1/messages、model/max_tokens/system/messages、 anthropic-version
- * 头）、响应映射（content[].text 与 usage.input_tokens/output_tokens）、<strong>思考模型 content 块提取（022： thinking
+ * 头）、响应映射（content[].text 与 usage.input_tokens/output_tokens）、<strong>思考模型 content 块提取（ thinking
  * 块不进正文、只拼 text 块）</strong>与 429/5xx 退避重试一次的节奏 （退避注入 0ms，不真睡 30s）。
  */
 class AnthropicMessagesLlmClientTest {
@@ -54,7 +54,7 @@ class AnthropicMessagesLlmClientTest {
                     + "\"stop_reason\":\"end_turn\","
                     + "\"usage\":{\"input_tokens\":20,\"output_tokens\":15,\"cache_read_input_tokens\":3}}";
 
-    /** max_tokens 被 thinking 吃尽的响应形状（022 实测）：只有 thinking 块、无 text 块，stop_reason=max_tokens。 */
+    /** max_tokens 被 thinking 吃尽的响应形状（实测）：只有 thinking 块、无 text 块，stop_reason=max_tokens。 */
     private static final String THINKING_ONLY_BODY =
             "{\"id\":\"msg_o\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"glm-5.3-flash\","
                     + "\"content\":[{\"type\":\"thinking\",\"thinking\":\"推理未完成……\",\"signature\":\"sig-x\"}],"
@@ -115,7 +115,7 @@ class AnthropicMessagesLlmClientTest {
 
     /**
      * [AC-1] 成功映射：POST {base}/v1/messages，请求体含 model/max_tokens/system/messages，回复与 usage 双 token
-     * 正确落位；max_tokens 为 022 三协议同源的 2048（思考模型 thinking 计入 max_tokens，768 档不够）。
+     * 正确落位；max_tokens 为三协议同源的 2048（思考模型 thinking 计入 max_tokens，768 档不够）。
      */
     @Test
     void mapsRequestAndResponseShape_ac1() {
@@ -156,9 +156,8 @@ class AnthropicMessagesLlmClientTest {
     }
 
     /**
-     * [AC-1] 思考模型 content 提取（022 桩锁死）：content=[thinking, text] 时只拼 text 块——thinking 内部推理不得
-     * 混进答疑正文；usage 双 token 照常映射（cache_read 等额外字段不破坏解析）。若 Spring AI 变更丢掉 text 块，
-     * 本用例即红，届时在客户端手写提取兜底（见实现类注释）。
+     * [AC-1] 思考模型 content 提取（桩锁死）：content=[thinking, text] 时只拼 text 块——thinking 内部推理不得 混进答疑正文；usage
+     * 双 token 照常映射（cache_read 等额外字段不破坏解析）。若 Spring AI 变更丢掉 text 块， 本用例即红，届时在客户端手写提取兜底（见实现类注释）。
      */
     @Test
     void extractsOnlyTextBlocksFromThinkingModelResponse_ac1() {
@@ -173,7 +172,7 @@ class AnthropicMessagesLlmClientTest {
         assertThat(reply.completionTokens()).isEqualTo(15);
     }
 
-    /** [AC-1] max_tokens 被 thinking 吃尽（022 实测形状）：无 text 块 → 正文为空（上层按「空回复降级」统一处理）， 客户端本身不抛错、不重试。 */
+    /** [AC-1] max_tokens 被 thinking 吃尽（实测形状）：无 text 块 → 正文为空（上层按「空回复降级」统一处理）， 客户端本身不抛错、不重试。 */
     @Test
     void returnsBlankContentWhenThinkingExhaustsTokens_ac1() {
         bodyQueue.add(THINKING_ONLY_BODY);

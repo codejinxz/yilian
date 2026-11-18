@@ -93,8 +93,8 @@ export function TodayPage() {
   const mock = isMockEnabled();
   const toast = useToast();
   /**
-   * 题库 chips 折叠态：默认收起。内部/测试题库名平铺会淹没新用户的第一屏
-   * （体验报告 D12/S4），启动台的一次点击应直达「今天该做的事」；错题 chip 是
+   * 题库 chips 折叠态：默认收起。内部/测试题库名平铺会淹没新用户的第一屏，
+   * 启动台的一次点击应直达「今天该做的事」；错题 chip 是
    * 用户自己的待办，保持常驻不折叠。
    */
   const [banksOpen, setBanksOpen] = useState(false);
@@ -153,7 +153,7 @@ export function TodayPage() {
   const bankSentenceTotal = banksQuery.data
     ? banks.reduce((sum, bank) => sum + bank.sentenceCount, 0)
     : null;
-  /** 可练的题库 chip：0 句的库（如已回收）不可练，不再占位（体验报告 D12）。 */
+  /** 可练的题库 chip：0 句的库（如已回收）不可练，不再占位。 */
   const chipBanks = banks.filter((bank) => bank.sentenceCount > 0);
 
   const dateNow = new Date();
@@ -163,7 +163,7 @@ export function TodayPage() {
   const dateLabel = `${dateParts[1]} 月 ${dateParts[2]} 日`;
 
   /**
-   * 主按钮语义（体验报告 S4）：「开始今日 N 题」，N = 当日待练数 = 每日目标 − 已练，
+   * 主按钮语义：「开始今日 N 题」，N = 当日待练数 = 每日目标 − 已练，
    * 两个数字都来自既有 today 聚合，不新增端点。与定级时用户选的「每天几题」对齐，
    * 不再出现「做 10 句热身」与自选目标互相矛盾的两套口径。
    * 清完当日目标后兜底「今日已清完，可自由练习」——按钮仍直达练习页自由练。
@@ -275,7 +275,7 @@ export function TodayPage() {
           >
             错题 {wrongQuery.data?.total ?? "…"}
           </Link>
-          {/* 题库 chips 默认折叠（体验报告 D12/S4）：测试/内部题库名平铺会把第一屏变成
+          {/* 题库 chips 默认折叠：测试/内部题库名平铺会把第一屏变成
               「9 个陌生 chip」，展开动作交给需要自选题库的用户。 */}
           {chipBanks.length > 0 ? (
             <button

@@ -373,7 +373,7 @@ public class UserAccountServiceImpl implements UserAccountService {
             // 任何时刻不出现 0 活跃管理员；最后一个管理员的删号须先由他人接管或另建管理员。
             throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "不能删除最后一个管理员");
         }
-        // 软删 + 清 2FA + 吊销全部会话同事务（预披露裁决：密钥材料不留给已删账号；会话吊销
+        // 软删 + 清 2FA + 吊销全部会话同事务（密钥材料不留给已删账号；会话吊销
         // 与 adminDeleteUser 同口径——deleted 账号 refresh 校验本就拒绝，吊销让窗口立即收敛）。
         // 学习记录 append-only 一律不动；匿名化由日调度任务在 deleted_at+30 天后执行。
         target.softDelete(userId, now);

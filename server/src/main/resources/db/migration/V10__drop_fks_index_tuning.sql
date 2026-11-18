@@ -1,4 +1,4 @@
--- V10：索引调整 + 物理外键改逻辑外键（docs/analysis/db-review-20261031.md P1/P2 结论）。
+-- V10：索引调整 + 物理外键改逻辑外键（数据库评审确认的低价值索引与外键治理）。
 -- 索引部分：
 --   1) reviews.idx_review_due 零查询使用且实测劫持 due 队列计划（state 退化为回表过滤），
 --      idx_review_state_due 独立覆盖全部 due 查询；
@@ -7,7 +7,7 @@
 --   3) attempts.idx_attempt_user_sentence 把 mode 排在 created_at 前，
 --      破坏「最新一次提交」与 countWrong 驱动侧的索引序，重排为 (user_id, sentence_id, created_at, mode)。
 -- 外键部分：物理外键全部改为逻辑外键——关系完整性由应用层校验
--- （逐表审计见 docs/analysis/db-review-20261031.md 附表），唯一约束/CHECK/触发器/分区全部保留。
+-- （每张表的引用关系都在应用层逐表校验），唯一约束/CHECK/触发器/分区全部保留。
 -- InnoDB 删 FK 后其支撑索引保留为普通索引，查询路径不变；唯一索引继续兜底幂等语义。
 -- 回滚：按本清单逐条重建 FOREIGN KEY 即可（各表清单按 information_schema 实名收录）。
 

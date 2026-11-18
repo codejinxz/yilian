@@ -38,7 +38,7 @@ public interface PromptVersionDao {
      *
      * @param name 场景名过滤，null 不过滤
      * @param label 标签过滤，null 不过滤
-     * @param offset 偏移量（(page-1)*size，调用方按 011 口径换算）
+     * @param offset 偏移量（(page-1)*size，调用方按分页口径换算）
      * @param limit 每页条数（调用方保证 1–100）
      * @return 当前页版本行
      */

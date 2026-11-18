@@ -1,10 +1,10 @@
--- V11：external_key 仅活跃行唯一 + llm_usage 用量落库（DATA-MODEL §5.18；023 待批项落地）。
+-- V11：external_key 仅活跃行唯一 + llm_usage 用量落库（DATA-MODEL §5.18）。
 -- 三件事一件迁移，逐条裁决如下。
 --
 -- ===== 1. sentences.active_external_key 生成列 + 仅活跃行唯一键 =====
 -- 问题：V7 的 uk_sentence_bank_external (bank_id, external_key) 是「全行唯一」——批次回滚后题目
--- 进入 RECYCLED（软删，deleted_at 置值），external_key 不释放，同文件重导必撞已回收行（016 评审
--- 05#01；文件路径暂以「冲突翻译为 40904」收敛，重导仍失败）。指纹键早已用 active_fingerprint
+-- 进入 RECYCLED（软删，deleted_at 置值），external_key 不释放，同文件重导必撞已回收行
+-- （文件路径暂以「冲突翻译为 40904」收敛，重导仍失败）。指纹键早已用 active_fingerprint
 -- 生成列（未删时 = fingerprint，已删恒为 NULL）按活跃行放行，两键口径不一致，本迁移对齐。
 --
 -- 裁决：旧键 uk_sentence_bank_external 必须删除。它对并发导入的防护由两层承接，防护不降级：
@@ -26,7 +26,7 @@ ALTER TABLE sentences
     ADD UNIQUE KEY uk_sentence_active_external (bank_id, active_external_key),
     DROP KEY uk_sentence_bank_external;
 
--- ===== 2. llm_usage 建表（DATA-MODEL §5.18，017「落库待批」项） =====
+-- ===== 2. llm_usage 建表（DATA-MODEL §5.18 的落库项） =====
 -- 形状即 §5.18 登记的精简版：只记元数据（token/耗时/成败），不落问题与回答内容
 -- （AGENTS §3.6：日志与异常表不得写入完整译文；本表同口径）。无物理外键（V10 决策，
 -- 完整性由应用层校验），user_id / sentence_id 为逻辑引用，仅建查询索引：
@@ -57,7 +57,7 @@ CREATE TABLE llm_usage (
 
 -- ===== 3. spring_session_attributes 孤儿清理：不加索引，清理走应用层 Job =====
 -- 背景：V10:78 删除 spring_session_attributes 的物理外键（含 ON DELETE CASCADE）后，会话行
--- 被删而属性行残留的孤儿 BLOB 无自动回收（016 评审实测一轮孤儿占 43%）。裁决：清理逻辑放
+-- 被删而属性行残留的孤儿 BLOB 无自动回收（实测孤儿行一度占该表 43%）。裁决：清理逻辑放
 -- PartitionMaintenanceJob（DML 可重入、失败只记日志下周期重试），不放迁移内一次性 DML——
 -- 迁移里 DELETE 大表在锁与 binlog 上不可控，且无法随调度周期复跑；孤儿产生是持续性的，
 -- 一次性清完不等于不再长。

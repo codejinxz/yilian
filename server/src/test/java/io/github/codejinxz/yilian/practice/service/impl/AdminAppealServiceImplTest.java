@@ -22,7 +22,7 @@ import org.mockito.quality.Strictness;
 import java.util.Optional;
 
 /**
- * {@link AdminAppealServiceImpl} 终审条件 UPDATE 单测 [AC-1]：029 并发原子门把「受影响行数=0」从 NOT_FOUND 改判为
+ * {@link AdminAppealServiceImpl} 终审条件 UPDATE 单测 [AC-1]：并发原子门把「受影响行数=0」从 NOT_FOUND 改判为
  * 40900「该申诉已被终审」——预检通过后记录仍可能被并发终审（条件 UPDATE 的 WHERE status='PENDING' 失配）， 此时按冲突拒绝而不是 404，与并发集成测试的
  * HTTP 语义互为两翼（集成锁行为，单测锁文案与错误码映射）。
  */

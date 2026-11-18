@@ -25,9 +25,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 系统配置并发首写集成测试（真实 MySQL yilian_test，017 R1 F1）：两个线程对同一新键并发 upsert 必须
- * 在数据库层原子收敛——双方都不抛异常、只落一行、值取其一。回退实现（同事务 catch DIVE 后重读重写） 会因 rollback-only 事务在这里抛
- * 500，本测试即其回归门；末写版本递增与描述保留也在此一并锁定。
+ * 系统配置并发首写集成测试（真实 MySQL yilian_test）：两个线程对同一新键并发 upsert 必须 在数据库层原子收敛——双方都不抛异常、只落一行、值取其一。回退实现（同事务
+ * catch DIVE 后重读重写） 会因 rollback-only 事务在这里抛 500，本测试即其回归门；末写版本递增与描述保留也在此一并锁定。
  */
 @SpringBootTest(
         properties = {
@@ -58,7 +57,7 @@ class JpaAppSettingDaoIntegrationTest {
         jdbcTemplate.update("DELETE FROM app_settings WHERE `key` = ?", KEY);
     }
 
-    /** [R1-F1] 真双线程并发首写同键：无异常收敛为单行，值取其一（回退式实现在此抛 500）。 */
+    /** 真双线程并发首写同键：无异常收敛为单行，值取其一（回退式实现在此抛 500）。 */
     @Test
     @DisplayName("[R1-F1] 并发首写同键原子收敛为单行")
     void concurrentFirstUpsertConvergesToSingleRow_r1() throws Exception {
@@ -87,7 +86,7 @@ class JpaAppSettingDaoIntegrationTest {
         }
     }
 
-    /** [R1-F1] 顺序覆盖：version 递增、value 末写胜出、首写 description 保留。 */
+    /** 顺序覆盖：version 递增、value 末写胜出、首写 description 保留。 */
     @Test
     @DisplayName("[R1-F1] 顺序覆盖递增版本并保留首写描述")
     void sequentialUpsertsBumpVersionAndKeepDescription_r1() {

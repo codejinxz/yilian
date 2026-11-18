@@ -29,11 +29,11 @@ import java.time.ZoneOffset;
 import java.util.Map;
 
 /**
- * 028 答疑配置三级解析链集成测试（真实 MySQL）[AC-2]/[AC-3]：
+ * 答疑配置三级解析链集成测试（真实 MySQL）[AC-2]/[AC-3]：
  *
- * <p><strong>装配优先级：目录激活条目（022 语义不变）&gt; tutor 覆盖轨（app_settings 键 llm.tutor 的 baseUrl/model +
+ * <p><strong>装配优先级：目录激活条目（语义不变）&gt; tutor 覆盖轨（app_settings 键 llm.tutor 的 baseUrl/model +
  * llm_provider_keys 预留 id=tutor 密钥）&gt; legacy env 轨</strong>——逐级验证：env 轨基线、
- * 覆盖保存即换轨、覆盖修改即时换新模型、目录激活压过覆盖、目录清空后覆盖轨回归；022 语义保留（目录非空未激活 = fail-closed，覆盖休眠不救场）。
+ * 覆盖保存即换轨、覆盖修改即时换新模型、目录激活压过覆盖、目录清空后覆盖轨回归；语义保留（目录非空未激活 = fail-closed，覆盖休眠不救场）。
  *
  * <p>[AC-3] tutor 密钥复用 llm_provider_keys（预留 id=tutor）：PUT apiKey 加密入库（密文列无明文）、 last4 投影、clearKey
  * 删行后 hasKey 回落 env；[AC-1] enabled=true 被拒时本次覆盖与密钥写入整体回滚（同事务）。
@@ -148,7 +148,7 @@ class TutorConfigRailIntegrationTest {
                         handle -> assertThat(handle.model()).isEqualTo("glm-override-2"));
     }
 
-    /** [AC-2] 三级优先序（3/3）：目录激活条目压过覆盖；目录清空后覆盖轨回归；目录非空未激活仍 fail-closed（022 语义不变）。 */
+    /** [AC-2] 三级优先序（3/3）：目录激活条目压过覆盖；目录清空后覆盖轨回归；目录非空未激活仍 fail-closed（语义不变）。 */
     @Test
     @DisplayName("[AC-2] 目录激活 > 覆盖 > env，且 022 fail-closed 语义保留")
     void ac2_directoryBeatsOverrideAndFailClosedPreserved() {
@@ -171,7 +171,7 @@ class TutorConfigRailIntegrationTest {
         assertThat(llmClients.chatHandle()).isEmpty();
         assertThat(llmClients.effectiveConfig()).isEmpty();
 
-        // 激活 → 目录条目压过覆盖（022 语义不变）。
+        // 激活 → 目录条目压过覆盖（语义不变）。
         providerAdminService.activate(PROVIDER_ID, 1L);
         assertThat(llmClients.chatHandle()).isEmpty(); // 目录条目缺密钥：句柄缺
         assertThat(llmClients.effectiveConfig())

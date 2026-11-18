@@ -62,7 +62,7 @@ import java.util.Optional;
 /**
  * {@link TutorServiceImpl} 单测 [AC-4]/[AC-3]：三态门（无可用客户端 40400 / 未开启 40304 / 开启可用）、 提示词上下文（题目中文 + 考点
  * + 本人错批注，不含参考译文、问题定界）、LLM 异常降级 50000、 免责标注常驻、开关存取的密钥/端点拒收与 fail-closed 解析。LLM 用 {@link
- * LlmChatClient} mock，客户端可用性经 {@link LlmClientRegistry} mock 注入（022 目录形态）。
+ * LlmChatClient} mock，客户端可用性经 {@link LlmClientRegistry} mock 注入（provider 目录形态）。
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -128,7 +128,7 @@ class TutorServiceImplTest {
         lenient()
                 .when(appSettingService.findValue(TutorServiceImpl.SETTING_KEY))
                 .thenReturn(Optional.of("{\"schemaVersion\":1,\"enabled\":true}"));
-        // tutor 密钥链：单测里无入库行（last4 投影为空），入库/清除行为由本类 028 用例与集成测试覆盖。
+        // tutor 密钥链：单测里无入库行（last4 投影为空），入库/清除行为由本类配置用例与集成测试覆盖。
         lenient()
                 .when(providerKeys.storedLast4(LlmProviderKeys.TUTOR_PROVIDER_ID))
                 .thenReturn(Optional.empty());
@@ -253,7 +253,7 @@ class TutorServiceImplTest {
         assertThat(user.getValue()).contains("（暂无：尚未提交过，或最近一次全对）");
     }
 
-    /** [R1-F3] 问题内伪造的定界/上下文标记被剥离（【】→『』），真正的定界符只出现一次（收尾）。 */
+    /** 问题内伪造的定界/上下文标记被剥离（【】→『』），真正的定界符只出现一次（收尾）。 */
     @Test
     void forgedDelimitersInQuestionAreNeutralized_r1() {
         when(llmChatClient.ask(anyString(), anyString()))

@@ -12,10 +12,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * 态）、入库密钥行或覆盖配置未变时复用已装配的客户端，目录任何变更（增删改/激活切换）、密钥录入/删除或覆盖保存
  * 下下次调用自动换轨，「变更失效」无需重启也无需显式失效钩子（app_settings 单行读与 llm_provider_keys 全行读都极廉价，答疑另有 5 次/分钟限流）。
  *
- * <p>装配选择（028 优先级）：目录激活条目按 protocol 构造 {@link AnthropicMessagesLlmClient} / {@link
- * OpenAiChatLlmClient} / {@link OpenAiResponsesLlmClient}；目录空时 tutor 覆盖轨（{@code llm.tutor} 的
- * baseUrl/model 覆盖 + llm_provider_keys 预留 id=tutor 密钥，协议仍随 legacy env 的 {@code
- * YILIAN_LLM_PROVIDER}——028 只开放端点/模型/密钥三个编辑面）优先于 legacy 三件套轨（惰性缓存，环境变量启动期固定）。
+ * <p>装配选择：目录激活条目按 protocol 构造 {@link AnthropicMessagesLlmClient} / {@link OpenAiChatLlmClient} /
+ * {@link OpenAiResponsesLlmClient}；目录空时 tutor 覆盖轨（{@code llm.tutor} 的 baseUrl/model 覆盖 +
+ * llm_provider_keys 预留 id=tutor 密钥，协议仍随 legacy env 的 {@code
+ * YILIAN_LLM_PROVIDER}——管理端只开放端点/模型/密钥三个编辑面）优先于 legacy 三件套轨（惰性缓存，环境变量启动期固定）。
  * 客户端构造失败（如脏端点）按「无可用配置」处理（fail-closed），不放大成 500。
  */
 @Component
@@ -37,7 +37,7 @@ public class LlmClientRegistryImpl implements LlmClientRegistry {
     /** 一次解析的结果：可用句柄与管理端视图可以同时存在/缺席（凭证不齐=视图在、句柄缺）。 */
     private record Resolution(Optional<ChatHandle> handle, Optional<EffectiveConfig> config) {}
 
-    /** 缓存指纹：目录快照 + 入库密钥行状态（027B）+ tutor 覆盖状态（028）——只换密钥/覆盖、不动目录时也要换轨。 */
+    /** 缓存指纹：目录快照 + 入库密钥行状态 + tutor 覆盖状态——只换密钥/覆盖、不动目录时也要换轨。 */
     private record Fingerprint(
             LlmProviderCatalog.Catalog catalog, String keyStamp, String tutorStamp) {}
 
@@ -50,7 +50,7 @@ public class LlmClientRegistryImpl implements LlmClientRegistry {
      * @param providerCatalog provider 目录存取
      * @param providerKeys 条目密钥解析链（DB 密文 &gt; env）
      * @param legacyProperties legacy 环境变量配置（兼容轨；覆盖轨的协议与超时同源于此）
-     * @param tutorOverrides 答疑覆盖配置存取（app_settings 键 llm.tutor，028）
+     * @param tutorOverrides 答疑覆盖配置存取（app_settings 键 llm.tutor）
      */
     public LlmClientRegistryImpl(
             LlmProviderCatalog providerCatalog,
@@ -103,7 +103,7 @@ public class LlmClientRegistryImpl implements LlmClientRegistry {
     }
 
     /**
-     * legacy 族解析（028，目录空时）：tutor 覆盖轨 &gt; legacy env 轨——存在任一覆盖（端点或模型）即进覆盖轨， 端点缺省回退 env 端点。覆盖状态指纹含
+     * legacy 族解析（目录空时）：tutor 覆盖轨 &gt; legacy env 轨——存在任一覆盖（端点或模型）即进覆盖轨， 端点缺省回退 env 端点。覆盖状态指纹含
      * baseUrl/model（只翻转 enabled 不产生新指纹——轨道不变无需换轨）， 与密钥行状态共同参与缓存失效，覆盖保存/清除 下一次调用即换轨。
      *
      * @param catalog 调用方已读取的目录快照（与判空同源，避免同解析二次读取的竞态）
@@ -127,11 +127,10 @@ public class LlmClientRegistryImpl implements LlmClientRegistry {
     }
 
     /**
-     * tutor 覆盖轨（028）：端点/模型逐字段取 {@code llm.tutor} 覆盖、缺省回退 env（端点回退 {@code YILIAN_LLM_BASE_URL}，模型回退
-     * env 模型/缺省值；env 端点也为空则凭证不齐、轨不可用），协议与超时仍随 legacy env （028 只开放端点/模型/密钥三个编辑面）；密钥链为
-     * llm_provider_keys 预留 id=tutor 密文解密 &gt; {@code YILIAN_LLM_API_KEY} env &gt;
-     * 空。凭证口径与目录条目一致（anthropic 轨 key 可空）。providerId 归 {@code legacy} 族——前端 legacy 卡形态判断依赖它，覆盖/env
-     * 的来源差异由配置视图 source 表达。
+     * tutor 覆盖轨：端点/模型逐字段取 {@code llm.tutor} 覆盖、缺省回退 env（端点回退 {@code YILIAN_LLM_BASE_URL}，模型回退 env
+     * 模型/缺省值；env 端点也为空则凭证不齐、轨不可用），协议与超时仍随 legacy env （管理端只开放端点/模型/密钥三个编辑面）；密钥链为 llm_provider_keys
+     * 预留 id=tutor 密文解密 &gt; {@code YILIAN_LLM_API_KEY} env &gt; 空。凭证口径与目录条目一致（anthropic 轨 key
+     * 可空）。providerId 归 {@code legacy} 族——前端 legacy 卡形态判断依赖它，覆盖/env 的来源差异由配置视图 source 表达。
      *
      * @param stored 覆盖配置（调用方保证 hasOverride）
      * @return 解析结果
@@ -172,7 +171,7 @@ public class LlmClientRegistryImpl implements LlmClientRegistry {
     }
 
     /**
-     * legacy 兼容轨：目录为空且 {@code YILIAN_LLM_*} 凭证齐备 → 视为单一隐式 provider（读路径兼容 017/021，协议按 {@code
+     * legacy 兼容轨：目录为空且 {@code YILIAN_LLM_*} 凭证齐备 → 视为单一隐式 provider（读路径兼容早期纯环境变量部署，协议按 {@code
      * YILIAN_LLM_PROVIDER}）；否则无可用配置（功能不存在）。
      *
      * @return 解析结果
@@ -223,7 +222,7 @@ public class LlmClientRegistryImpl implements LlmClientRegistry {
             return new Resolution(Optional.empty(), Optional.empty());
         }
         LlmProviderDescriptor descriptor = active.get();
-        // 027B 解析链：DB 密文解密 > YILIAN_LLM_KEY_<大写ID> env（>空）；legacy 三件套只在
+        // 密钥解析链：DB 密文解密 > YILIAN_LLM_KEY_<大写ID> env（>空）；legacy 三件套只在
         // 目录空分支生效，与本处无关。解密失败按密钥不存在回退 env（fail-safe，见
         // LlmProviderKeys），不把坏密文放大成装配异常。
         String resolvedKey = providerKeys.resolve(descriptor.id()).orElse("");

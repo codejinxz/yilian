@@ -7,12 +7,12 @@ import { resetApiState } from "@/lib/api";
 import { createQueryClient, queryKeys } from "@/lib/query";
 
 /**
- * ModelsPage「统一模型配置」状态中心 + provider 目录管理（022）：
+ * ModelsPage「统一模型配置」状态中心 + provider 目录管理：
  * 页面直连真实端点 /api/admin/llm/config 与 /api/admin/llm/providers（mock 层无 /admin/models 演示路径），
  * 因此用 fetch 桩按服务端真实响应形状（API §8.14/§8.15）应答，不经过 src/mocks。
  */
 
-/** 服务端 LlmConfigView 的合法形状（API §8.14.1，028 扩 source/keyLast4）。 */
+/** 服务端 LlmConfigView 的合法形状（API §8.14.1，含 source/keyLast4）。 */
 interface LlmConfigFixture {
   enabled: boolean;
   baseUrl: string;
@@ -41,7 +41,7 @@ interface LlmUsageFixture {
   byScene: Record<string, { tokens: number; costMicroCny: number; calls: number }>;
 }
 
-/** 服务端 LlmProviderView 的合法形状（API §8.15.1；027B 增 keyLast4）。 */
+/** 服务端 LlmProviderView 的合法形状（API §8.15.1；含 keyLast4）。 */
 interface LlmProviderFixture {
   id: string;
   name: string;
@@ -53,7 +53,7 @@ interface LlmProviderFixture {
   active: boolean;
 }
 
-/** 服务端 PromptVersionView 的合法形状（API §8.18，034）。 */
+/** 服务端 PromptVersionView 的合法形状（API §8.18）。 */
 interface PromptVersionFixture {
   id: number;
   name: "ask" | "review" | "appeal";
@@ -63,7 +63,7 @@ interface PromptVersionFixture {
   createdAt: string;
 }
 
-/** legacy 直配且开启的缺省夹具（019 用例形态，目录为空、纯 env）；用例按需覆盖字段。 */
+/** legacy 直配且开启的缺省夹具（目录为空、纯 env）；用例按需覆盖字段。 */
 const CONFIGURED_ON: LlmConfigFixture = {
   enabled: true,
   baseUrl: "https://open.bigmodel.cn/api/paas/v4",
@@ -102,7 +102,7 @@ const ZHIPU: LlmProviderFixture = {
   active: false,
 };
 
-/** Prompt 版本注册表缺省夹具（034，V13 种子形状：三条链路各一条 ACTIVE v1）。 */
+/** Prompt 版本注册表缺省夹具（V13 种子形状：三条链路各一条 ACTIVE v1）。 */
 const DEFAULT_PROMPTS: PromptVersionFixture[] = [
   {
     id: 1,
@@ -181,7 +181,7 @@ function stubAdminLlmFetch(
 ) {
   let current = initial;
   const providers = [...(options.providers ?? [])];
-  // Prompt 版本注册表演示态（034）：缺省给 V13 种子形状（三条 ACTIVE v1），用例按需覆盖。
+  // Prompt 版本注册表演示态：缺省给 V13 种子形状（三条 ACTIVE v1），用例按需覆盖。
   const prompts = [...(options.prompts ?? DEFAULT_PROMPTS)];
   const observed = {
     getCalls: 0,
@@ -213,13 +213,13 @@ function stubAdminLlmFetch(
           400,
         );
       }
-      // 028 状态型字段语义：baseUrl/model 出现即表达完整意图（值=落覆盖，空串/缺省=清除回 env）；
+      // 状态型字段语义：baseUrl/model 出现即表达完整意图（值=落覆盖，空串/缺省=清除回 env）；
       // apiKey 写-only（非空白=加密入库投影新尾号），clearKey=true 删 tutor 密钥行。
       const baseUrl = typeof body.baseUrl === "string" ? body.baseUrl : "";
       const model = typeof body.model === "string" ? body.model : "";
       const apiKeyGiven = typeof body.apiKey === "string" && body.apiKey !== "";
       const clearKey = body.clearKey === true;
-      // 033 预算护栏：状态型字段语义（非空=落值，空/缺省=清除）；0/负预算与超上限（服务端 R1 同款：
+      // 预算护栏：状态型字段语义（非空=落值，空/缺省=清除）；0/负预算与超上限（与服务端同款：
       // 预算 ≤1e9 元、单价 ≤1e6 元/每百万 token）服务端 40000。
       const monthlyBudget = body.monthlyBudgetCny;
       let nextBudget: number | null = current.monthlyBudgetCny;
@@ -326,7 +326,7 @@ function stubAdminLlmFetch(
       observed.getCalls += 1;
       return jsonResponse(successEnvelope({ items: providers }));
     }
-    // Prompt 版本治理（034，API §8.18）：GET 列表（带分页 query）/ POST 登记 / POST activate。
+    // Prompt 版本治理（API §8.18）：GET 列表（带分页 query）/ POST 登记 / POST activate。
     const promptListMatch = url.match(/\/api\/admin\/prompts(\?.*)?$/);
     if (promptListMatch && method === "GET") {
       observed.promptsGets += 1;
@@ -400,7 +400,7 @@ function stubAdminLlmFetch(
     if (url.endsWith("/api/admin/llm/providers") && method === "POST") {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       observed.providerPosts.push(body);
-      // 027B：带 apiKey（写-only）时服务端加密入库，投影只回 hasKey + 尾 4 位。
+      // 带 apiKey（写-only）时服务端加密入库，投影只回 hasKey + 尾 4 位。
       const hasKey = typeof body.apiKey === "string" && body.apiKey !== "";
       const created: LlmProviderFixture = {
         id: String(body.id),
@@ -430,7 +430,7 @@ function stubAdminLlmFetch(
         const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
         observed.providerPuts.push({ path: `/admin/llm/providers/${id}`, body });
         const target = providers.find((provider) => provider.id === id);
-        // 027B：apiKey 非空白=加密覆盖（投影换新尾号）；空/缺省=不变更（保留旧尾号）。
+        // apiKey 非空白=加密覆盖（投影换新尾号）；空/缺省=不变更（保留旧尾号）。
         const apiKeyGiven = typeof body.apiKey === "string" && body.apiKey !== "";
         const updated = target
           ? {
@@ -531,10 +531,10 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     renderModelsPage();
 
     // 凭证与开关联动：卡内答疑关联与 AI 功能清单两处都应为「启用中」；
-    // 034 起 Prompt 区块每条 ACTIVE 版本行也带「启用中」徽标（3 条种子行，合计 5）。
+    // Prompt 区块每条 ACTIVE 版本行也带「启用中」徽标（3 条种子行，合计 5）。
     expect(await screen.findAllByText("启用中")).toHaveLength(5);
     expect(screen.getByText("已配置")).toBeInTheDocument();
-    // 028：legacy 态当前模型为 inline 输入（默认回显生效值），不再是纯文本。
+    // legacy 态当前模型为 inline 输入（默认回显生效值），不再是纯文本。
     expect(screen.getByLabelText("当前模型")).toHaveValue("glm-4.7");
     expect(screen.getByLabelText("生效端点")).toHaveValue("https://open.bigmodel.cn/api/paas/v4");
     expect(screen.getByRole("button", { name: "停用答疑" })).toBeEnabled();
@@ -586,7 +586,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     // 答疑关联与 AI 功能清单两处联动位都归一为「未生效（缺凭证）」。
     expect(await screen.findAllByText("未生效（缺凭证）")).toHaveLength(2);
     // 展示层归一不影响指引：缺什么（环境变量两件套）与下一步（inline 补齐）同时可见。
-    // 028：密钥输入提示与指引块都含变量名，取「全部匹配」计数。
+    // 密钥输入提示与指引块都含变量名，取「全部匹配」计数。
     expect(screen.getAllByText(/YILIAN_LLM_API_KEY/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/开关已开启但未生效/)).toBeInTheDocument();
     // 运行态卡仍如实显示未开放（不谎称运行中）。
@@ -596,7 +596,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
   it("023 AC-1: anthropic 轨 hasKey=false 是合法可启用态——credentialsComplete=true 且开关已开时答疑关联为「启用中」，不出现缺凭证提示", async () => {
     // anthropic-messages 轨 key 可空（齐备只看端点）：hasKey=false 不是缺凭证。
     // 若展示仍按 openai 语义把 hasKey=false 当缺凭证，管理员在网关部署上会看到
-    // 「未生效（缺凭证）」与事实相反——这里按 022 后的 credentialsComplete 口径锁死。
+    // 「未生效（缺凭证）」与事实相反——这里按 credentialsComplete 口径锁死。
     stubAdminLlmFetch(
       { ...CONFIGURED_ON, hasKey: false, credentialsComplete: true },
       { providers: [ZCODE_GATEWAY] },
@@ -604,7 +604,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
 
     renderModelsPage();
 
-    // 答疑关联与 AI 功能清单两处联动位都是「启用中」；034 起另有 Prompt 区块 3 条 ACTIVE 行同徽标（合计 5）。
+    // 答疑关联与 AI 功能清单两处联动位都是「启用中」；另有 Prompt 区块 3 条 ACTIVE 行同徽标（合计 5）。
     expect(await screen.findAllByText("启用中")).toHaveLength(5);
     // 不出现缺凭证形态：无「未生效（缺凭证）」、无环境变量指引块、无对称说明行。
     expect(screen.queryByText("未生效（缺凭证）")).not.toBeInTheDocument();
@@ -626,7 +626,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "启用答疑" }));
 
-    // 028 状态型字段语义：legacy 态开关与表单当前值一起提交（裸传 enabled 会清掉既有覆盖）。
+    // 状态型字段语义：legacy 态开关与表单当前值一起提交（裸传 enabled 会清掉既有覆盖）。
     await waitFor(() => expect(observed.putBodies).toHaveLength(1));
     expect(observed.putBodies[0]).toEqual({
       enabled: true,

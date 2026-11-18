@@ -34,7 +34,7 @@ export async function updateSettings(input: UpdateSettingsRequest): Promise<User
 }
 
 /**
- * 036 自助删号：密码（与 2FA 动态码）确认后软删账号并吊销全部会话。
+ * 自助删号：密码（与 2FA 动态码）确认后软删账号并吊销全部会话。
  * 成功后本会话立即失效，调用方负责清会话回登录页。
  * @param input 当前密码；开启两步验证时另附 8 位动态码或恢复码
  * @returns 回执（软删时刻与匿名化时点）
@@ -53,7 +53,7 @@ export async function deleteAccount(input: DeleteAccountRequest): Promise<Delete
 const EXPORT_TIMEOUT_MS = 30_000;
 
 /**
- * 036 服务端账号数据导出：GET /api/me/export。
+ * 服务端账号数据导出：GET /api/me/export。
  *
  * 响应体是导出 JSON 本身（带 Content-Disposition 附件）而非统一信封，因此不走
  * {@link apiRequest} 的信封解包，单独 fetch；mock 分支复用 handlers 的同形应答。

@@ -186,7 +186,7 @@ describe("auth flow", () => {
   });
 
   it("D-1: 删号成功提示经 history state 送达登录页一次性渲染并清除", async () => {
-    // 跨路由提示链路（036 R2）：删号页 navigate 带 { flash } state → 登录页挂载取入
+    // 跨路由提示链路：删号页 navigate 带 { flash } state → 登录页挂载取入
     // 组件态渲染 Notice（role=status），同时清掉 history state——刷新/后退不重放。
     // 不许用来源页 toast（随导航卸载即丢失，DOM 级监听证实从未进 DOM）。
     // markPlaced 防止壳层定级门把未定级游客先劫去 /placement（那里也有 role=status 骨架）。
@@ -290,7 +290,7 @@ describe("auth flow", () => {
 
     const { router } = renderApp("/today");
     const user = userEvent.setup();
-    // 题库 chips 默认折叠（027 AC-7）：展开后才能断言游客可见的题库集合。
+    // 题库 chips 默认折叠：展开后才能断言游客可见的题库集合。
     await user.click(await screen.findByRole("button", { name: /更多题库/ }));
     // 游客首屏：chips 只有公开库。
     expect(await screen.findByText(/官方题库/)).toBeInTheDocument();

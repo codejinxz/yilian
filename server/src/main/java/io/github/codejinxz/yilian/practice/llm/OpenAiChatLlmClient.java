@@ -45,7 +45,7 @@ public class OpenAiChatLlmClient implements LlmChatClient {
                         .maxRetries(0)
                         .build();
         // 同一组 ClientOptions 同时喂同步与异步客户端：Builder.build() 对未显式提供的 async
-        // 客户端会经 OpenAiSetup 按默认环境凭据现拼（R1 修复），在无 OPENAI_API_KEY 的部署机上
+        // 客户端会经 OpenAiSetup 按默认环境凭据现拼，在无 OPENAI_API_KEY 的部署机上
         // 直接抛 IllegalStateException——必须两个都显式给定，才不会落到那条回退路径。
         OpenAIClientImpl client = new OpenAIClientImpl(options);
         OpenAiChatModel model =

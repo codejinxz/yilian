@@ -161,7 +161,7 @@ class AccountAnonymizationJobIntegrationTest {
     // ------------------------------------------------------------------ helpers
 
     /**
-     * 直插软删用户夹具：个性化设置 + 2FA 注册态 + 恢复码行（deleted_by 为 NULL 占位—— 真实链路由 018 管理员删或自助删号端点落值，匿名化不读该列）。
+     * 直插软删用户夹具：个性化设置 + 2FA 注册态 + 恢复码行（deleted_by 为 NULL 占位—— 真实链路由管理员删号或自助删号端点落值，匿名化不读该列）。
      *
      * @param username 用户名
      * @param deletedAtSql 软删时刻的 SQL 表达式

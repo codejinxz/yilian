@@ -12,7 +12,7 @@ import java.time.Instant;
  * 导入批次状态机单测 [AC-3]：合法迁移字段落位、非法迁移一律拒绝。
  *
  * <p>preview→commit 契约下批次不允许绕过状态机改 {@code status}；这里把设计文档 §4.2 的迁移表逐条固化，防止后续实现回退到旧
- * upload→PROCESSING→resume 语义。 用例名以 {@code ac3_} 前缀对应计划 001 的 AC-3。
+ * upload→PROCESSING→resume 语义。 用例名以 {@code ac3_} 前缀对应验收标准 AC-3。
  */
 class ImportBatchStateTransitionTest {
 

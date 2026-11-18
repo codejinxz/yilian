@@ -60,7 +60,7 @@ import java.util.regex.Pattern;
 /**
  * 申诉人工终审并发原子门集成测试（真实 MySQL）[AC-1]。
  *
- * <p>029 修复 A-01：终审 UPDATE 的 WHERE 携带 status='PENDING'（条件 UPDATE 语义），应用层预检与落库之间不再有
+ * <p>终审 UPDATE 的 WHERE 携带 status='PENDING'（条件 UPDATE 语义），应用层预检与落库之间不再有
  * 「预检都通过、后到者整体覆盖先到者」的双写窗口。两位管理员并发对同一条 PENDING 申诉裁决不同结论时， 恰好一人 200、另一人 40900；先到者的
  * status/终审理由不被覆盖；两次操作（含冲突那次）都在 admin_audit_log 留痕（审计不因冲突丢失）。
  *

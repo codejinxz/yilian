@@ -113,7 +113,7 @@ class V15UserTotp2faSchemaIntegrationTest {
         assertThat(unused.get(0).getCodeHash()).isEqualTo("$2a$10$hash-a");
         assertThat(unused.get(0).getCreatedAt()).isEqualTo(created);
 
-        // 使用语义（R1-1 原子化后走真实生产路径）：条件更新落 used_at，行不消失、不再出现在未用集合。
+        // 使用语义（条件更新原子化后走真实生产路径）：条件更新落 used_at，行不消失、不再出现在未用集合。
         assertThat(recoveryCodeDao.markUsedIfUnused(-7L, first.getId(), created.plusSeconds(60)))
                 .isTrue();
         assertThat(recoveryCodeDao.findUnusedByUserId(-7L)).hasSize(1);

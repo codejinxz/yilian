@@ -22,7 +22,7 @@ import java.util.List;
  * {@link PracticeCandidateQueryDao} 的 MyBatis 链路集成测试：真实 MySQL + XML 动态 SQL。
  *
  * <p>同时证明三件事：MapperScan 注册生效（AC-2）、{@code map-underscore-to-camel-case} 与 record 自动构造映射生效、SQL
- * 语义与「题库可见性 + 未入队下推」逐条对拍一致（016：私有库只有本人可见、非 NEW 卡不占召回窗口）。测试库为 {@code yilian_test} （与
+ * 语义与「题库可见性 + 未入队下推」逐条对拍一致（私有库只有本人可见、非 NEW 卡不占召回窗口）。测试库为 {@code yilian_test} （与
  * AuthFlowIntegrationTest 同源的前置条件：本机 MySQL）， 每个用例前清空内容三表与复习卡重新播种。
  */
 @SpringBootTest(

@@ -7,7 +7,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
- * 管理端新增 provider 请求体（API §8.15.2）：元数据 + 可选 apiKey。apiKey 是 <strong>写-only 字段</strong>（027B）： 非空白 =
+ * 管理端新增 provider 请求体（API §8.15.2）：元数据 + 可选 apiKey。apiKey 是 <strong>写-only 字段</strong>： 非空白 =
  * AES-GCM 加密入库（llm_provider_keys，明文永不入库/入日志/入审计）；空或缺省 = 不录密钥（解析链回退 env {@code
  * YILIAN_LLM_KEY_<大写ID>} / legacy）。响应侧永不回显明文，只回 hasKey 与 keyLast4。
  *

@@ -140,7 +140,7 @@ public class LlmBudgetSettings {
                                 SCHEMA_VERSION,
                                 config.hasBudget() ? config.monthlyBudgetCny() : null,
                                 storedPricing));
-        appSettingService.upsert(SETTING_KEY, value, "月度模型预算与定价（033 预算护栏）", operatorId);
+        appSettingService.upsert(SETTING_KEY, value, "月度模型预算与定价（预算护栏）", operatorId);
     }
 
     /**

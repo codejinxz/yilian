@@ -41,7 +41,7 @@ export function PlacementPage() {
   const [dailyGoal, setDailyGoal] = useState<1 | 3 | 5>(3);
   /**
    * 「已记录」微反馈：提交后先确认再进下一题。定级是全程唯一「答了没回音」的地方
-   * （体验报告 S1/D14），三题连答像答案消失；这里停留约 0.6s 给一个落定确认，
+   * （三题连答像答案消失）；这里停留约 0.6s 给一个落定确认，
    * 动效只用既有 rise 入场（透明度/位移），不弹窗、不引入新动效库。
    */
   const [recorded, setRecorded] = useState(false);

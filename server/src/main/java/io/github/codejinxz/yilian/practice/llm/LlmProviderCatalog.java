@@ -16,7 +16,7 @@ import java.util.Optional;
 
 /**
  * provider 目录存取：CC Switch 式多 provider 元数据持久化在 app_settings 两个键里—— {@code llm.providers} （目录数组）与
- * {@code llm.active}（激活 id，激活唯一）。<strong>apiKey 不入目录</strong>：目录只存元数据；密钥解析链（027B）见 {@link
+ * {@code llm.active}（激活 id，激活唯一）。<strong>apiKey 不入目录</strong>：目录只存元数据；密钥解析链见 {@link
  * LlmProviderKeys}——DB 密文解密 &gt; 本类的环境变量索引 {@code YILIAN_LLM_KEY_<大写ID>} &gt; legacy
  * 三件套（目录空回退），本类负责其中的 env 索引口径。
  *

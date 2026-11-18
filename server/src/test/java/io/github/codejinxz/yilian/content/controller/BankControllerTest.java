@@ -275,7 +275,7 @@ class BankControllerTest {
                 "TEM8");
     }
 
-    // ---------- [AC-1] 练习选题句列表（020，API §5.3.1）可见性矩阵 ----------
+    // ---------- [AC-1] 练习选题句列表（API §5.3.1）可见性矩阵 ----------
 
     /** [AC-1] 匿名取公开库选题句：200 分页信封，练过态两列为 null（「游客=未学」）。 */
     @Test
@@ -386,7 +386,7 @@ class BankControllerTest {
                 .andExpect(jsonPath("$.code").value(ApiCode.ACCESS_DENIED.code()));
     }
 
-    /** [AC-1] 分页越界回 40004 信封（与 019 MAX_PAGE 口径一致的 Service 校验）。 */
+    /** [AC-1] 分页越界回 40004 信封（与 MAX_PAGE 口径一致的 Service 校验）。 */
     @Test
     void pickerListInvalidPaginationIs400() throws Exception {
         when(contentQueryService.listPickerSentences(

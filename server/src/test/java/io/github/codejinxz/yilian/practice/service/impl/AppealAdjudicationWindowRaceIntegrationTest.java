@@ -53,7 +53,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * 用户回执按存储真相（终审态）投影。
  *
  * <p>基建与 {@code AppealFinalDecisionConcurrencyIntegrationTest} 同款：桩注册表 + 脚本化限流器 （CI 无 Redis）；终审走
- * {@link AdminAppealService}（HTTP 层鉴权与审计由 029 AC-1 并发套件与切片测试覆盖，本套件聚焦数据行守卫与回执投影）。
+ * {@link AdminAppealService}（HTTP 层鉴权与审计由并发套件与切片测试覆盖，本套件聚焦数据行守卫与回执投影）。
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

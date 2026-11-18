@@ -94,7 +94,7 @@ public class TotpAccountServiceImpl implements TotpAccountService {
     public void markRecoveryCodeUsed(long userId, long codeId) {
         // 条件更新原子化「查未用→标记」：used_at IS NULL 下沉到 UPDATE 的 WHERE，
         // 两笔并发消费同码时后到者影响行数 0——单次语义由数据库原子性保证，
-        // 不存在「读-判-写」竞态窗口（R1-1，S4 隔离审查指正）。
+        // 不存在「读-判-写」竞态窗口。
         if (!recoveryCodeDao.markUsedIfUnused(userId, codeId, Instant.now())) {
             throw new BusinessException(ApiCode.AUTH_INVALID_CREDENTIALS, "恢复码无效或已使用");
         }

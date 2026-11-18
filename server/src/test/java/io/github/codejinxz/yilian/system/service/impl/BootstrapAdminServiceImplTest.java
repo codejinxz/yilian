@@ -146,7 +146,7 @@ class BootstrapAdminServiceImplTest {
         assertThat(encoder.matches("new-password", existing.getPasswordHash())).isTrue();
         assertThat(encoder.matches("old-password", existing.getPasswordHash())).isFalse();
         verify(appUserDao).save(existing);
-        // 改密必须同时吊销 refresh 会话（03 评审 #16 的缺口：此前只断言口令被覆盖）。
+        // 改密必须同时吊销 refresh 会话（更早的用例缺口：此前只断言口令被覆盖）。
         verify(sessionRepository).findByPrincipalName("admin");
     }
 

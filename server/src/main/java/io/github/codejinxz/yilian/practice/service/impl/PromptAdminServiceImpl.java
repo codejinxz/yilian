@@ -33,13 +33,13 @@ public class PromptAdminServiceImpl implements PromptAdminService {
 
     private static final Logger log = LoggerFactory.getLogger(PromptAdminServiceImpl.class);
 
-    /** 每页条数缺省值（011 分页口径同款）。 */
+    /** 每页条数缺省值（统一分页口径同款）。 */
     static final int DEFAULT_PAGE_SIZE = 20;
 
     /** 每页条数上限；前端可传更大值，越界归 100 而不是报错。 */
     static final int MAX_PAGE_SIZE = 100;
 
-    /** 页码上限：offset = (page-1)*size 需落在 int 内，同时拦住无意义的深翻页（011 口径）。 */
+    /** 页码上限：offset = (page-1)*size 需落在 int 内，同时拦住无意义的深翻页（统一分页口径）。 */
     private static final int MAX_PAGE = 10_000;
 
     /** 场景名白名单：与 PromptRegistry 取用键同源（ask 答疑 / review 模型复核 / appeal 申诉初裁）。 */
@@ -139,7 +139,7 @@ public class PromptAdminServiceImpl implements PromptAdminService {
             // 行在上面的 findById 之后被并发删除（现无 DELETE 端点，防御性兜底）按 40400 收敛。
             throw new BusinessException(ApiCode.NOT_FOUND);
         }
-        // 写后失效：三条 LLM 链路（ask/review/appeal）下一次 load 即取新版本（028 指纹换轨语义不破坏）。
+        // 写后失效：三条 LLM 链路（ask/review/appeal）下一次 load 即取新版本（客户端注册表的指纹换轨语义不受影响）。
         promptRegistry.evictAll();
         log.info(
                 "prompt_activated operatorId={} name={} version={} id={}",

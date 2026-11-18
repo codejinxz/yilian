@@ -16,7 +16,7 @@ public enum LlmProtocol {
     /** OpenAI Chat Completions 协议（Spring AI OpenAI 路径），服务智谱/DeepSeek 等 OpenAI 兼容端点。 */
     OPENAI_CHAT("openai-chat"),
 
-    /** OpenAI Responses 协议（{@code POST {base}/v1/responses}，022 新增，手写 HTTP 客户端）。 */
+    /** OpenAI Responses 协议（{@code POST {base}/v1/responses}，手写 HTTP 客户端）。 */
     OPENAI_RESPONSES("openai-responses");
 
     private final String wire;

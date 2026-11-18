@@ -10,6 +10,17 @@
   命名、Javadoc、复杂度等更细的规则留给后续按模块逐步启用，避免存量代码
   一次性产生大量违规而让门禁失去意义。google-java-format 的格式校验由
   fmt-maven-plugin 的 `fmt:check` 单独负责。
+
+  注释纪律（AGENTS.md §3.2 的「注释只述 what/why」）：注释不得携带过程性引用
+  （批次号、评审轮次/条目号、指示来源、gitignored 文档引用、阶段词），只写
+  「这段代码做什么/为什么这样设计」。规则分两层：
+  - RegexpSinglelineJava：作用于原始行，仅放置经核实「字符串字面量中不出现」的
+    CJK 词面模式（测试标题字符串不受影响）。
+  - IllegalTokenText(COMMENT_CONTENT)：仅匹配注释 token 内容，放置会与字符串
+    字面量冲突的模式（批次号数字形态、DEF/A-/F- 条目号、测试标题常用词）。
+  白名单：[AC-x] 测试标签、DATA-MODEL §/PRD §/API.md §/AGENTS § 章节指针、
+  RESEARCH.md 设计决策号（D-xxx，靠数字模式的前向断言排除）、RFC/算法名
+  （S1=FSRS 首稳定度）、对象存储协议名（S3/R2），均不触发以下任何模式。
 -->
 <module name="Checker">
   <property name="charset" value="UTF-8"/>
@@ -30,5 +41,64 @@
   <!-- 文件必须以 LF 结尾，且只能有一个换行；与 .editorconfig 保持一致。 -->
   <module name="NewlineAtEndOfFile">
     <property name="lineSeparator" value="lf"/>
+  </module>
+
+  <!-- ===== 注释纪律 ===== -->
+  <module name="TreeWalker">
+    <!-- 原始行级词面模式（已核实不出现在字符串字面量中）。 -->
+    <!-- 阶段词「本批」：域内词「本批次」= 导入批次，用负向先行排除。 -->
+    <module name="RegexpSinglelineJava">
+      <property name="format" value="本批(?!次)"/>
+      <property name="message" value="注释禁止阶段词「本批」：改为描述这段代码做什么/为什么这样设计"/>
+    </module>
+
+    <!-- 指示来源：任务书、计划文件、会话接力提示词、待办台账。 -->
+    <module name="RegexpSinglelineJava">
+      <property name="format" value="任务书|计划文件|next-session-prompt|pending-20261117|主人"/>
+      <property name="message" value="注释禁止引用指示来源：只写设计事实与理由"/>
+    </module>
+
+    <!-- gitignored 文档引用：评审/复盘/分析文档在仓内不可解析。 -->
+    <module name="RegexpSinglelineJava">
+      <property name="format" value="docs/(plans|retro|analysis)/"/>
+      <property name="message" value="注释禁止引用 gitignored 文档：改用 DATA-MODEL §/PRD §/API.md § 等仓内可解析指针"/>
+    </module>
+
+    <!-- 评审轮次与裁决过程词：裁决依据直接写成设计事实，不引用评审轮。 -->
+    <module name="RegexpSinglelineJava">
+      <property name="format" value="评审轮|轮巡|预披露|隔离审查|遗留登记|消缺"/>
+      <property name="message" value="注释禁止评审轮次/裁决过程引用：把决策本身与理由写清楚"/>
+    </module>
+
+    <!-- 分析报告条目引用：体验观察/定位结论直接描述问题本身。 -->
+    <module name="RegexpSinglelineJava">
+      <property name="format" value="实现注记|定位结论|体验报告"/>
+      <property name="message" value="注释禁止引用分析报告条目：直接描述问题与结论"/>
+    </module>
+
+    <!-- 注释 token 级模式（与字符串字面量同形的词放这里，避免误伤测试标题）。 -->
+    <!-- 批次号数字形态：0XX/0XXB/0XX-a，后接 CJK/括号/斜杠/字母（数字/小数点/下划线/
+         连字符前缀的非批次数字如 40306、0.025、10_000 已被负向后顾排除；[AC-x] 标签为两位数不匹配）。 -->
+    <module name="IllegalTokenText">
+      <property name="tokens" value="COMMENT_CONTENT"/>
+      <property
+          name="format"
+          value="(?&lt;![0-9.\-_])0[0-9]{2}(?:[A-Z]|-[ab])?(?=\s*[\p{IsHan}（(/：；，、。）A-Za-z])"/>
+      <property name="message" value="注释禁止批次号引用（0XX 形态）：改为语义描述（做什么/为什么）"/>
+    </module>
+
+    <!-- 评审条目号：DEF-xx / A-xx / F-xx / R1-x（[AC-x] 标签不受影响）。 -->
+    <module name="IllegalTokenText">
+      <property name="tokens" value="COMMENT_CONTENT"/>
+      <property name="format" value="DEF-[0-9]|[AF]-0[0-9]|R[12]-[0-9F]"/>
+      <property name="message" value="注释禁止评审条目号引用（DEF-/A-/F-/R1-/R2-）：改为语义描述"/>
+    </module>
+
+    <!-- 评审/巡检/冒烟过程词（字符串里的测试标题不受影响，注释 token 内一律禁止）。 -->
+    <module name="IllegalTokenText">
+      <property name="tokens" value="COMMENT_CONTENT"/>
+      <property name="format" value="审查|巡检|冒烟|裁决点"/>
+      <property name="message" value="注释禁止评审/巡检过程词：把问题与结论直接写清楚"/>
+    </module>
   </module>
 </module>

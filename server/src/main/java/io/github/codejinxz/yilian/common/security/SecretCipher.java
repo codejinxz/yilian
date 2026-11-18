@@ -34,11 +34,11 @@ import javax.crypto.spec.SecretKeySpec;
  *       的原始口令视为编码形态（文档化口径，部署方用原始口令时避开这两种长度即可）。
  * </ul>
  *
- * <p><strong>fail-fast 口径（复用 018 prod 加固判定 {@link DeploymentMode#isProd}）</strong>： prod（profile 含
- * prod 或 {@code YILIAN_PROD_MARKER=true}）下主密钥缺失或仍是 {@code local-dev-only} 开发值 → 构造期抛异常启动失败；非
+ * <p><strong>fail-fast 口径（复用 prod 环境判定 {@link DeploymentMode#isProd}）</strong>： prod（profile 含 prod
+ * 或 {@code YILIAN_PROD_MARKER=true}）下主密钥缺失或仍是 {@code local-dev-only} 开发值 → 构造期抛异常启动失败；非
  * prod（local/test）缺值时回落到类内文档化 dev 默认值（与 application-local.yml 的 local-dev-only 值同文），仅限本机开发，禁止复用。
  *
- * <p><strong>兜底属性名沿用 {@code yilian.security.provider-key.master-key}</strong>：本类由 027B 的 provider
+ * <p><strong>兜底属性名沿用 {@code yilian.security.provider-key.master-key}</strong>：本类由 provider
  * 密钥加密器抽取而来（TOTP 密钥入库复用同一加密纪律），application-local.yml 与 application-test.yml 已按该属性名 配置文档化 dev
  * 值；改名会让既有部署的已加密数据无法解密，故属性名保持原样，语义由「provider 密钥主密钥」 扩展为「本类所有落库凭据的主密钥」。
  *
@@ -54,9 +54,7 @@ public class SecretCipher {
     /** 主密钥的标准环境变量名（部署文档口径；prod 只从这里取）。 */
     public static final String MASTER_KEY_ENV = "YILIAN_SECRET_MASTER_KEY";
 
-    /**
-     * 兜底 Spring 属性：application-local.yml 放文档化 dev 值用（env 优先于本属性；名称沿用 027B 的 provider-key 属性以保配置兼容）。
-     */
+    /** 兜底 Spring 属性：application-local.yml 放文档化 dev 值用（env 优先于本属性；名称沿用 provider-key 原属性名以保配置兼容）。 */
     public static final String MASTER_KEY_PROPERTY = "yilian.security.provider-key.master-key";
 
     /** 非 prod 缺值时回落到的文档化 dev 默认值；prod 拒绝（local-dev-only 前缀纪律）。 */

@@ -117,7 +117,7 @@ function isAskUnavailableMarked(): boolean {
  *
  * <p>口径：未开放（40304）与未配置（40400）是服务端稳定状态，会话内重试
  * 没有意义——首次命中后记住，重进练习页不再重现入口，切断「问→面板消失→重进→再问→
- * 再消失」的循环困惑（test-engineer 017 实测复现两次）。记忆范围取 sessionStorage（标签页
+ * 再消失」的循环困惑，实测会重复复现）。记忆范围取 sessionStorage（标签页
  * 会话）而非模块级标志：模块级在 SPA 内等效但刷新即失；取 localStorage 又过重——新开标签
  * 或次日应重新给一次暴露机会，管理员可能中途在管理端开启答疑，会话级是「不循环困惑」与
  * 「不过度隐藏」的折中。
@@ -251,7 +251,7 @@ function AnnotationActions({
   const [reason, setReason] = useState("");
   const [proposedAnswer, setProposedAnswer] = useState("");
   /**
-   * 已提交动作的终态：status/verdict 来自接口回执（025 起申诉回执带 AI 初裁意见；
+   * 已提交动作的终态：status/verdict 来自接口回执（申诉回执带 AI 初裁意见；
    * 初裁不可用时 verdict="UNAVAILABLE"，DISPUTE/未生成为 null）。
    * 只存本会话态——刷新后回到未提交视图（与原实现一致，不做按批注的回查）。
    */
@@ -340,7 +340,7 @@ function AnnotationActions({
         </p>
       );
     }
-    // 初裁不可用（029 起服务端占位回执如实发 verdict="UNAVAILABLE"，与存储 decision JSON 同源）。
+    // 初裁不可用（服务端占位回执如实发 verdict="UNAVAILABLE"，与存储 decision JSON 同源）。
     if (outcome.verdict === "UNAVAILABLE") {
       return (
         <p className="mt-2 font-mono text-[10px] tracking-[0.06em] text-ink-faint">
@@ -475,7 +475,7 @@ export function PracticePage() {
   const [retryFixed, setRetryFixed] = useState(false);
   /**
    * 判分对位双视图：「按我的输入」是现状视图（默认），「按参考对位」以规范答案词序重排
-   * 逐词命中态。多词块被固定词框强拆后红绿错位、看不清错在哪个词（体验报告 D4），
+   * 逐词命中态。多词块被固定词框强拆后红绿错位、看不清错在哪个词，
    * 参考对位视图给第二条可读路径；纯本地状态，不进任何持久层。
    */
   const [slotView, setSlotView] = useState<"mine" | "reference">("mine");
@@ -1377,7 +1377,7 @@ export function PracticePage() {
       : [];
   // 整句聚合批注（free:0）的分化正文：既有命中的语块也有未命中的语块时，先确认命中的
   //（苔绿），「参考写法」只列未命中的语块——避免「答对的部分被错误条目样式淹没」的误读
-  //（体验报告 D5）。全中/全不中时不需要分化，回退原有正文。
+  //（避免命中部分被未命中样式的注意力淹没）。全中/全不中时不需要分化，回退原有正文。
   const freeSplit =
     displayMode === "FREE" && !isReveal && freeChips.length > 0
       ? (() => {
@@ -1601,7 +1601,7 @@ export function PracticePage() {
                 <div>
                   {showViewToggle ? (
                     // 判分对位双视图：默认「按我的输入」保持现状；多词输入被固定词框强拆而
-                    // 红绿错位时（体验报告 D4），「按参考对位」以规范答案词序给出逐词命中态。
+                    // 红绿错位时，「按参考对位」以规范答案词序给出逐词命中态。
                     <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
                       <span className="font-mono text-[10px] tracking-[0.14em] text-ink-faint">
                         判分对位
@@ -1660,7 +1660,7 @@ export function PracticePage() {
                           : null;
                         if (referenceView) {
                           // 「按参考对位」：以规范答案词序展示逐词命中态（命中苔绿 / 未命中朱红），
-                          // 用户完整输入随注保留——不再把多词输入强拆进固定词框（D4 的错位来源）。
+                          // 用户完整输入随注保留——不再把多词输入强拆进固定词框（红绿错位的来源）。
                           const alignment = alignToReference(chunk.answers, value);
                           return (
                             <Fragment key={chunk.index}>
@@ -1714,7 +1714,7 @@ export function PracticePage() {
                           submittedSlots !== null && (annotation === null || annotation.correct);
                         return (
                           <Fragment key={chunk.index}>
-                            {/* max-w-full 把整空包裹块钉在题干行宽内（022 巡检 DEF-03：390 视口长草稿
+                            {/* max-w-full 把整空包裹块钉在题干行宽内（390 视口长草稿
                                 把 ch 自适应词框顶出横向溢出）；框内超长由 input 自身滚动，不再撑破容器。 */}
                             <span className="relative inline-flex max-w-full items-baseline gap-px whitespace-nowrap">
                               <span className={BLANK_BADGE}>{blankIndex + 1}</span>
@@ -1760,7 +1760,7 @@ export function PracticePage() {
                                       className={cn(
                                         // 原型 .skeleton input：只有下边线、内边距 0 4px 1px、左右 1px 外距、focus 朱红。
                                         // min-w-0 + max-w-full：flex 内允许词框被压回包裹块宽度、上限不超过包裹块，
-                                        // ch 自适应照常生效，超长草稿由框内滚动承载（022 巡检 DEF-03）。
+                                        // ch 自适应照常生效，超长草稿由框内滚动承载。
                                         "mx-px min-w-0 max-w-full border-b bg-transparent px-1 pb-px font-serif outline-none transition-[border-color] duration-150 ease-[ease]",
                                         submittedSlots
                                           ? hit
@@ -1781,7 +1781,7 @@ export function PracticePage() {
                                 );
                               })}
                               {/* 行内朱批（期望文本）只属于「按我的输入」视图：参考对位视图里
-                                  期望词已逐词展开，再悬浮一段红色期望文本就是 D4 的混乱本身。 */}
+                                  期望词已逐词展开，再悬浮一段红色期望文本正是那种红绿错位的混乱。 */}
                               {!referenceView &&
                               annotation &&
                               !annotation.correct &&
@@ -1945,7 +1945,7 @@ export function PracticePage() {
                 <p className="text-[13px] tracking-[0.04em] text-ink-muted">{displayNote}</p>
                 {recordedFlash ? (
                   // 判分落定的「已记录」确认：复用 rise 入场（透明度/位移 0.3s），1.8s 自动消失，
-                  // 不弹窗不打断一屏一句（体验报告 S1 的练习侧落点）。
+                  // 不弹窗不打断一屏一句。
                   <span
                     role="status"
                     className="rise font-mono text-[11px] tracking-[0.08em] text-moss"
@@ -2171,7 +2171,7 @@ export function PracticePage() {
                     key={annotation.key}
                     className="relative mb-[18px] pl-[22px] text-[12.5px] leading-[1.8] text-ink-muted"
                   >
-                    {/* 正确/错误语块样式分化（体验报告 D5）：命中的语块用苔绿对勾 + 中性正文，
+                    {/* 正确/错误语块样式分化：命中的语块用苔绿对勾 + 中性正文，
                         只有未命中的语块用朱红编号并配申诉入口——答对的部分不再混在错误条目里。 */}
                     <b
                       className={cn(
@@ -2228,7 +2228,7 @@ export function PracticePage() {
             )}
           </ol>
 
-          {/* 017 题目答疑：批注栏「问一问」入口；面板按句 key 重挂载，历史随换句清空。
+          {/* 题目答疑：批注栏「问一问」入口；面板按句 key 重挂载，历史随换句清空。
               未开放（40304）/未配置（40400）时经 onUnavailable 整体隐藏入口，并写入会话级
               记忆，重进页面不再重现。 */}
           {displaySentence && askAvailable ? (

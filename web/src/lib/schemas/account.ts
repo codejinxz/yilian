@@ -48,7 +48,7 @@ export const totpStatusSchema = z.object({
 
 export type TotpStatus = z.infer<typeof totpStatusSchema>;
 
-/** 注册第一步回执：Base32 密钥与 otpauth URI 文本仅此一次展示（本批不渲染二维码）。 */
+/** 注册第一步回执：Base32 密钥与 otpauth URI 文本仅此一次展示（不渲染二维码，凭手动录入/粘贴导入）。 */
 export const totpSetupSchema = z.object({
   secret: z.string().regex(/^[A-Z2-7]{32}$/, "密钥格式异常"),
   otpauthUri: z.string().startsWith("otpauth://totp/"),
@@ -120,7 +120,7 @@ export const updateSettingsRequestSchema = settingsSchema.partial();
 
 export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
 
-/** 036 自助删号请求：密码必填；开启两步验证的用户另附 8 位动态码或恢复码。 */
+/** 自助删号请求：密码必填；开启两步验证的用户另附 8 位动态码或恢复码。 */
 export const deleteAccountRequestSchema = z.object({
   password: z.string().min(1, "请输入当前密码"),
   totpCode: z
@@ -132,7 +132,7 @@ export const deleteAccountRequestSchema = z.object({
 
 export type DeleteAccountRequest = z.infer<typeof deleteAccountRequestSchema>;
 
-/** 036 删号回执：软删完成时刻与匿名化时点（UTC ISO 字符串，相差 30 天冷静期）。 */
+/** 删号回执：软删完成时刻与匿名化时点（UTC ISO 字符串，相差 30 天冷静期）。 */
 export const deleteAccountReceiptSchema = z.object({
   deletedAtUtc: z.string().min(1),
   anonymizeAtUtc: z.string().min(1),
@@ -141,7 +141,7 @@ export const deleteAccountReceiptSchema = z.object({
 export type DeleteAccountReceipt = z.infer<typeof deleteAccountReceiptSchema>;
 
 /**
- * 036 服务端账号数据导出（GET /api/me/export 的裸 JSON，非统一信封）。
+ * 服务端账号数据导出（GET /api/me/export 的裸 JSON，非统一信封）。
  *
  * 顶层块严格校验（账号块/四个切片齐全）；切片行按宽松 record 校验——行字段在服务端
  * 与 DATA-MODEL §5.8–5.11 对齐且前端只整包落盘、不逐行消费，严格 schema 只会把

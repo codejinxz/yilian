@@ -1,7 +1,7 @@
--- V14：llm_provider_keys 管理端密钥加密入库（DATA-MODEL §5.20；027B 计划）。
+-- V14：llm_provider_keys 管理端密钥加密入库（DATA-MODEL §5.20）。
 --
--- 背景：022 起 provider 目录（app_settings 键 llm.providers）只存元数据，密钥按条目 id 走
--- YILIAN_LLM_KEY_<大写ID> 环境变量索引（密钥不入库）。027B 把「密钥」扩为管理端可动态录入：
+-- 背景：provider 目录（app_settings 键 llm.providers）只存元数据，密钥按条目 id 走
+-- YILIAN_LLM_KEY_<大写ID> 环境变量索引（密钥不入库）。本表把「密钥」扩为管理端可动态录入：
 -- 条目密钥 AES-256-GCM 加密落本表，主密钥只走环境变量 YILIAN_SECRET_MASTER_KEY
 -- （prod 缺失启动失败；local 允许 application-local.yml 的 local-dev-only 开发值，禁复用）。
 -- 解析优先级：本表密文解密 > YILIAN_LLM_KEY_<大写ID> env > legacy 环境变量三件套
@@ -18,11 +18,11 @@
 --      auth tag)。TEXT 上限 64KB 远超任何 API Key 长度；列上无明文，明文只在加密前的
 --      内存里短暂存在，不入日志/审计/响应。
 --   d) key_last4 VARCHAR(4) NULL：录入时留痕的尾 4 位辨识号（env 态无此列值）。仅用于
---      管理员辨认「存的是哪把钥匙」，不是明文泄露（预披露裁决）；可空兼容测试夹具。
---   e) 无 append-only 触发器：密钥投影表允许受控 UPDATE/DELETE（预披露裁决）——录入即
+--      管理员辨认「存的是哪把钥匙」，不是明文泄露；可空兼容测试夹具。
+--   e) 无 append-only 触发器：密钥投影表允许受控 UPDATE/DELETE——录入即
 --      upsert（覆盖旧密文）、目录删除即删行；updated_at 每次变更留痕，主键唯一保证
 --      同一 provider 只有一行，历史不可伪造由主密钥保密性与审计日志承担。
--- 回滚：DROP TABLE llm_provider_keys；解析链回退纯 env 轨（022 行为，向后兼容）。
+-- 回滚：DROP TABLE llm_provider_keys；解析链回退纯 env 轨（原行为，向后兼容）。
 
 CREATE TABLE llm_provider_keys (
     provider_id   VARCHAR(64) NOT NULL COMMENT 'provider 目录条目 id（逻辑引用，零物理外键）',

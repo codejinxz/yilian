@@ -182,7 +182,7 @@ function formStateFor(provider?: LlmProvider): ProviderFormState {
 }
 
 /**
- * 本月用量卡片（033，API §8.17）：已用/预算/百分比指标 + 三态状态徽标 + 分场景小计。
+ * 本月用量卡片（API §8.17）：已用/预算/百分比指标 + 三态状态徽标 + 分场景小计。
  * 金额读元（服务端微元精度换算后下发），分场景成本以微元换算展示（未知场景原样键名）。
  * @param usage 用量视图
  * @returns 卡片内容
@@ -320,10 +320,10 @@ function ProviderCard({
 }
 
 /**
- * 模型页签：统一模型配置状态卡（激活 provider 生效态）、Provider 目录管理（022，
- * CC Switch 式多 provider：列表/新增/编辑/删除/激活）、AI 功能清单按激活 provider 联动；
+ * 模型页签：统一模型配置状态卡（激活 provider 生效态）、Provider 目录管理
+ * （CC Switch 式多 provider：列表/新增/编辑/删除/激活）、AI 功能清单按激活 provider 联动；
  * 下半区本月用量（真实用量视图）与预算护栏编辑（预算 + 模型定价，保存即时生效）；
- * Prompt 版本治理（034，API §8.18）：版本列表/登记新版本/激活换轨（append-only + label 流转）；
+ * Prompt 版本治理（API §8.18）：版本列表/登记新版本/激活换轨（append-only + label 流转）；
  * 任务路由仍为 M3 占位（原型参照，只读）。
  * @returns 页签内容
  */
@@ -339,12 +339,12 @@ export function ModelsPage() {
     queryKey: queryKeys.admin.llmProviders,
     queryFn: ({ signal }) => getLlmProviders(signal),
   });
-  // 用量视图（033）：独立查询——失败只降级为区块内提示，不拖垮整页（配置与目录仍可用）。
+  // 用量视图：独立查询——失败只降级为区块内提示，不拖垮整页（配置与目录仍可用）。
   const usageQuery = useQuery({
     queryKey: queryKeys.admin.llmUsage,
     queryFn: ({ signal }) => getLlmUsage(signal),
   });
-  // Prompt 版本治理（034）：独立查询——失败只降级为区块内提示（首页一屏取全量，size 上限 100）。
+  // Prompt 版本治理：独立查询——失败只降级为区块内提示（首页一屏取全量，size 上限 100）。
   const promptsQuery = useQuery({
     queryKey: queryKeys.admin.prompts,
     queryFn: ({ signal }) => getPromptVersions({ page: 1, size: 100 }, signal),
@@ -366,9 +366,9 @@ export function ModelsPage() {
   const pricingRowSeqRef = useRef(0);
   // 「重置为环境默认」的确认弹窗：清端点/模型覆盖 + 删 tutor 密钥行，生效值回退环境变量。
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
-  // Prompt 登记抽屉（034）：null=关闭；表单含场景选择与内容编辑。
+  // Prompt 登记抽屉：null=关闭；表单含场景选择与内容编辑。
   const [promptForm, setPromptForm] = useState<{ name: string; content: string } | null>(null);
-  // Prompt 激活确认弹窗（034）：null=关闭；仅 CANDIDATE 行可发起。
+  // Prompt 激活确认弹窗：null=关闭；仅 CANDIDATE 行可发起。
   const [activating, setActivating] = useState<PromptVersion | null>(null);
 
   // 非编辑态下表单与服务端保持一致：config 首次到位时以生效值回填；目录删除/激活等外部变更
@@ -514,7 +514,7 @@ export function ModelsPage() {
     };
   }
 
-  // 保存预算与定价（033）：预算空串=清除（护栏不生效），定价行整体替换（空=清除定价）。
+  // 保存预算与定价：预算空串=清除（护栏不生效），定价行整体替换（空=清除定价）。
   // 开关与端点/模型携带当前值不变更；成功后失效配置与用量视图（徽标即时对齐）。
   const saveBudgetMutation = useMutation({
     mutationFn: updateLlmConfig,
@@ -581,7 +581,7 @@ export function ModelsPage() {
     void queryClient.invalidateQueries({ queryKey: queryKeys.admin.prompts });
   }
 
-  // 登记 Prompt 新版本（034）：版本号服务端分配，登记后为 CANDIDATE 不自动激活。
+  // 登记 Prompt 新版本：版本号服务端分配，登记后为 CANDIDATE 不自动激活。
   const registerPromptMutation = useMutation({
     mutationFn: registerPromptVersion,
     onSuccess: (prompt) => {
@@ -594,7 +594,7 @@ export function ModelsPage() {
     onError,
   });
 
-  // 激活 Prompt 版本（034）：旧 ACTIVE 同事务降级 + 注册表缓存失效，三条 LLM 链路即时换轨。
+  // 激活 Prompt 版本：旧 ACTIVE 同事务降级 + 注册表缓存失效，三条 LLM 链路即时换轨。
   const activatePromptMutation = useMutation({
     mutationFn: activatePromptVersion,
     onSuccess: (prompt) => {
@@ -669,7 +669,7 @@ export function ModelsPage() {
             ) : (
               <span className="font-mono text-[10px] text-ink-faint">未配置</span>
             )}
-            {/* 来源徽标（028）：目录激活=「目录」（字段在 provider 抽屉编辑）；覆盖态=「自定义」；纯 env=「环境变量」。 */}
+            {/* 来源徽标：目录激活=「目录」（字段在 provider 抽屉编辑）；覆盖态=「自定义」；纯 env=「环境变量」。 */}
             {activeProvider ? (
               <StatePill tone="muted">目录</StatePill>
             ) : config.source === "custom" ? (
@@ -682,7 +682,7 @@ export function ModelsPage() {
         </div>
 
         {activeProvider ? (
-          // 目录激活态（022/027A 语义）：字段只读展示，字段编辑走 provider 抽屉。
+          // 目录激活态：字段只读展示，字段编辑走 provider 抽屉。
           <div className="mt-[18px] flex flex-wrap gap-x-12 gap-y-5">
             <div>
               <p className={configCellLabelClassName()}>凭证状态</p>
@@ -706,7 +706,7 @@ export function ModelsPage() {
             </div>
           </div>
         ) : (
-          // legacy 态（028）：当前模型/生效端点 inline 可编辑（默认回显生效值），密钥写-only。
+          // legacy 态：当前模型/生效端点 inline 可编辑（默认回显生效值），密钥写-only。
           <div className="mt-[18px] flex flex-wrap gap-x-12 gap-y-5">
             <div>
               <p className={configCellLabelClassName()}>凭证状态</p>
@@ -829,7 +829,7 @@ export function ModelsPage() {
                 });
                 return;
               }
-              // legacy 态（028）：开关与表单当前值一起提交——状态型字段语义下裸传 enabled 会清掉既有覆盖。
+              // legacy 态：开关与表单当前值一起提交——状态型字段语义下裸传 enabled 会清掉既有覆盖。
               toggleMutation.mutate({
                 enabled: !config.enabled,
                 baseUrl: legacyForm?.baseUrl.trim() ?? "",
@@ -1466,7 +1466,7 @@ export function ModelsPage() {
         onCancel={() => setResetConfirmOpen(false)}
       />
 
-      {/* 登记新版本抽屉（034）：场景白名单 + 内容非空 ≤20000 字符（与服务端校验同口径）。 */}
+      {/* 登记新版本抽屉：场景白名单 + 内容非空 ≤20000 字符（与服务端校验同口径）。 */}
       <Drawer
         open={promptForm !== null}
         onClose={() => setPromptForm(null)}
@@ -1546,7 +1546,7 @@ export function ModelsPage() {
         ) : null}
       </Drawer>
 
-      {/* 激活确认（034）：仅 CANDIDATE 可发起；激活即时换轨且旧启用版本降为候选（可回滚再激活）。 */}
+      {/* 激活确认：仅 CANDIDATE 可发起；激活即时换轨且旧启用版本降为候选（可回滚再激活）。 */}
       <ConfirmDialog
         open={activating !== null}
         title="激活 Prompt 版本"

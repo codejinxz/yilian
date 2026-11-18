@@ -6,7 +6,7 @@ import { LoginPage, RegisterPage } from "@/features/auth/LoginPage";
 import { createQueryClient } from "@/lib/query";
 
 /**
- * 027 AC-8 · 认证页数据叙事如实化。
+ * 认证页数据叙事如实化。
  *
  * 真实数据流：登录/注册成功后 syncGuestAttemptsInBackground 会把本机游客答题记录自动并入
  * 账号（原始记录保留本机，未并入的可在设置页导出/重试）；但复习排程按账号侧队列计算，

@@ -363,7 +363,7 @@ export function BanksPage() {
 /**
  * 新建/编辑题库的表单；编辑态由 initial 预填（key 换行重置内部状态）。
  * 校验与 mock/后端一致：名称必填 1–128、说明可空 ≤500。说明不再把空串归一为 null——
- * PATCH 语义是「null=不改、空串=清空」，归一会让清空说明的操作静默失效（011 熔断遗留）。
+ * PATCH 语义是「null=不改、空串=清空」，归一会让清空说明的操作静默失效。
  */
 function BankForm({
   submitLabel,

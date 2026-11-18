@@ -5,7 +5,7 @@
 
 /**
  * 管理端页签：id 与原型 adminTabs 的 data-tab 一致，顺序即页头导航顺序。
- * 025 增补第十页签「申诉」（LLM 初裁后的人工终审入口）。
+ * 第十页签「申诉」（LLM 初裁后的人工终审入口）。
  * 管理端是单页（#/admin）：页签不产生独立路由，由 AdminLayout 按 tab 条件渲染。
  */
 export const ADMIN_TABS = [

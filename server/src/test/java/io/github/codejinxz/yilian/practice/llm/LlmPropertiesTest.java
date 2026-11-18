@@ -71,7 +71,7 @@ class LlmPropertiesTest {
                 .isEqualTo(LlmProperties.DEFAULT_TIMEOUT);
     }
 
-    /** [AC-1] provider 缺省 openai：021 之前的部署（只有 base-url/api-key）语义完全不变。 */
+    /** [AC-1] provider 缺省 openai：早期纯环境变量部署（只有 base-url/api-key）语义完全不变。 */
     @Test
     void providerDefaultsToOpenai_ac1() {
         assertThat(
@@ -108,7 +108,7 @@ class LlmPropertiesTest {
                 .isInstanceOf(Exception.class);
     }
 
-    /** [AC-2] legacy 轨映射（022）：asEndpoint 形状转换与 legacyProtocol 双轨→三协议映射。 */
+    /** [AC-2] legacy 轨映射：asEndpoint 形状转换与 legacyProtocol 双轨→三协议映射。 */
     @Test
     void mapsLegacyTrackToEndpointAndProtocol_ac2() {
         LlmProperties openai =

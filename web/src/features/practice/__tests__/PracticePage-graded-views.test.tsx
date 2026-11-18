@@ -11,7 +11,7 @@ import type { BankView } from "@/lib/schemas/content";
 import type { AttemptResponse, PracticeSentence, Today } from "@/lib/schemas/practice";
 
 /**
- * 027 批 · 判分结果呈现体验（AC-4 对位双视图 / AC-5 批注样式分化 / AC-6 已记录微反馈）。
+ * 判分结果呈现体验（AC-4 对位双视图 / AC-5 批注样式分化 / AC-6 已记录微反馈）。
  *
  * mock 策略与 PracticePage.test.tsx 同构：router 用最小桩（页面只用 Link/useNavigate/useSearch），
  * API 在模块边界整体替换；判分主链路本身由后端切片测试覆盖，这里聚焦结果区的呈现与交互。
@@ -146,7 +146,7 @@ function renderPage() {
   );
 }
 
-/** 多词块填空句：blank 为三词块「pay attention to」，复现 D4 的多词强拆错位场景。 */
+/** 多词块填空句：blank 为三词块「pay attention to」，复现多词强拆红绿错位场景。 */
 const MULTI_SENTENCE: PracticeSentence = {
   id: "01JSEN00000000000000000002",
   version: 1,

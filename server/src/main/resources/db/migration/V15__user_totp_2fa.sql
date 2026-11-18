@@ -1,9 +1,9 @@
 -- V15：管理员 2FA（TOTP 自研 RFC 6238）——users 三列 + 恢复码表 user_2fa_recovery_codes。
 --
--- 背景：pending-20261117 P0-01（公网部署硬前置，AGENTS §3.7「公网部署前管理员启用 2FA」）。
+-- 背景：公网部署硬前置——AGENTS §3.7「公网部署前管理员启用 2FA」。
 -- 形状裁决：
 --   a) users.totp_secret_cipher VARCHAR(512) NULL：TOTP 密钥（20 字节 SecureRandom）经
---      SecretCipher（AES-256-GCM，主密钥只走 YILIAN_SECRET_MASTER_KEY，与 027B 同纪律）
+--      SecretCipher（AES-256-GCM，主密钥只走 YILIAN_SECRET_MASTER_KEY，与 provider 密钥同一加密纪律）
 --      加密后的 Base64 密文——Base64(12B IV ‖ 20B+16B tag) ≈ 68 字符，512 留足余量；
 --      列上无明文。enrollment 分两步（setup 落密文、activate 才启用），setup 重复调用
 --      覆盖旧密文（作废旧密钥），disable/reset-2fa 清回 NULL。

@@ -16,7 +16,7 @@ const fieldInputClass =
   "w-full max-w-xs border-b border-rule bg-transparent py-2 text-[15px] text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-vermilion disabled:cursor-not-allowed disabled:opacity-60";
 
 /**
- * 036 删号确认弹窗：风险说明（软删 30 天冷静期 → 匿名化不可逆、无自助撤销、学习记录保留）
+ * 删号确认弹窗：风险说明（软删 30 天冷静期 → 匿名化不可逆、无自助撤销、学习记录保留）
  * + 「先导出我的数据」（GET /api/me/export 整包 JSON 下载）+ 密码确认 + 两步验证动态码位
  * （2FA 开启时）。提交后还有一层「不可撤销」二次确认（ConfirmDialog），两次确认后才发请求。
  *
@@ -63,7 +63,7 @@ export function DeleteAccountDialog({
   const anonymizeDate = new Date(Date.now() + GRACE_DAYS * 86_400_000).toISOString().slice(0, 10);
 
   /**
-   * 导出服务端账号数据并触发浏览器下载；导出失败不阻断删号流程（计划预披露），行内提示。
+   * 导出服务端账号数据并触发浏览器下载；导出失败不阻断删号流程，行内提示。
    */
   async function handleExport() {
     setExporting(true);

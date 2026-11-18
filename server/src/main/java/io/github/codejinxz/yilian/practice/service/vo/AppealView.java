@@ -7,8 +7,8 @@ import java.time.Instant;
 /**
  * 申诉/不认同提交回执（API §6.4/§6.5）：定位信息、状态与已生成的「AI 意见」。
  *
- * <p>025 起申诉提交同步触发 LLM 初裁：成功时回执带 verdict/decisionReason/decidedBy/decidedAt， 用户在批注行即可看到 AI
- * 意见与「等待人工终审」的状态；初裁失败/限流/未配置模型时回执 verdict="UNAVAILABLE"（029 F-01 修复： 以存储 decision JSON
+ * <p>申诉提交同步触发 LLM 初裁：成功时回执带 verdict/decisionReason/decidedBy/decidedAt， 用户在批注行即可看到 AI
+ * 意见与「等待人工终审」的状态；初裁失败/限流/未配置模型时回执 verdict="UNAVAILABLE"（以存储 decision JSON
  * 为真相，「初裁不可用」回执态真实可达），decisionReason=占位理由、decidedBy/decidedAt 为 null——不阻塞提交， status 仍
  * PENDING。窗口竞态（初裁落列原子门，终审在初裁外呼窗口内完成）时回执按存储真相投影为终审态
  * （status=ACCEPTED/REJECTED、decidedBy=ADMIN），不伪造「初裁成功」。DISPUTE 回执四字段恒为 null（排除语义，无裁决链路）。

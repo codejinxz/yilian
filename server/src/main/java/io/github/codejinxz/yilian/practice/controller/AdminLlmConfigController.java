@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 管理端答疑 LLM 配置接口（API §8.14）：服务端 ADMIN 鉴权，写操作审计 {@code LLM_CONFIG_UPDATE}；API Key 永不回读（GET 回 hasKey
- * 布尔与 keyLast4 尾号）。生效值优先级（028）：目录激活条目（目录管理见 {@link AdminLlmProviderController}）&gt; tutor 覆盖
+ * 布尔与 keyLast4 尾号）。生效值优先级：目录激活条目（目录管理见 {@link AdminLlmProviderController}）&gt; tutor 覆盖
  * （app_settings 键 llm.tutor 的 baseUrl/model + llm_provider_keys 预留 id=tutor 密钥）&gt; legacy 环境变量
  * （{@code YILIAN_LLM_*}）——legacy 形态全字段可编辑，目录激活态经 provider 抽屉编辑。
  */
@@ -77,7 +77,7 @@ public class AdminLlmConfigController {
     }
 
     /**
-     * 更新答疑 LLM 配置（028：legacy 形态全字段可编辑）。
+     * 更新答疑 LLM 配置（legacy 形态全字段可编辑）。
      *
      * @param request 已校验的更新请求
      * @param principal 当前管理员

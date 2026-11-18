@@ -55,7 +55,7 @@ const DECIDE_PRESETS = {
 } as const;
 
 /**
- * 申诉页签（025）：LLM 初裁之后的人工终审关口。
+ * 申诉页签：LLM 初裁之后的人工终审关口。
  * 列表展示状态（含 AI 意见摘要）、题目、槽位、用户提议与理由；行操作「通过/驳回」
  * 必填终审理由并写审计（APPEAL_DECIDE）。ACCEPTED 的申诉经判分 overlay 参与后续判分。
  */

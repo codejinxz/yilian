@@ -57,12 +57,12 @@ export interface MockAppeal {
   status: "PENDING" | "ACCEPTED" | "REJECTED" | "WITHDRAWN";
   proposedAnswer: string | null;
   reason: string | null;
-  /** 冗余定位（025 管理端列表用）：题目、语块下标、申诉人与时间。 */
+  /** 冗余定位（管理端列表用）：题目、语块下标、申诉人与时间。 */
   sentenceId: string | null;
   chunkIndex: number;
   userId: string | null;
   createdAt: string;
-  /** AI 初裁意见（025）：decidedBy=LLM 时 verdict/decisionReason 有值；终审后改写为 ADMIN。 */
+  /** AI 初裁意见：decidedBy=LLM 时 verdict/decisionReason 有值；终审后改写为 ADMIN。 */
   decidedBy: "LLM" | "ADMIN" | null;
   decisionVerdict: "SUPPORT" | "OPPOSE" | "UNCERTAIN" | "UNAVAILABLE" | null;
   decisionReason: string | null;
@@ -118,7 +118,7 @@ export interface MockUploadBatch {
   createdAt: string;
 }
 
-/** mock Prompt 版本行（034，API §8.18）：append-only 快照 + label 启用态，与真实表同形。 */
+/** mock Prompt 版本行（API §8.18）：append-only 快照 + label 启用态，与真实表同形。 */
 export interface MockPromptVersion {
   id: number;
   name: "ask" | "review" | "appeal";
@@ -145,9 +145,9 @@ export interface MockDb {
   uploads: MockUploadBatch[];
   /** 邀请码；历史存储可能缺少该字段，读取时补默认码。 */
   invites: MockInvite[];
-  /** 管理端 LLM 配置演示态（API §8.14）：预算护栏与定价字段随 033 契约；历史存储补默认值。 */
+  /** 管理端 LLM 配置演示态（API §8.14）：预算护栏与定价字段随契约；历史存储补默认值。 */
   llmConfig: LlmConfig;
-  /** Prompt 版本注册表演示态（034，API §8.18）：ask/review/appeal 各一条 ACTIVE v1；历史存储补默认值。 */
+  /** Prompt 版本注册表演示态（API §8.18）：ask/review/appeal 各一条 ACTIVE v1；历史存储补默认值。 */
   prompts: MockPromptVersion[];
   seq: number;
   inviteUsedBy: string | null;
@@ -827,7 +827,7 @@ export function seedInvites(): MockInvite[] {
 }
 
 function seedAuditLogs(): AuditLog[] {
-  // 012：真实接口按 admin_audit_log 原样返回（无 targetLabel 列），mock 同形，前端展示 targetType。
+  // 真实接口按 admin_audit_log 原样返回（无 targetLabel 列），mock 同形，前端展示 targetType。
   const items: Array<[string, string, string | null, string | null, string | null, string]> = [
     ["admin", "USER_DISABLE", "USER", "3", "用户申请暂停账号", "2 天前"],
     [
@@ -1086,7 +1086,7 @@ function seedUploads(): MockUploadBatch[] {
 }
 
 /**
- * 构造 Prompt 版本种子（034，V13 首版同文）：三条 LLM 链路各一条 ACTIVE v1，
+ * 构造 Prompt 版本种子（V13 首版同文）：三条 LLM 链路各一条 ACTIVE v1，
  * 内容与 server 迁移 V13__prompt_versions.sql 的种子逐字一致（演示态契约对齐）。
  * @returns 版本行列表
  */
@@ -1285,7 +1285,7 @@ export function getMockDb(): MockDb {
           if (typeof parsed.llmConfig.pricing === "undefined") {
             parsed.llmConfig.pricing = null;
           }
-          // 历史存储没有 prompts 字段（034 前）：补 V13 种子默认值，模型页 Prompt 区块不因升级破相。
+          // 历史存储没有 prompts 字段：补 V13 种子默认值，模型页 Prompt 区块不因升级破相。
           if (!Array.isArray(parsed.prompts)) {
             parsed.prompts = seedPrompts();
           }

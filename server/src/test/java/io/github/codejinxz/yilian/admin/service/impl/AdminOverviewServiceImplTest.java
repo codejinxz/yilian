@@ -76,7 +76,7 @@ class AdminOverviewServiceImplTest {
         assertThat(overview.active7d().get(6).date()).isEqualTo("2026-10-31");
         assertThat(overview.active7d().get(6).count()).isEqualTo(2L);
 
-        // 静态待办引导：011-b 接真实待办前的占位。
+        // 静态待办引导：接真实待办前的占位。
         assertThat(overview.todos()).isNotEmpty();
         assertThat(overview.todos().get(0).href()).startsWith("/admin?tab=");
     }

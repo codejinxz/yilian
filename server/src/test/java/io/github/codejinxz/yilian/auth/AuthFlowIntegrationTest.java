@@ -88,8 +88,7 @@ class AuthFlowIntegrationTest {
      * 记录随机端口并清理上一个用例留下的会话、临时账号与管理员凭据，保证测试可重复执行。
      *
      * <p>{@code yilian_test} 会跨次运行保留数据；若只保留 admin 不修复其凭据，上一次运行 遗留的哈希会让登录用例失败，遗留的「首登未改密」标记则会让业务接口被
-     * 40303 拦下（CI 全新库首次暴露，cifix-20261104）。因此这里把 admin 的密码重置为测试值、
-     * 改密标记置为已改密，并确保其启用且为管理员角色，但不删除该账号（bootstrap 负责创建它）。
+     * 40303 拦下（CI 全新库首次暴露）。因此这里把 admin 的密码重置为测试值、 改密标记置为已改密，并确保其启用且为管理员角色，但不删除该账号（bootstrap 负责创建它）。
      */
     @BeforeEach
     void setUp() {
@@ -105,7 +104,7 @@ class AuthFlowIntegrationTest {
         // V5 已把 V1 的 app_user 改名为 users，清理与补数都必须走新表名。
         jdbcTemplate.update("DELETE FROM users WHERE username <> ?", ADMIN_USERNAME);
 
-        // password_changed 一并置位（cifix-20261104）：CI 每次都是全新库，bootstrap admin
+        // password_changed 一并置位（CI 全新库口径）：CI 每次都是全新库，bootstrap admin
         // 停留在「首登未改密」态，业务接口会被 PasswordChangeRequiredInterceptor 以 40303
         // 拦下（ac3 停用吊销用例首次暴露）；本机持久测试库被历史运行置位后掩盖了该差异。
         // 40303 拦截语义由 MeControllerTest#putSettingsRequiresPasswordChangeWith40303

@@ -155,7 +155,7 @@ describe("PracticePage 答疑入口显隐（017 三态 + 017R2 会话记忆）",
     });
   });
 
-  /** [017 三态] 缺省乐观可见：未标记不可用时「问一问」入口在批注栏渲染。 */
+  /** 答疑三态口径：缺省乐观可见——未标记不可用时「问一问」入口在批注栏渲染。 */
   it("showsAskEntryByDefaultWhenNotMarked", async () => {
     renderPage();
 

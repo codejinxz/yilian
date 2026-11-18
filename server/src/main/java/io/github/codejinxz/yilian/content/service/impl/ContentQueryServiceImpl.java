@@ -50,7 +50,7 @@ public class ContentQueryServiceImpl implements ContentQueryService {
     /** 单页题库/题目条数上限；与管理端分页口径一致，防止一次拉取拖垮内存。 */
     private static final int MAX_PAGE_SIZE = 100;
 
-    /** 页码上限；与 019 管理端口径一致（MAX_PAGE=10_000），防止深页码 offset 溢出。 */
+    /** 页码上限；与内容管理端口径一致（MAX_PAGE=10_000），防止深页码 offset 溢出。 */
     private static final int MAX_PAGE = 10_000;
 
     /** 增量拉取单页条数上限，对应 API §1.6 的 limit 1–200。 */
@@ -382,7 +382,7 @@ public class ContentQueryServiceImpl implements ContentQueryService {
     /**
      * 校验分页参数，越界统一抛 40004。
      *
-     * <p>页码带上限（与 019 管理端口径一致 MAX_PAGE=10_000）：深页码的 {@code (page-1)*size} 会把 客户端输入错误放大成 500，负数页码本就被
+     * <p>页码带上限（与内容管理端口径一致 MAX_PAGE=10_000）：深页码的 {@code (page-1)*size} 会把 客户端输入错误放大成 500，负数页码本就被
      * {@code page < 1} 拒绝。
      *
      * @param page 页码，从 1 开始，≤10_000

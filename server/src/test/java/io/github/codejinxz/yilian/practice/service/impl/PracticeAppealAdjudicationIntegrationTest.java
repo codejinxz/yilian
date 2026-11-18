@@ -47,7 +47,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 申诉初裁与 overlay 判分集成测试（真实 MySQL）[AC-2]/[AC-4]/[AC-5]/[AC-6]（[AC-4] 为 029 补：占位回执 verdict=UNAVAILABLE
+ * 申诉初裁与 overlay 判分集成测试（真实 MySQL）[AC-2]/[AC-4]/[AC-5]/[AC-6]（[AC-4] 补充项：占位回执 verdict=UNAVAILABLE
  * 可达）。
  *
  * <p>初裁（[AC-2]）：APPEAL 落库后同步调 LLM，成功落 decision/decision_reason/decided_by=LLM/
@@ -354,8 +354,8 @@ class PracticeAppealAdjudicationIntegrationTest {
     }
 
     /**
-     * [AC-4] 「初裁不可用」回执态真实可达（029 F-01 修复）：占位路径回执 verdict=UNAVAILABLE 且与 decision 列的
-     * {"verdict":"UNAVAILABLE"} 同源——前端「AI 初裁暂不可用」分支对真实服务端有效， 用户端不再退化为兜底文案「申诉已记录」。
+     * [AC-4] 「初裁不可用」回执态真实可达：占位路径回执 verdict=UNAVAILABLE 且与 decision 列的 {"verdict":"UNAVAILABLE"}
+     * 同源——前端「AI 初裁暂不可用」分支对真实服务端有效， 用户端不再退化为兜底文案「申诉已记录」。
      */
     @Test
     @DisplayName("[AC-4] 占位回执 verdict=UNAVAILABLE 与存储 decision JSON 同源")

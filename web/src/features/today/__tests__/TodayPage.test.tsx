@@ -10,7 +10,7 @@ import type { BankView } from "@/lib/schemas/content";
 import type { Today } from "@/lib/schemas/practice";
 
 /**
- * 027 AC-7 · 今日启动台 CTA 语义与题库 chips 折叠。
+ * 今日启动台 CTA 语义与题库 chips 折叠。
  *
  * 主按钮改为「开始今日 N 题」（N = 每日目标 − 已练，来自既有 today 聚合），
  * 清完当日目标兜底「今日已清完，可自由练习」；题库 chips（内部/测试库名）默认折叠进

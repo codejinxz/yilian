@@ -120,7 +120,7 @@ class AdminLlmProviderControllerTest {
     }
 
     /**
-     * [AC-2] GET：data 为 {items:[...]} 列表信封（022 巡检 DEF-01）；条目形状——元数据 + hasKey + active，无 apiKey
+     * [AC-2] GET：data 为 {items:[...]} 列表信封（裸数组会让前端模型页整页不可用）；条目形状——元数据 + hasKey + active，无 apiKey
      * 字段回显。
      */
     @Test

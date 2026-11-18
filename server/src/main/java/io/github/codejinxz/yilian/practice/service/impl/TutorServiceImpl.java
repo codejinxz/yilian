@@ -48,10 +48,10 @@ import java.util.Optional;
 /**
  * 题目答疑实现：被动一问一答，不判分、不改批注、不进学习闭环（PRD §5.4）。
  *
- * <p>配置选型（028）：LLM 客户端经 {@link LlmClientRegistry} 按「目录激活条目 &gt; tutor 覆盖轨 &gt; legacy 环境变量轨」
- * 三级解析装配——目录激活条目语义不变（022，高于一切 legacy 形态）；覆盖轨的 baseUrl/model 存 {@code app_settings} 键 {@code
- * llm.tutor}（{@link TutorOverrides}），密钥存 llm_provider_keys 预留 id=tutor （027B 加密基建）。后台 PUT 管理开关 + 覆盖
- * + 密钥：baseUrl/model 非空白=落覆盖、空/缺省=清除覆盖； apiKey 写-only（非空白=加密 upsert）；clearKey=true 删 tutor
+ * <p>配置选型：LLM 客户端经 {@link LlmClientRegistry} 按「目录激活条目 &gt; tutor 覆盖轨 &gt; legacy 环境变量轨」
+ * 三级解析装配——目录激活条目高于一切 legacy 形态；覆盖轨的 baseUrl/model 存 {@code app_settings} 键 {@code llm.tutor}（{@link
+ * TutorOverrides}），密钥存 llm_provider_keys 预留 id=tutor （provider 密钥加密基建）。后台 PUT 管理开关 + 覆盖 +
+ * 密钥：baseUrl/model 非空白=落覆盖、空/缺省=清除覆盖； apiKey 写-only（非空白=加密 upsert）；clearKey=true 删 tutor
  * 密钥行；enabled=true 且无可用客户端时 40000
  * 拒绝（写操作整体回滚，不留「开关开了弹药没跟上」的中间态）。三态：无可用客户端=功能不存在（40400、前端隐藏入口）；配了未开=40304；开了=可用。 客户端实现按生效轨的 protocol
  * 三选一（anthropic-messages / openai-chat / openai-responses），共用同一 降级语义、护栏（maxTokens 2048 / 15s / SDK
@@ -68,7 +68,7 @@ public class TutorServiceImpl implements TutorService {
 
     private static final Logger log = LoggerFactory.getLogger(TutorServiceImpl.class);
 
-    /** app_settings 配置键：答疑开关 + legacy 形态覆盖值（028 起形状见 {@link TutorOverrides}）。 */
+    /** app_settings 配置键：答疑开关 + legacy 形态覆盖值（形状见 {@link TutorOverrides}）。 */
     static final String SETTING_KEY = TutorOverrides.SETTING_KEY;
 
     /**
@@ -134,13 +134,13 @@ public class TutorServiceImpl implements TutorService {
      * @param llmClients LLM 客户端注册表（目录 + tutor 覆盖轨 + legacy 兼容轨）
      * @param legacyProperties legacy 环境变量配置（兼容轨与覆盖轨的协议/超时/缺省模型同源；也用于开启被拒时的 legacy 定向文案）
      * @param appSettingService 系统配置存取
-     * @param practiceService 练习用例服务（复用 016 可见性口径）
+     * @param practiceService 练习用例服务（复用题库可见性口径）
      * @param attemptDao 提交 Dao（取本人最近批注）
      * @param gradingDao 判分 Dao
      * @param llmUsageDao LLM 用量账本 Dao（落库旁路，失败不阻塞答疑）
      * @param promptRegistry Prompt 版本注册表（系统提示取 ACTIVE 版本，缺行回退兜底常量）
-     * @param tutorOverrides 答疑覆盖配置存取（app_settings 键 llm.tutor 的共享解析口，028）
-     * @param providerKeys provider 密钥解析链（tutor 预留行的存取与 last4 投影，028）
+     * @param tutorOverrides 答疑覆盖配置存取（app_settings 键 llm.tutor 的共享解析口）
+     * @param providerKeys provider 密钥解析链（tutor 预留行的存取与 last4 投影）
      * @param budgetSettings 月度预算与定价存取（app_settings 键 llm.budget，记账补成本与配置写共用）
      * @param budgetGuard 预算护栏判定（答疑强制门与用量视图共用）
      * @param objectMapper JSON 解析（判分结果）
@@ -345,7 +345,7 @@ public class TutorServiceImpl implements TutorService {
         Map<String, LlmModelPricing> pricing = budget.pricing().isEmpty() ? null : budget.pricing();
         if (effective.isPresent()
                 && !LlmClientRegistry.LEGACY_PROVIDER_ID.equals(effective.get().providerId())) {
-            // 目录激活态（022 语义不变）：生效值来自激活条目，覆盖处于休眠（source=env，前端以目录徽标优先）。
+            // 目录激活态（语义不变）：生效值来自激活条目，覆盖处于休眠（source=env，前端以目录徽标优先）。
             LlmClientRegistry.EffectiveConfig config = effective.get();
             return new LlmConfigView(
                     stored.enabled(),
@@ -363,7 +363,7 @@ public class TutorServiceImpl implements TutorService {
         // legacy 形态（目录空或存在未激活）：baseUrl/model 逐字段按「覆盖 > env」投影生效值——与注册表
         // 覆盖轨的逐字段口径一致（存在任一覆盖即进覆盖轨，端点缺省回退 env 端点），视图与轨道恒同源；
         // 轨道真相（协议/凭证齐备性/hasKey）以注册表解析为准，覆盖存而目录未激活时轨道仍 fail-closed
-        // （022 语义），此时 effectiveConfig 为空、投影值只说明「legacy 形态会用什么」。
+        // （目录非空未激活即 fail-closed 的语义），此时 effectiveConfig 为空、投影值只说明「legacy 形态会用什么」。
         String baseUrl = stored.hasBaseUrl() ? stored.baseUrl().trim() : legacyProperties.baseUrl();
         String model = stored.hasModel() ? stored.model().trim() : legacyProperties.model();
         boolean tutorRail = stored.hasOverride() && effective.isPresent();
@@ -387,9 +387,9 @@ public class TutorServiceImpl implements TutorService {
     @Override
     @Transactional
     public LlmConfigView updateAdminConfig(LlmConfigUpdateRequest request, Long operatorId) {
-        // 028：legacy 形态全字段可编辑。baseUrl/model 为状态型字段（非空白=落覆盖、空/缺省=清除覆盖），
+        // legacy 形态全字段可编辑。baseUrl/model 为状态型字段（非空白=落覆盖、空/缺省=清除覆盖），
         // apiKey 为写-only 字段（非空白=加密 upsert、空/缺省=不变更）。覆盖（app_settings）与密钥行
-        // （llm_provider_keys）是零物理外键的两张表，与 027B 目录写入同口径：整体同事务，任何失败一并回滚。
+        // （llm_provider_keys）是零物理外键的两张表，与 provider 目录写入同口径：整体同事务，任何失败一并回滚。
         // 预算护栏（monthlyBudgetCny/pricing）同为状态型字段，写 app_settings 键 llm.budget（同表另一行，
         // 同事务收敛）：校验失败先于任何写路径 40000，本次全部编辑不落库。
         String baseUrl = normalizeOverride(request.baseUrl(), 500, "baseUrl", true);
@@ -409,7 +409,7 @@ public class TutorServiceImpl implements TutorService {
                 tutorOverrides.write(
                         new TutorOverrides.Stored(
                                 TutorOverrides.SCHEMA_VERSION, request.enabled(), baseUrl, model)),
-                "题目答疑开关与 legacy 覆盖（017 起，028 扩覆盖与密钥）",
+                "题目答疑开关与 legacy 覆盖（答疑配置演进至今的累计口径）",
                 operatorId);
         budgetSettings.write(new LlmBudgetSettings.Config(monthlyBudgetCny, pricing), operatorId);
         if (request.enabled() && llmClients.chatHandle().isEmpty()) {
@@ -577,7 +577,7 @@ public class TutorServiceImpl implements TutorService {
                         + config.providerId()
                         + "」尚未配置端点，无法开启答疑（anthropic-messages 轨无需 API Key）";
             }
-            // 027B 口径：条目密钥可经管理端加密入库（解析链 DB > env，录入即时生效无需重启），
+            // 条目密钥可经管理端加密入库（解析链 DB > env，录入即时生效无需重启），
             // 文案两条路都给出，不再只指向环境变量。
             return "激活的 provider「"
                     + config.providerId()
@@ -585,7 +585,7 @@ public class TutorServiceImpl implements TutorService {
                     + "或设置环境变量 YILIAN_LLM_KEY_"
                     + config.providerId().replace('-', '_').toUpperCase(java.util.Locale.ROOT);
         }
-        // legacy 族（目录空）：存在任一覆盖即按覆盖轨逐项说明缺什么（028 卡内编辑即时生效）——
+        // legacy 族（目录空）：存在任一覆盖即按覆盖轨逐项说明缺什么（卡内编辑即时生效）——
         // 缺端点说端点、缺密钥说密钥、都已备妥而仍开不了才泛指配置装配失败，不误指已录入的密钥。
         TutorOverrides.Stored stored = storedSettings();
         if (stored.hasOverride()) {

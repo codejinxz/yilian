@@ -13,7 +13,7 @@ import java.util.Comparator;
 import java.util.Optional;
 
 /**
- * provider 条目密钥解析链与入库存取（027B）：<strong>DB 密文解密 &gt; {@code YILIAN_LLM_KEY_<大写ID>} env &gt;
+ * provider 条目密钥解析链与入库存取：<strong>DB 密文解密 &gt; {@code YILIAN_LLM_KEY_<大写ID>} env &gt;
  * 空</strong>（legacy 三件套的回退在 {@code LlmClientRegistry} 的目录空分支，与本链无关、语义不变）。
  *
  * <p>fail-safe 口径：DB 行存在但解密失败（主密钥被换/密文被篡改）时该条目密钥<strong>视为不存在</strong> （回退 env），只记 warn
@@ -26,8 +26,8 @@ import java.util.Optional;
 public class LlmProviderKeys {
 
     /**
-     * llm_provider_keys 的预留 id（028）：答疑 LLM 自身的密钥行——不属于任何目录条目，目录增删/激活切换 不会触碰本行；它只在 legacy 形态（目录空）的
-     * tutor 覆盖轨里生效（见 {@code LlmClientRegistryImpl} 的覆盖轨装配：本行密文解密 &gt; {@code YILIAN_LLM_API_KEY}
+     * llm_provider_keys 的预留 id：答疑 LLM 自身的密钥行——不属于任何目录条目，目录增删/激活切换 不会触碰本行；它只在 legacy 形态（目录空）的 tutor
+     * 覆盖轨里生效（见 {@code LlmClientRegistryImpl} 的覆盖轨装配：本行密文解密 &gt; {@code YILIAN_LLM_API_KEY}
      * env）。复用本表与既有加密面：加解密（{@link ProviderKeyCrypto}）、last4 投影与状态指纹全部同源，无需为答疑密钥另建存储。
      */
     public static final String TUTOR_PROVIDER_ID = "tutor";

@@ -7,8 +7,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * provider 条目 API Key 的 AES-256-GCM 加解密：加密逻辑与主密钥解析已抽取到跨模块共享的 {@link SecretCipher}（TOTP
- * 密钥落库复用同一加密纪律）， 本类收窄为 provider 域的薄委托—— 保持公共形状零变化（构造器/encrypt/decrypt/last4/异常类型与常量名），027B
- * 的调用点与测试不受影响。
+ * 密钥落库复用同一加密纪律）， 本类收窄为 provider 域的薄委托—— 保持公共形状零变化（构造器/encrypt/decrypt/last4/异常类型与常量名）， 调用点与测试不受影响。
  *
  * <p>主密钥只走环境变量 {@code YILIAN_SECRET_MASTER_KEY}（兜底 Spring 属性 {@code
  * yilian.security.provider-key.master-key}，供 application-local.yml 放文档化 dev 值）， prod
@@ -49,7 +48,7 @@ public class ProviderKeyCrypto {
         try {
             return cipher.encrypt(plaintext);
         } catch (SecretCipher.SecretCipherException exception) {
-            // 共享基建的异常类型归一为本类异常：provider 域调用点与 027B 测试的断言类型不变。
+            // 共享基建的异常类型归一为本类异常：provider 域调用点与既有测试的断言类型不变。
             throw new ProviderKeyCryptoException(exception.getMessage(), exception.getCause());
         }
     }

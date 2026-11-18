@@ -29,8 +29,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 管理端 provider 目录接口（API §8.15）：CC Switch 式多 provider 的元数据 CRUD 与激活切换，服务端 ADMIN 鉴权； 写操作全部审计 {@code
- * LLM_CONFIG_UPDATE}，读接口不标。027B 起 apiKey 为写-only 字段（非空白=AES-GCM 加密入库，空/缺省=不变更），明文任何路径不回读、不入审计——条目只回
- * hasKey 与 keyLast4 尾 4 位；激活中的 provider 服务端拒绝删除，删除时密钥行同事务删除。
+ * LLM_CONFIG_UPDATE}，读接口不标。apiKey 为写-only 字段（非空白=AES-GCM 加密入库，空/缺省=不变更），明文任何路径不回读、不入审计——条目只回 hasKey
+ * 与 keyLast4 尾 4 位；激活中的 provider 服务端拒绝删除，删除时密钥行同事务删除。
  */
 @Tag(name = "管理", description = "用户、题库、日志、出题与答疑 LLM 配置的管理端接口。")
 @SecurityRequirement(name = "bearerAuth")

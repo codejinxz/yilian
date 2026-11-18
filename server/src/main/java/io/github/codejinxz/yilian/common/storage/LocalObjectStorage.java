@@ -438,7 +438,7 @@ public final class LocalObjectStorage implements ObjectStorage {
                     continue;
                 }
                 try {
-                    // 不点名 FileTime：内联取 mtime（本机裁剪版 JDK 缺该符号，见 018 实现注记）。
+                    // 不点名 FileTime：内联取 mtime（本机裁剪版 JDK 缺该符号）。
                     if (Files.getLastModifiedTime(directory).toInstant().isBefore(cutoff)) {
                         deleteRecursively(directory);
                         removed++;

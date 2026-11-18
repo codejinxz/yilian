@@ -9,7 +9,7 @@ import { createQueryClient } from "@/lib/query";
 import { accountExportSchema } from "@/lib/schemas/account";
 
 /**
- * 036 删号确认弹窗交互测试：渲染（风险说明/匿名化时点/密码位）→ 导出触发 → 确认流
+ * 删号确认弹窗交互测试：渲染（风险说明/匿名化时点/密码位）→ 导出触发 → 确认流
  * （第一次确认 → 不可撤销二次确认 → 请求发出）→ 2FA 分支（动态码位显隐）→ 失败分支。
  * 另含 mock handlers 的 §4.11/§4.12 形状对照（handleMockRequest 直驱，zod 校验）。
  */

@@ -213,7 +213,7 @@ export function TotpCard() {
         <div className="space-y-3">
           <p className="text-[13px] leading-[1.7] text-ink-muted">
             在验证器 App 里「手动录入密钥」，或把下面的 otpauth
-            文本粘到支持导入的验证器；本批不渲染二维码图片。
+            文本粘到支持导入的验证器（不渲染二维码图片，避免额外引入渲染依赖）。
           </p>
           <p className="break-all font-mono text-[12px] leading-[1.8] tracking-[0.04em] text-ink">
             {setup.secret}

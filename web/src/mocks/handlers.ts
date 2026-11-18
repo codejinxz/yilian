@@ -274,7 +274,7 @@ function inDateRange(iso: string, from: string | null, to: string | null): boole
 
 /**
  * 追加一条操作审计；mock 的所有管理端写操作都留痕。
- * 012：真实接口按 admin_audit_log 原样返回（无 targetLabel 列），mock 同形，前端展示 targetType。
+ * 真实接口按 admin_audit_log 原样返回（无 targetLabel 列），mock 同形，前端展示 targetType。
  * @param db mock 数据库
  * @param actor 操作者
  * @param action 稳定英文动作
@@ -667,7 +667,7 @@ function wrongQuestionItems(db: MockDb, user: MockUser, includeDisputed: boolean
 }
 
 /**
- * 构造 036 服务端账号导出（§4.11 裸 JSON 形状）：账号块 + 本人四个练习域切片。
+ * 构造服务端账号导出（§4.11 裸 JSON 形状）：账号块 + 本人四个练习域切片。
  * 字段名与真实服务端的 DATA-MODEL §5.8–5.11 投影一致；mock attempts 的判分行按
  * 提交响应中的判分数据回放（append-only 单行）。
  * @param db mock 数据库
@@ -1212,7 +1212,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     return null;
   }
 
-  // ---- 036 自助删号（真实服务端 §4.12 同形：软删 + 吊销会话 + 清 2FA；演示态没有 HttpOnly
+  // ---- 自助删号（真实服务端 §4.12 同形：软删 + 吊销会话 + 清 2FA；演示态没有 HttpOnly
   //      refresh Cookie，直接清 mock 会话；无自助撤销，匿名化时点=删号+30 天随回执返回） ----
   if (pathname === "/auth/delete-account" && method === "POST") {
     const user = currentUser(db);
@@ -1242,7 +1242,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     };
   }
 
-  // ---- 036 服务端账号数据导出（真实服务端 §4.11 同形：裸导出 JSON，非统一信封；
+  // ---- 服务端账号数据导出（真实服务端 §4.11 同形：裸导出 JSON，非统一信封；
   //      只含本人数据，不含密码/TOTP 材料） ----
   if (pathname === "/me/export" && method === "GET") {
     const user = requireUser(db);
@@ -1540,7 +1540,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
       fail(409, 40900, "请求正在处理或已处理，请勿重复提交");
     }
     const input = asObject(body);
-    // 025：申诉提交同步「AI 初裁」（真实后端调 LLM，演示层给固定意见），status 保持 PENDING
+    // 申诉提交同步「AI 初裁」（真实后端调 LLM，演示层给固定意见），status 保持 PENDING
     // 等人工终审；DISPUTE 即时生效且无裁决链路。
     const createdAt = new Date().toISOString();
     const appeal = {
@@ -1943,7 +1943,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     return toAdminUser(target);
   }
 
-  // ---- 管理端申诉终审（025）：列表与人工裁决 ----
+  // ---- 管理端申诉终审：列表与人工裁决 ----
   if (pathname === "/admin/appeals" && method === "GET") {
     requireAdmin(db);
     const status = params.get("status");
@@ -3000,7 +3000,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     return { id: db.auditLogs[0]?.id ?? "" };
   }
 
-  // ---- 管理端 LLM 配置与本月用量（API §8.14/§8.17，033 契约形状） ----
+  // ---- 管理端 LLM 配置与本月用量（API §8.14/§8.17 契约形状） ----
   if (pathname === "/admin/llm/config" && method === "GET") {
     requireAdmin(db);
     return db.llmConfig;
@@ -3073,7 +3073,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     return buildLlmUsageDemo();
   }
 
-  // ---- 管理端 Prompt 版本治理（034，API §8.18）：检索/登记/激活 ----
+  // ---- 管理端 Prompt 版本治理（API §8.18）：检索/登记/激活 ----
   if (pathname === "/admin/prompts" && method === "GET") {
     requireAdmin(db);
     const name = params.get("name");

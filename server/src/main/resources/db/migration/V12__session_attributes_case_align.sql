@@ -1,4 +1,4 @@
--- 会话属性表名对齐 Spring Session JDBC 的运行时拼写（cifix-20261106）。
+-- 会话属性表名对齐 Spring Session JDBC 的运行时拼写。
 --
 -- 背景：spring-session-jdbc 4.x 按配置拼接属性表名：spring.session.jdbc.table-name + 固定
 -- 大写后缀 "_ATTRIBUTES"（后缀不可配置）。本仓库 table-name=spring_session，运行时实际

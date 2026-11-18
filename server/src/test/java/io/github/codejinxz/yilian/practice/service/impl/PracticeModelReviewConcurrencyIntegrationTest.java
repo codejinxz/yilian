@@ -48,8 +48,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * 模型复核并发串行化集成测试（真实 MySQL）[AC-2]。
  *
- * <p>029 修复 A-02：reviewAttempt 事务内先对 attempts 父行悲观锁（SELECT ... FOR UPDATE），幂等闸、 sequence 计算与 MODEL
- * 行落库整体原子化——同 attempt 两线程并发复核时，后到者在行锁上等到先到者 提交后再做幂等检查，直接按幂等回读返回既有复核结果：MODEL 行恰一条、双方都拿到结果（其一为幂等回读）、
+ * <p>reviewAttempt 事务内先对 attempts 父行悲观锁（SELECT ... FOR UPDATE），幂等闸、 sequence 计算与 MODEL 行落库整体原子化——同
+ * attempt 两线程并发复核时，后到者在行锁上等到先到者 提交后再做幂等检查，直接按幂等回读返回既有复核结果：MODEL 行恰一条、双方都拿到结果（其一为幂等回读）、
  * 模型只调一次（不双份计费），首判行 append-only 不受影响。
  *
  * <p>基建与 {@code PracticeModelReviewIntegrationTest} 同款：桩注册表 + 脚本化限流器（CI 无 Redis），

@@ -21,7 +21,7 @@ class OpenAiChatLlmClientTest {
         assertThatCode(() -> new OpenAiChatLlmClient(endpoint)).doesNotThrowAnyException();
     }
 
-    /** [AC-1] 输出上限三协议同源且 ≥2048（022 思考模型口径），防异常长回复放大成本的同时保住正文余量。 */
+    /** [AC-1] 输出上限三协议同源且 ≥2048（思考模型口径），防异常长回复放大成本的同时保住正文余量。 */
     @Test
     void maxOutputTokensSharedAcrossProtocolsAndAboveThinkingFloor_ac1() {
         assertThat(LlmChatClient.MAX_OUTPUT_TOKENS).isEqualTo(2048).isGreaterThanOrEqualTo(2048);

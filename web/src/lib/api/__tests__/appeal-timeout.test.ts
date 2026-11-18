@@ -3,8 +3,8 @@ import { resetApiState, setAccessToken } from "@/lib/api";
 import { APPEAL_TIMEOUT_MS, appealAnnotation } from "@/lib/api/practice";
 
 /**
- * 申诉提交超时窗口（029 AC-3）：申诉落库后服务端**同步**调 LLM 初裁（15s + 解析失败重试
- * 一次 ≈ 31.5s），025 同构链路漏对齐了 024 的超时放宽先例——默认 10s 会在初裁仍进行时先把
+ * 申诉提交超时窗口：申诉落库后服务端**同步**调 LLM 初裁（15s + 解析失败重试
+ * 一次 ≈ 31.5s），与复核链路同构对齐——默认 10s 会在初裁仍进行时先把
  * 用户侧掐断，而申诉行此时已落库，重试只会撞 40900。这里用假时钟实证 10s 不中断、35s 才
  * abort，锁死 APPEAL_TIMEOUT_MS 下限（与 ask-timeout.test.ts 同构）。
  */

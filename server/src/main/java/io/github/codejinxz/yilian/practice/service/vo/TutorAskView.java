@@ -3,7 +3,7 @@ package io.github.codejinxz.yilian.practice.service.vo;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
- * 答疑回复视图（017，API §6.12）。
+ * 答疑回复视图（API §6.12）。
  *
  * @param answer 模型回答文本（引导思考，不含整句参考译文）
  * @param disclaimer 固定免责标注，常驻展示

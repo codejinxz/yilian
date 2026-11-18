@@ -74,7 +74,7 @@ public class AdminOverviewServiceImpl implements AdminOverviewService {
                         adminOverviewQueryDao.countUsers(),
                         adminOverviewQueryDao.countActiveUsersBetween(todayStart, windowEnd),
                         adminOverviewQueryDao.countAttempts(),
-                        // 011-a 无模型调用，成本恒 0；011-b 接入模型目录与计量后改真实口径。
+                        // 当前无模型调用，成本恒 0；接入模型目录与计量后改真实口径。
                         0L),
                 fillMissingDays(
                         adminOverviewQueryDao.countDailyActiveUsersBetween(windowStart, windowEnd),

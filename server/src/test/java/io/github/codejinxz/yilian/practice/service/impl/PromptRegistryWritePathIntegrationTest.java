@@ -28,8 +28,8 @@ import java.util.Map;
 /**
  * Prompt 注册表写路径与激活换轨集成测试（真实 MySQL）[AC-1]/[AC-2]。
  *
- * <p>AC-1：登记分配「现存最大 +1」且 label=CANDIDATE（不自动激活）；校验拒绝（name 白名单、content 空白/超长）零落库；列表检索过滤与 011
- * 分页口径；激活的 40400（不存在）口径。 AC-2：激活后注册表（真实 PromptRegistryImpl + Caffeine L1）即时取新版本（prompt_version_id
+ * <p>AC-1：登记分配「现存最大 +1」且 label=CANDIDATE（不自动激活）；校验拒绝（name 白名单、content 空白/超长）零落库；列表检索过滤与统一 分页口径；激活的
+ * 40400（不存在）口径。 AC-2：激活后注册表（真实 PromptRegistryImpl + Caffeine L1）即时取新版本（prompt_version_id
  * 换轨的语义基础）；evictAll 接线后重复读不回旧值；旧 ACTIVE 行降 CANDIDATE（重启旧版本=回滚语义是合法治理动作）；对已 ACTIVE 行重复激活幂等返回。
  *
  * <p>真实注册表（无桩）：走 CacheConfig 的 Caffeine 缓存全链路——「激活前缓存旧值、激活后换新值」 只有在 evictAll 真正接线时才成立，桩注册表测不出这条。
@@ -190,7 +190,7 @@ class PromptRegistryWritePathIntegrationTest {
                         error -> assertThat(error.apiCode()).isEqualTo(ApiCode.NOT_FOUND));
     }
 
-    /** [AC-1] 列表检索：name/label 过滤、version 倒序、011 分页口径（size 越界归 100、非法分页 40000）。 */
+    /** [AC-1] 列表检索：name/label 过滤、version 倒序、统一分页口径（size 越界归 100、非法分页 40000）。 */
     @Test
     @DisplayName("[AC-1] 列表检索过滤与分页口径")
     void ac1_listFiltersAndPagination() {
