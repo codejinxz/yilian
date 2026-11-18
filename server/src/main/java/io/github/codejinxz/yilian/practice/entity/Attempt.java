@@ -223,6 +223,33 @@ public class Attempt {
     }
 
     /**
+     * 设备 id（服务端账号导出投影需要）。
+     *
+     * @return 设备 id，可空
+     */
+    public String getDeviceId() {
+        return deviceId;
+    }
+
+    /**
+     * 重打来源提交（服务端账号导出投影需要）。
+     *
+     * @return 原提交 UUID，仅 RETRY 非空
+     */
+    public String getRetryOfId() {
+        return retryOfId;
+    }
+
+    /**
+     * 客户端提交时间（服务端账号导出投影需要）。
+     *
+     * @return UTC 时间戳，可空
+     */
+    public Instant getClientCreatedAt() {
+        return clientCreatedAt;
+    }
+
+    /**
      * 版本行 id。
      *
      * @return 版本 id

@@ -75,6 +75,14 @@ public interface AttemptJpaRepository extends JpaRepository<Attempt, String> {
             Long userId, Instant start, Instant end);
 
     /**
+     * 用户全部提交（服务端账号导出用，append-only 全量读取）。
+     *
+     * @param userId 用户 id
+     * @return 提交列表，created_at 升序
+     */
+    List<Attempt> findByUserIdOrderByCreatedAtAsc(Long userId);
+
+    /**
      * 用户最近提交（时间倒序，取前 10 供 recent 投影裁剪）。
      *
      * @param userId 用户 id

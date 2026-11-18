@@ -252,7 +252,8 @@ class TotpAuthServiceImplTest {
                 "Asia/Shanghai",
                 3,
                 new java.math.BigDecimal("0.900"),
-                false);
+                false,
+                java.time.Instant.EPOCH);
     }
 
     /**

@@ -8,6 +8,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -81,5 +82,11 @@ public class JpaAppUserDao implements AppUserDao {
     @Override
     public Page<AppUser> search(String keyword, UserRole role, String status, Pageable pageable) {
         return repository.search(keyword, role, status, pageable);
+    }
+
+    @Override
+    public List<AppUser> findAnonymizationDue(Instant cutoff) {
+        return repository.findByDeletedAtLessThanEqualAndAnonymizedAtIsNullOrderByDeletedAtAsc(
+                cutoff);
     }
 }

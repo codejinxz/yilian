@@ -456,4 +456,13 @@ public class Review {
     public Instant getLastReviewAt() {
         return lastReviewAt;
     }
+
+    /**
+     * 建卡时间（服务端账号导出投影需要）。
+     *
+     * @return UTC 时间戳
+     */
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
 }

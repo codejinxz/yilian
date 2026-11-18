@@ -51,6 +51,7 @@ import io.github.codejinxz.yilian.practice.service.vo.OverloadView;
 import io.github.codejinxz.yilian.practice.service.vo.PostponeView;
 import io.github.codejinxz.yilian.practice.service.vo.ReviewCardView;
 import io.github.codejinxz.yilian.practice.service.vo.TodayView;
+import io.github.codejinxz.yilian.practice.service.vo.UserDataExportView;
 import io.github.codejinxz.yilian.practice.service.vo.WrongQuestionView;
 import io.github.codejinxz.yilian.system.service.UserAccountService;
 import io.github.codejinxz.yilian.system.service.dto.UserSettings;
@@ -69,6 +70,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.StringNode;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -2723,5 +2725,139 @@ public class PracticeServiceImpl implements PracticeService {
         int toIndex = Math.min(items.size(), fromIndex + size);
         List<T> slice = fromIndex >= items.size() ? List.of() : items.subList(fromIndex, toIndex);
         return PageResponse.of(new ArrayList<>(slice), page, size, items.size());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UserDataExportView exportUserData(Long userId) {
+        // 逐表单表读取后内存装配：单人数据量级小（append-only 单人行数有限），跨表 JOIN 在这里
+        // 没有聚合/过滤语义，按 §3.1 分工不为此新建 MyBatis Mapper；只读事务保证一致读。
+        List<Attempt> attempts = attemptDao.findAllByUser(userId);
+        List<String> attemptIds = attempts.stream().map(Attempt::getId).toList();
+        return new UserDataExportView(
+                attempts.stream().map(this::toExportAttemptLine).toList(),
+                gradingDao.findAllByAttemptIds(attemptIds).stream()
+                        .map(this::toExportGradingLine)
+                        .toList(),
+                appealDao.findAllByUser(userId).stream().map(this::toExportAppealLine).toList(),
+                reviewDao.findAllByUser(userId).stream()
+                        .map(this::toExportReviewCardLine)
+                        .toList());
+    }
+
+    /**
+     * 提交实体 → 导出行；answer 解析为 JSON 嵌入，解析失败降级为原文 TextNode（导出不因脏数据中断）。
+     *
+     * @param attempt 提交实体
+     * @return 导出行
+     */
+    private UserDataExportView.AttemptLine toExportAttemptLine(Attempt attempt) {
+        return new UserDataExportView.AttemptLine(
+                attempt.getId(),
+                attempt.getUserId(),
+                attempt.getDeviceId(),
+                attempt.getSentenceId(),
+                attempt.getSentenceVersionId(),
+                attempt.getQuestionVersion(),
+                attempt.getMode().name(),
+                attempt.getKind().name(),
+                attempt.getRetryOfId(),
+                parseAnswerNode(attempt.getAnswer()),
+                attempt.getAnswerHash(),
+                attempt.getHintsUsed(),
+                attempt.getDurationMs(),
+                attempt.getClientCreatedAt(),
+                attempt.getCreatedAt());
+    }
+
+    /**
+     * 判分实体 → 导出行。
+     *
+     * @param grading 判分实体
+     * @return 导出行
+     */
+    private UserDataExportView.GradingLine toExportGradingLine(AttemptGrading grading) {
+        return new UserDataExportView.GradingLine(
+                grading.getId(),
+                grading.getAttemptId(),
+                grading.getSequence(),
+                grading.getScore(),
+                grading.getMaxScore(),
+                grading.getResult(),
+                grading.getGrader(),
+                grading.getNormalizerVersion(),
+                grading.getRubricVersion(),
+                grading.getModelSnapshot(),
+                grading.getLatencyMs(),
+                grading.getPromptVersionId(),
+                grading.getCreatedAt());
+    }
+
+    /**
+     * 申诉实体 → 导出行。
+     *
+     * @param appeal 申诉实体
+     * @return 导出行
+     */
+    private UserDataExportView.AppealLine toExportAppealLine(Appeal appeal) {
+        return new UserDataExportView.AppealLine(
+                appeal.getId(),
+                appeal.getAttemptId(),
+                appeal.getAnnotationKey(),
+                appeal.getSentenceId(),
+                appeal.getChunkIndex(),
+                appeal.getUserId(),
+                appeal.getKind().name(),
+                appeal.getStatus(),
+                appeal.getProposedAnswer(),
+                appeal.getReason(),
+                appeal.getDecision(),
+                appeal.getDecisionReason(),
+                appeal.getDecidedBy(),
+                appeal.getDecidedAt(),
+                appeal.getModelSnapshot(),
+                appeal.getPromptVersionId(),
+                appeal.getCreatedAt());
+    }
+
+    /**
+     * 复习卡实体 → 导出行。
+     *
+     * @param review 复习卡实体
+     * @return 导出行
+     */
+    private UserDataExportView.ReviewCardLine toExportReviewCardLine(Review review) {
+        return new UserDataExportView.ReviewCardLine(
+                review.getId(),
+                review.getUserId(),
+                review.getSentenceId(),
+                review.getMode().name(),
+                review.getState().name(),
+                review.getFsrsState().name(),
+                review.getDueAt(),
+                review.getStability(),
+                review.getDifficulty(),
+                review.getReps(),
+                review.getLapses(),
+                review.getElapsedDays(),
+                review.getScheduledDays(),
+                review.getLastRating(),
+                review.getLastReviewAt(),
+                review.getLastAttemptId(),
+                review.getCreatedAt());
+    }
+
+    /**
+     * 把落库的 answer JSON 文本解析为树；落库前已校验，理论不失败，兜底保导出可用。
+     *
+     * @param answer 答案 JSON 文本
+     * @return 解析后的 JSON；失败时为原文 StringNode
+     */
+    private JsonNode parseAnswerNode(String answer) {
+        try {
+            return objectMapper.readTree(answer);
+        } catch (JacksonException exception) {
+            return StringNode.valueOf(answer);
+        }
     }
 }

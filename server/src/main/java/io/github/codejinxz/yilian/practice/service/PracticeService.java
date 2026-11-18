@@ -16,6 +16,7 @@ import io.github.codejinxz.yilian.practice.service.vo.OverloadView;
 import io.github.codejinxz.yilian.practice.service.vo.PostponeView;
 import io.github.codejinxz.yilian.practice.service.vo.ReviewCardView;
 import io.github.codejinxz.yilian.practice.service.vo.TodayView;
+import io.github.codejinxz.yilian.practice.service.vo.UserDataExportView;
 import io.github.codejinxz.yilian.practice.service.vo.WrongQuestionView;
 
 import org.springframework.lang.Nullable;
@@ -209,4 +210,15 @@ public interface PracticeService {
      * @return 复核结果（新分 + 理由 + 快照与耗时 + 首判分）
      */
     ModelReviewView reviewAttempt(Long userId, String attemptId);
+
+    /**
+     * 服务端账号导出的练习域切片：读取本人 attempts、全部判分行、申诉/不认同与复习卡。
+     *
+     * <p>只读聚合（单表 JPA 查询逐表读取后装配，跨表 JOIN 无聚合语义——§3.1 分工不引入 MyBatis Mapper）；不触碰凭据投影与全局题库内容。append-only
+     * 表行数单人量级小，整包返回。
+     *
+     * @param userId 当前用户 id
+     * @return 练习域导出切片
+     */
+    UserDataExportView exportUserData(Long userId);
 }

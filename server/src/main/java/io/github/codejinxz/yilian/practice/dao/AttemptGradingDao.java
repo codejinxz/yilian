@@ -68,4 +68,12 @@ public interface AttemptGradingDao {
      * @return 存在返回 true
      */
     boolean existsByAttemptId(String attemptId);
+
+    /**
+     * 多个提交的全部判分行（服务端账号导出用，append-only 全量读取，不做序号归并）。
+     *
+     * @param attemptIds 提交 id 集合，可为空列表
+     * @return 判分记录列表（含复核追加的高序号行）
+     */
+    List<AttemptGrading> findAllByAttemptIds(Collection<String> attemptIds);
 }

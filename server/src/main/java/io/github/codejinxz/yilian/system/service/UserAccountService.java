@@ -10,6 +10,7 @@ import io.github.codejinxz.yilian.system.service.vo.AdminUserView;
 import io.github.codejinxz.yilian.system.service.vo.InviteCodeAdminView;
 import io.github.codejinxz.yilian.system.service.vo.InviteCodeCreatedView;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -159,4 +160,29 @@ public interface UserAccountService {
      * @return 软删后的视图
      */
     AdminUserView adminDeleteUser(long actorId, long targetId, String reason);
+
+    /**
+     * 用户自助删号：软删置位（deleted_by=本人，与 018 管理员删同口径）、清 TOTP 注册与恢复码、 吊销全部 refresh 会话；学习记录 append-only 不动。
+     *
+     * <p>密码与动态码确认在 auth 层完成（BCrypt/TOTP 算法在 auth 与 common）；本方法只承接已通过
+     * 确认的删号用例。无自助撤销：冷静期内管理员可通过既有管理面处置争议。
+     *
+     * @param userId 当前登录用户 id
+     * @param now 删号时间
+     * @return 软删完成时刻（deleted_at，UTC；匿名化时点=该值+30 天，由调用方换算）
+     */
+    Instant selfDelete(long userId, Instant now);
+
+    /**
+     * 匿名化单个到期账号（调度任务逐用户入口）：身份字段替换/清空、个人化设置回注册默认、 清 TOTP 注册与恢复码、按软删时的用户名吊销全部会话，最后落 {@code
+     * anonymized_at}。
+     *
+     * <p>幂等：未删或已匿名的账号零变更直接返回 false；学习记录（attempts/attempt_gradings/ appeals/review_logs）append-only
+     * 一律不动。匿名化不可逆，无管理员恢复入口。
+     *
+     * @param userId 账号 id
+     * @param now 匿名化时间
+     * @return 本次实际执行匿名化为 true；账号不满足到期条件（未删/已匿名化）为 false
+     */
+    boolean anonymizeUser(long userId, Instant now);
 }

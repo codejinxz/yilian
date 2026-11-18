@@ -60,6 +60,20 @@ class AuthRateLimitAnnotationTest {
         assertThat(rateLimit.accountExpression()).isEqualTo("#request.challengeToken()");
     }
 
+    /** [AC-3] delete-account 端点：与 password-change 同口径账号维度 5 次/60 秒（密码确认面防爆破）。 */
+    @Test
+    @DisplayName("[AC-3] delete-account 端点限流契约（ACCOUNT 5/60s）")
+    void ac3_deleteAccountHasAccountRateLimit() throws Exception {
+        RateLimit rateLimit = rateLimitOf("deleteAccount");
+
+        assertThat(rateLimit).isNotNull();
+        assertThat(rateLimit.scene()).isEqualTo("delete-account");
+        assertThat(rateLimit.dimensions()).containsExactly(RateLimitDimension.ACCOUNT);
+        assertThat(rateLimit.limit()).isEqualTo(5);
+        assertThat(rateLimit.windowSeconds()).isEqualTo(60);
+        assertThat(rateLimit.accountExpression()).isEqualTo("#principal.id()");
+    }
+
     /**
      * 取指定方法的 @RateLimit 注解。
      *
@@ -74,7 +88,7 @@ class AuthRateLimitAnnotationTest {
     }
 
     /**
-     * 按方法名解析参数类型（三个目标方法参数不同）。
+     * 按方法名解析参数类型（目标方法参数不同）。
      *
      * @param methodName 方法名
      * @return 参数类型数组
@@ -97,6 +111,11 @@ class AuthRateLimitAnnotationTest {
                         io.github.codejinxz.yilian.auth.dto.LoginTotpRequest.class,
                         jakarta.servlet.http.HttpServletRequest.class,
                         jakarta.servlet.http.HttpServletResponse.class
+                    };
+            case "deleteAccount" ->
+                    new Class<?>[] {
+                        io.github.codejinxz.yilian.auth.dto.DeleteAccountRequest.class,
+                        io.github.codejinxz.yilian.common.security.YilianUserPrincipal.class
                     };
             default -> throw new IllegalArgumentException("未知方法: " + methodName);
         };

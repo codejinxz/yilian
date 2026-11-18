@@ -6,6 +6,7 @@ import io.github.codejinxz.yilian.system.entity.UserRole;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -96,4 +97,12 @@ public interface AppUserDao {
      * @return 分页结果
      */
     Page<AppUser> search(String keyword, UserRole role, String status, Pageable pageable);
+
+    /**
+     * 待匿名化的软删账号：软删时刻早于等于截止且尚未匿名化。
+     *
+     * @param cutoff 匿名化截止时刻（UTC）
+     * @return 待匿名化账号列表，deleted_at 升序
+     */
+    List<AppUser> findAnonymizationDue(Instant cutoff);
 }

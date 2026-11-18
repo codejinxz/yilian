@@ -98,4 +98,12 @@ public interface AttemptDao {
      * @return 提交列表，created_at 倒序
      */
     List<Attempt> findRecentByUser(Long userId, int limit);
+
+    /**
+     * 用户全部提交（服务端账号导出用，append-only 全量读取）。
+     *
+     * @param userId 用户 id
+     * @return 提交列表，created_at 升序
+     */
+    List<Attempt> findAllByUser(Long userId);
 }

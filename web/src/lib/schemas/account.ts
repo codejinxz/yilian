@@ -119,3 +119,48 @@ export type UserSettings = z.infer<typeof settingsSchema>;
 export const updateSettingsRequestSchema = settingsSchema.partial();
 
 export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
+
+/** 036 自助删号请求：密码必填；开启两步验证的用户另附 8 位动态码或恢复码。 */
+export const deleteAccountRequestSchema = z.object({
+  password: z.string().min(1, "请输入当前密码"),
+  totpCode: z
+    .string()
+    .trim()
+    .regex(/^\d{8}$/, "验证码为 8 位数字")
+    .optional(),
+});
+
+export type DeleteAccountRequest = z.infer<typeof deleteAccountRequestSchema>;
+
+/** 036 删号回执：软删完成时刻与匿名化时点（UTC ISO 字符串，相差 30 天冷静期）。 */
+export const deleteAccountReceiptSchema = z.object({
+  deletedAtUtc: z.string().min(1),
+  anonymizeAtUtc: z.string().min(1),
+});
+
+export type DeleteAccountReceipt = z.infer<typeof deleteAccountReceiptSchema>;
+
+/**
+ * 036 服务端账号数据导出（GET /api/me/export 的裸 JSON，非统一信封）。
+ *
+ * 顶层块严格校验（账号块/四个切片齐全）；切片行按宽松 record 校验——行字段在服务端
+ * 与 DATA-MODEL §5.8–5.11 对齐且前端只整包落盘、不逐行消费，严格 schema 只会把
+ * 「服务端加了字段」变成前端下载失败，得不偿失（对照测试锁顶层形状）。
+ */
+export const accountExportSchema = z.object({
+  schemaVersion: z.number().int().positive(),
+  exportedAtUtc: z.string().min(1),
+  account: z.object({
+    id: idSchema,
+    username: z.string().min(1),
+    email: z.string().nullable(),
+    createdAtUtc: z.string().min(1),
+    settings: settingsSchema,
+  }),
+  attempts: z.array(z.record(z.string(), z.unknown())),
+  attemptGradings: z.array(z.record(z.string(), z.unknown())),
+  appeals: z.array(z.record(z.string(), z.unknown())),
+  reviewCards: z.array(z.record(z.string(), z.unknown())),
+});
+
+export type AccountExport = z.infer<typeof accountExportSchema>;

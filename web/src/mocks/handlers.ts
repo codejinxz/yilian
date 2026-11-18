@@ -667,6 +667,103 @@ function wrongQuestionItems(db: MockDb, user: MockUser, includeDisputed: boolean
 }
 
 /**
+ * 构造 036 服务端账号导出（§4.11 裸 JSON 形状）：账号块 + 本人四个练习域切片。
+ * 字段名与真实服务端的 DATA-MODEL §5.8–5.11 投影一致；mock attempts 的判分行按
+ * 提交响应中的判分数据回放（append-only 单行）。
+ * @param db mock 数据库
+ * @param user 当前用户
+ * @returns 导出对象（顶层块与 accountExportSchema 对齐）
+ */
+function buildAccountExport(db: MockDb, user: MockUser) {
+  const myAttempts = db.attempts.filter((attempt) => attempt.userId === user.id);
+  return {
+    schemaVersion: 1,
+    exportedAtUtc: new Date().toISOString(),
+    account: {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      createdAtUtc: user.createdAt,
+      settings: user.settings,
+    },
+    attempts: myAttempts.map((attempt) => ({
+      id: attempt.request.attemptId,
+      userId: attempt.userId,
+      deviceId: null,
+      sentenceId: attempt.request.sentenceId,
+      sentenceVersionId: attempt.request.sentenceVersionId,
+      questionVersion: 1,
+      mode: attempt.request.mode,
+      kind: attempt.request.kind,
+      retryOfId: attempt.request.retryOfId,
+      answer: attempt.request.answer,
+      answerHash: "mock-answer-hash-placeholder",
+      hintsUsed: attempt.request.hintsUsed,
+      durationMs: attempt.request.durationMs,
+      clientCreatedAt: attempt.request.clientCreatedAt ?? null,
+      createdAt: attempt.createdAt,
+    })),
+    attemptGradings: myAttempts.map((attempt) => ({
+      id: attempt.response.grading.id,
+      attemptId: attempt.request.attemptId,
+      sequence: attempt.response.grading.sequence,
+      score: attempt.response.score,
+      maxScore: 100,
+      result: attempt.response.result,
+      grader: attempt.response.grading.grader,
+      normalizerVersion: attempt.response.grading.normalizerVersion,
+      rubricVersion: attempt.response.grading.rubricVersion,
+      modelSnapshot: null,
+      latencyMs: null,
+      promptVersionId: null,
+      createdAt: attempt.response.grading.createdAt,
+    })),
+    appeals: db.appeals
+      .filter((appeal) => appeal.userId === user.id)
+      .map((appeal) => ({
+        id: appeal.id,
+        attemptId: appeal.attemptId,
+        annotationKey: appeal.annotationKey,
+        sentenceId: appeal.sentenceId,
+        chunkIndex: appeal.chunkIndex,
+        userId: appeal.userId,
+        kind: appeal.kind,
+        status: appeal.status,
+        proposedAnswer: appeal.proposedAnswer,
+        reason: appeal.reason,
+        decision: null,
+        decisionReason: appeal.decisionReason,
+        decidedBy: appeal.decidedBy,
+        decidedAt: appeal.decidedAt,
+        modelSnapshot: null,
+        promptVersionId: null,
+        createdAt: appeal.createdAt,
+      })),
+    reviewCards: db.reviews
+      .filter((review) => review.userId === user.id)
+      .map((review) => ({
+        id: review.id,
+        userId: review.userId,
+        sentenceId: review.sentenceId,
+        mode: review.mode,
+        state: review.state,
+        fsrsState: review.fsrsState,
+        dueAt: review.dueAt,
+        stability: review.stability,
+        difficulty: review.difficulty,
+        reps: review.reps,
+        lapses: review.lapses ?? 0,
+        elapsedDays: 0,
+        scheduledDays: review.scheduledDays ?? 0,
+        lastRating: review.lastRating ?? null,
+        lastReviewAt: review.lastReviewedAt ?? null,
+        lastAttemptId: null,
+        createdAt: review.dueAt,
+      })),
+  };
+}
+
+/**
  * 导入批次视图；裁掉 mock 内部 rawRows 与 rows。
  * @param batch mock 批次
  * @returns ImportBatchView
@@ -1113,6 +1210,43 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     user.recoveryCodes = [];
     persistMockDb();
     return null;
+  }
+
+  // ---- 036 自助删号（真实服务端 §4.12 同形：软删 + 吊销会话 + 清 2FA；演示态没有 HttpOnly
+  //      refresh Cookie，直接清 mock 会话；无自助撤销，匿名化时点=删号+30 天随回执返回） ----
+  if (pathname === "/auth/delete-account" && method === "POST") {
+    const user = currentUser(db);
+    if (!user) {
+      fail(401, 40100, "请先登录");
+    }
+    const input = asObject(body);
+    const password = String(input.password ?? "");
+    if (!password || password !== user.password) {
+      fail(401, 40101, "当前密码不正确");
+    }
+    if (user.totpEnabled && !/^\d{8}$/.test(String(input.totpCode ?? ""))) {
+      // 开启两步验证的账号必须附 8 位动态码（演示态任意 8 位数字通过，与 login/totp 同口径）。
+      fail(400, 40000, "请输入两步验证动态码或恢复码");
+    }
+    user.deleted = true;
+    user.enabled = false;
+    user.totpEnabled = false;
+    user.totpSecret = null;
+    user.recoveryCodes = [];
+    db.sessionUserId = null;
+    persistMockDb();
+    const now = Date.now();
+    return {
+      deletedAtUtc: new Date(now).toISOString(),
+      anonymizeAtUtc: new Date(now + 30 * 86_400_000).toISOString(),
+    };
+  }
+
+  // ---- 036 服务端账号数据导出（真实服务端 §4.11 同形：裸导出 JSON，非统一信封；
+  //      只含本人数据，不含密码/TOTP 材料） ----
+  if (pathname === "/me/export" && method === "GET") {
+    const user = requireUser(db);
+    return buildAccountExport(db, user);
   }
 
   if (pathname === "/me/settings" && method === "GET") {

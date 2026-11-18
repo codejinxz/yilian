@@ -56,6 +56,14 @@ public interface AppealDao {
     Optional<Appeal> findById(Long id);
 
     /**
+     * 用户全部申诉/不认同记录（服务端账号导出用，append-only 全量读取）。
+     *
+     * @param userId 用户 id
+     * @return 记录列表，created_at 升序
+     */
+    List<Appeal> findAllByUser(Long userId);
+
+    /**
      * 落 LLM 初裁结果（定向 UPDATE，只碰裁决列：decision/decision_reason/decided_by/decided_at/
      * model_snapshot/prompt_version_id；status 与提交数据不动）。
      *

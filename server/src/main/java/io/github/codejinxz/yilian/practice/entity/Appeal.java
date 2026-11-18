@@ -278,4 +278,13 @@ public class Appeal {
     public Long getPromptVersionId() {
         return promptVersionId;
     }
+
+    /**
+     * 记录提交时间（服务端账号导出投影需要）。
+     *
+     * @return UTC 时间戳
+     */
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
 }

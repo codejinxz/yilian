@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ErrorState, LoadingBlock, Notice } from "@/components/feedback";
 import { clearSession } from "@/features/auth/clear-session";
 import { ConfirmDialog } from "@/features/settings/confirm-dialog";
+import { DeleteAccountDialog } from "@/features/settings/delete-account-dialog";
 import { type GradingMode, type ThemeMode, useSettingsStore } from "@/features/settings/store";
 import { TotpCard } from "@/features/settings/TotpCard";
 import { api } from "@/lib/api";
@@ -42,9 +43,6 @@ const COMMON_TIMEZONES = [
   "Australia/Sydney",
   "UTC",
 ];
-
-/** 原型「删除账号」的原因选项；文案照原型 askReason。 */
-const DELETE_REASONS = ["不再使用", "隐私顾虑", "其他"] as const;
 
 /** 快捷键表；文案照原型 kbd-table。 */
 const SHORTCUTS: Array<readonly [string, string]> = [
@@ -876,17 +874,16 @@ export function SettingsPage() {
         </SettingRow>
       </div>
 
-      <ConfirmDialog
+      {/* 036 自助删号：真实链路（风险说明 + 服务端导出 + 密码/2FA 双确认 + 二次确认）。
+          成功后清会话回登录页——删号已吊销全部会话，本机 access token 余命无意义。 */}
+      <DeleteAccountDialog
         open={deleteOpen}
-        title="删除账号"
-        description="软删 30 天可恢复，之后匿名化；答题流水会一起清理。"
-        reasons={DELETE_REASONS}
-        confirmLabel="删除账号"
-        onCancel={() => setDeleteOpen(false)}
-        onConfirm={() => {
+        onClose={() => setDeleteOpen(false)}
+        onDeleted={() => {
           setDeleteOpen(false);
-          // 后端尚无删除端点：如实告知未执行，不伪造成功。
-          showToast("需要服务端支持，当前为演示，未执行删除");
+          clearSession(queryClient);
+          void navigate({ to: "/login", replace: true });
+          showToast("账号已删除：30 天冷静期后匿名化。感谢使用译练。");
         }}
       />
 

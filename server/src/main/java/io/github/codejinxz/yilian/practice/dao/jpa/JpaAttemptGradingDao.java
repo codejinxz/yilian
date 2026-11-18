@@ -71,4 +71,12 @@ public class JpaAttemptGradingDao implements AttemptGradingDao {
     public boolean existsByAttemptId(String attemptId) {
         return gradings.existsByAttemptId(attemptId);
     }
+
+    @Override
+    public List<AttemptGrading> findAllByAttemptIds(Collection<String> attemptIds) {
+        if (attemptIds.isEmpty()) {
+            return List.of();
+        }
+        return List.copyOf(gradings.findByAttemptIdIn(attemptIds));
+    }
 }

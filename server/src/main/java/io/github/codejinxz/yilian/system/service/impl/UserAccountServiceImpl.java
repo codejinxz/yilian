@@ -358,6 +358,49 @@ public class UserAccountServiceImpl implements UserAccountService {
         return random.toString();
     }
 
+    @Override
+    @Transactional
+    public Instant selfDelete(long userId, Instant now) {
+        AppUser target = requireUser(userId);
+        if (target.getDeletedAt() != null) {
+            // 已删重复调用按 40900 收敛（契约文档化口径）：幂等 200 会把「账号已删除」伪装成
+            // 二次成功，回执时间也会误导；显式冲突与 adminDeleteUser 的 40400 语义分层——
+            // 40900 表达「同一个删除已经发生」，调用方（持过期 access token 的本人）据此停手。
+            throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "账号已删除");
+        }
+        if (target.getRole() == UserRole.ADMIN && appUserDao.countActiveAdminsForUpdate() <= 1) {
+            // 与 adminDeleteUser 同款「最后一个管理员」行锁护栏：管理员自助删号等同自我降级，
+            // 任何时刻不出现 0 活跃管理员；最后一个管理员的删号须先由他人接管或另建管理员。
+            throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "不能删除最后一个管理员");
+        }
+        // 软删 + 清 2FA + 吊销全部会话同事务（预披露裁决：密钥材料不留给已删账号；会话吊销
+        // 与 adminDeleteUser 同口径——deleted 账号 refresh 校验本就拒绝，吊销让窗口立即收敛）。
+        // 学习记录 append-only 一律不动；匿名化由日调度任务在 deleted_at+30 天后执行。
+        target.softDelete(userId, now);
+        target.clearTotp();
+        appUserDao.save(target);
+        recoveryCodeDao.deleteByUserId(userId);
+        revokeRefreshSessions(target.getUsername());
+        return target.getDeletedAt();
+    }
+
+    @Override
+    @Transactional
+    public boolean anonymizeUser(long userId, Instant now) {
+        AppUser target = requireUser(userId);
+        if (target.getDeletedAt() == null || target.getAnonymizedAt() != null) {
+            // 幂等重入：未删（未到期或误扫）与已匿名化（重复调度）都零变更。
+            return false;
+        }
+        // 先按软删时的用户名吊销会话、后改用户名：refresh 会话按 principal_name（登录时的
+        // 用户名）索引，先改后吊会按新占位名扑空，留下「匿名化后仍有活会话」的窗口。
+        revokeRefreshSessions(target.getUsername());
+        target.anonymize(userId, now);
+        appUserDao.save(target);
+        recoveryCodeDao.deleteByUserId(userId);
+        return true;
+    }
+
     /**
      * 按用户名吊销全部 refresh 会话（纪元先增 + 会话行删除，见 {@link RefreshSessionGuard#revoke}）。
      *

@@ -488,6 +488,106 @@ class UserAccountServiceImplTest {
         verify(appUserDao, never()).findById(anyLong());
     }
 
+    /** [AC-3] 自助删号：软删（deleted_by=本人）+ 清 2FA + 删恢复码 + 按用户名吊销会话，返回 deleted_at。 */
+    @Test
+    void selfDeleteSoftDeletesClears2faAndRevokesSessions_ac3() {
+        AppUser target = user(2L, "learner");
+        target.activateTotp("cipher-1", Instant.now());
+        when(appUserDao.findById(2L)).thenReturn(Optional.of(target));
+        when(appUserDao.save(any(AppUser.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        Instant now = Instant.now();
+        Instant deletedAt = service.selfDelete(2L, now);
+
+        assertThat(deletedAt).isEqualTo(now);
+        assertThat(target.getDeletedAt()).isEqualTo(now);
+        assertThat(target.getDeletedBy()).isEqualTo(2L);
+        assertThat(target.isEnabled()).isFalse();
+        assertThat(target.isTotpEnabled()).isFalse();
+        assertThat(target.getTotpSecretCipher()).isNull();
+        verify(recoveryCodeDao).deleteByUserId(2L);
+        verify(refreshSessions).findByPrincipalName("learner");
+    }
+
+    /** [AC-3] 已删账号重复自助删号：40900「账号已删除」（契约文档化口径），不再重复吊销。 */
+    @Test
+    void selfDeleteOnDeletedTargetConflictsWith40900_ac3() {
+        AppUser target = user(3L, "learner");
+        target.softDelete(3L, Instant.now());
+        when(appUserDao.findById(3L)).thenReturn(Optional.of(target));
+
+        assertThatThrownBy(() -> service.selfDelete(3L, Instant.now()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("账号已删除")
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.IDEMPOTENT_CONFLICT);
+
+        verify(refreshSessions, times(0)).findByPrincipalName(any());
+    }
+
+    /** [AC-3] 最后一个管理员不可自助删号（与 adminDeleteUser 同款行锁护栏，40900）。 */
+    @Test
+    void selfDeleteRejectsLastAdmin_ac3() {
+        when(appUserDao.findById(1L)).thenReturn(Optional.of(adminUser(1L, "admin")));
+        when(appUserDao.countActiveAdminsForUpdate()).thenReturn(1L);
+
+        assertThatThrownBy(() -> service.selfDelete(1L, Instant.now()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不能删除最后一个管理员")
+                .extracting(e -> ((BusinessException) e).apiCode())
+                .isEqualTo(ApiCode.IDEMPOTENT_CONFLICT);
+
+        verify(appUserDao, never()).save(any());
+    }
+
+    /** [AC-4] 匿名化：身份字段处置 + 设置回默认 + 落 anonymized_at，返回 true。 */
+    @Test
+    void anonymizeUserReplacesIdentityFields_ac4() {
+        AppUser target = user(9L, "learner");
+        target.softDelete(9L, Instant.now().minusSeconds(86_400L * 31));
+        target.updateSettings("UTC", 5, "IELTS", new java.math.BigDecimal("0.850"), "night", true);
+        target.activateTotp("cipher-9", Instant.now());
+        when(appUserDao.findById(9L)).thenReturn(Optional.of(target));
+        when(appUserDao.save(any(AppUser.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        Instant now = Instant.now();
+        boolean changed = service.anonymizeUser(9L, now);
+
+        assertThat(changed).isTrue();
+        assertThat(target.getUsername()).isEqualTo("deleted_user_9");
+        assertThat(target.getEmail()).isNull();
+        assertThat(target.getPasswordHash()).isEqualTo(AppUser.ANONYMIZED_PASSWORD_HASH);
+        assertThat(target.getTimezone()).isEqualTo("Asia/Shanghai");
+        assertThat(target.getDailyGoal()).isEqualTo((short) 3);
+        assertThat(target.getRatingStandard()).isEqualTo("TEM8");
+        assertThat(target.getTheme()).isEqualTo("paper");
+        assertThat(target.isNotificationsEnabled()).isFalse();
+        assertThat(target.isTotpEnabled()).isFalse();
+        assertThat(target.getAnonymizedAt()).isEqualTo(now);
+        // 吊销发生在用户名改写之前：会话索引键是登录时的原用户名。
+        verify(refreshSessions).findByPrincipalName("learner");
+        verify(recoveryCodeDao).deleteByUserId(9L);
+    }
+
+    /** [AC-4] 幂等重入：未删或已匿名化的账号零变更，返回 false。 */
+    @Test
+    void anonymizeUserSkipsNotDeletedOrAlreadyAnonymized_ac4() {
+        AppUser notDeleted = user(9L, "learner");
+        AppUser alreadyAnonymized = user(10L, "deleted_user_10");
+        alreadyAnonymized.softDelete(10L, Instant.now());
+        alreadyAnonymized.anonymize(10L, Instant.now());
+        when(appUserDao.findById(9L)).thenReturn(Optional.of(notDeleted));
+        when(appUserDao.findById(10L)).thenReturn(Optional.of(alreadyAnonymized));
+
+        assertThat(service.anonymizeUser(9L, Instant.now())).isFalse();
+        assertThat(service.anonymizeUser(10L, Instant.now())).isFalse();
+
+        verify(appUserDao, never()).save(any());
+        verify(refreshSessions, times(0)).findByPrincipalName(any());
+    }
+
     /**
      * 构造带 id 的管理员账号实体。
      *

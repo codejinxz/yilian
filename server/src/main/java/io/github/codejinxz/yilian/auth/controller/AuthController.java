@@ -1,6 +1,7 @@
 package io.github.codejinxz.yilian.auth.controller;
 
 import io.github.codejinxz.yilian.auth.dto.ChangePasswordRequest;
+import io.github.codejinxz.yilian.auth.dto.DeleteAccountRequest;
 import io.github.codejinxz.yilian.auth.dto.LoginRequest;
 import io.github.codejinxz.yilian.auth.dto.LoginTotpRequest;
 import io.github.codejinxz.yilian.auth.dto.RegisterRequest;
@@ -10,8 +11,10 @@ import io.github.codejinxz.yilian.auth.vo.AuthResponse;
 import io.github.codejinxz.yilian.auth.vo.CaptchaChallenge;
 import io.github.codejinxz.yilian.auth.vo.CsrfTokenResponse;
 import io.github.codejinxz.yilian.auth.vo.CurrentUserResponse;
+import io.github.codejinxz.yilian.auth.vo.DeleteAccountReceiptView;
 import io.github.codejinxz.yilian.common.api.ApiResponse;
 import io.github.codejinxz.yilian.common.logging.OperationLog;
+import io.github.codejinxz.yilian.common.logging.OperationLogContext;
 import io.github.codejinxz.yilian.common.ratelimit.RateLimit;
 import io.github.codejinxz.yilian.common.ratelimit.RateLimitDimension;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
@@ -459,5 +462,59 @@ public class AuthController {
             @Valid @RequestBody GuestUpgradeCommand command,
             @AuthenticationPrincipal YilianUserPrincipal principal) {
         return ApiResponse.success(practiceService.guestUpgrade(principal.id(), command));
+    }
+
+    /**
+     * 自助删号：密码确认（2FA 开启者还需动态码/恢复码）后软删账号并吊销全部会话。
+     *
+     * <p>软删即冷静期开始：30 天内数据原样保留（管理员侧可查、争议期），到期由日调度任务 匿名化（不可逆）；无自助撤销（删号后登录已不可达）。学习记录 append-only 不动。
+     * 幂等口径：已删重复调用按 40900「账号已删除」收敛（access token 最长 15 分钟余命内 可能重复提交）。审计 reason 固定文案「用户自助删号」。
+     *
+     * @param request 密码与可选动态码
+     * @param principal 当前用户
+     * @return 回执（软删时刻与匿名化时点，UTC）
+     */
+    @Operation(
+            summary = "自助删号（软删，30 天冷静期）",
+            description =
+                    "密码确认后软删账号（deleted_at 落值）并吊销全部 refresh 会话；开启两步验证的"
+                            + "用户必须附当前动态码或恢复码。成功后登录不可用；30 天冷静期到期由日调度"
+                            + "匿名化（身份字段处置，学习记录保留）。无自助撤销。已删重复调用返回"
+                            + " 40900「账号已删除」。响应回执含 deletedAtUtc 与匿名化时点 anonymizeAtUtc。")
+    @ApiResponses({
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "200",
+                description = "删号成功；data 为回执（deletedAtUtc/anonymizeAtUtc）"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "400",
+                description = "参数缺失或动态码不是 8 位数字（40000）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "401",
+                description = "当前密码不正确或动态码不正确（40101）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "409",
+                description = "账号已删除（40900）或最后一个管理员不可删号（40900）",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                responseCode = "429",
+                description = "触发限流（42900），带 Retry-After",
+                content = @Content(schema = @Schema(implementation = ApiResponse.class)))
+    })
+    @RateLimit(
+            scene = "delete-account",
+            dimensions = RateLimitDimension.ACCOUNT,
+            limit = 5,
+            windowSeconds = 60,
+            accountExpression = "#principal.id()")
+    @OperationLog(module = "account", action = "SELF_DELETE", targetType = "user")
+    @PostMapping("/delete-account")
+    public ApiResponse<DeleteAccountReceiptView> deleteAccount(
+            @Valid @RequestBody DeleteAccountRequest request,
+            @AuthenticationPrincipal YilianUserPrincipal principal) {
+        // 注解属性只能是常量：动态对象 id 与固定审计原因写上下文，由切面覆盖落库。
+        OperationLogContext.set("user", Long.toString(principal.id()), "用户自助删号");
+        return ApiResponse.success(authService.deleteAccount(principal, request));
     }
 }

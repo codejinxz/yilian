@@ -22,6 +22,12 @@ import java.time.Instant;
 @Table(name = "users")
 public class AppUser {
 
+    /**
+     * 匿名化后的无效密码哈希占位：不含 BCrypt 格式（$2a/$2b 前缀）， {@code BCryptPasswordEncoder.matches} 对该格式一律 false——
+     * 匿名化账号不可登录；占位是固定常量，不含任何可还原原始口令的信息。
+     */
+    public static final String ANONYMIZED_PASSWORD_HASH = "!yilian-anonymized-invalid-credential!";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -92,6 +98,10 @@ public class AppUser {
 
     @Column(name = "deleted_by")
     private Long deletedBy;
+
+    /** 匿名化完成时刻：30 天冷静期到期后由调度任务落值；NULL=未匿名化，落值即不可逆终态。 */
+    @Column(name = "anonymized_at")
+    private Instant anonymizedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -278,6 +288,33 @@ public class AppUser {
         this.deletedAt = now;
         this.deletedBy = operatorId;
         this.enabled = false;
+        touch();
+    }
+
+    /**
+     * 匿名化账号（30 天冷静期到期后的不可逆终态）：身份字段替换或清空、个人化设置回注册默认、 TOTP 材料清回未注册态；恢复码行的删除与 refresh 会话吊销由调用方在同一事务内完成
+     * （本实体不感知恢复码表与会话仓库）。
+     *
+     * <p>append-only 学习记录（attempts/attempt_gradings/appeals/review_logs）不动： {@code
+     * attempts.user_id} 指向的 id 不变，匿名化只换身份字段（username 占位 {@code deleted_user_<id>}
+     * 保留外键语义引用完整性）。密码哈希替换为不含 BCrypt 格式的无效常量： {@code BCryptPasswordEncoder.matches} 对非 BCrypt 格式一律
+     * false（不可登录），且明文口令不可还原。
+     *
+     * @param userId 账号 id（username 占位符的取值来源，保证唯一键不冲突）
+     * @param now 匿名化时间
+     */
+    public void anonymize(long userId, Instant now) {
+        this.username = "deleted_user_" + userId;
+        this.email = null;
+        this.passwordHash = ANONYMIZED_PASSWORD_HASH;
+        this.timezone = "Asia/Shanghai";
+        this.dailyGoal = 3;
+        this.ratingStandard = "TEM8";
+        this.desiredRetention = new BigDecimal("0.900");
+        this.theme = "paper";
+        this.notificationsEnabled = false;
+        clearTotp();
+        this.anonymizedAt = now;
         touch();
     }
 
@@ -519,6 +556,15 @@ public class AppUser {
      */
     public Long getDeletedBy() {
         return deletedBy;
+    }
+
+    /**
+     * 匿名化完成时刻。
+     *
+     * @return UTC 时间；未匿名化时为 null
+     */
+    public Instant getAnonymizedAt() {
+        return anonymizedAt;
     }
 
     /**

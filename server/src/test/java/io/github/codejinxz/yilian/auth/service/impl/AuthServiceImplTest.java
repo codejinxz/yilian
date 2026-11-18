@@ -57,7 +57,9 @@ class AuthServiceImplTest {
                     new RefreshSessionGuard(),
                     mock(TotpService.class),
                     mock(TotpAccountService.class),
-                    mock(SecretCipher.class));
+                    mock(SecretCipher.class),
+                    mock(io.github.codejinxz.yilian.practice.service.PracticeService.class),
+                    30);
 
     /** [AC-1] 用户名不存在时必须对固定假哈希执行一次 BCrypt matches 后才抛 40101，耗时与存在分支对齐。 */
     @Test
@@ -126,7 +128,8 @@ class AuthServiceImplTest {
                 "Asia/Shanghai",
                 3,
                 new BigDecimal("0.900"),
-                deleted);
+                deleted,
+                java.time.Instant.EPOCH);
     }
 
     private static HttpServletRequest req() {

@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 |---|---|
-| 版本 | v2.3（对齐文末变更记录最新行，批次头部版本号随变更记录推进） |
-| 日期 | 2026-11-18 |
+| 版本 | v2.4（对齐文末变更记录最新行，批次头部版本号随变更记录推进） |
+| 日期 | 2026-11-19 |
 | 字段来源 | `docs/DATA-MODEL.md` v0.1（唯一字段来源） |
 | 上游约束 | `AGENTS.md`、`docs/PRD.md` §4/§5/§8/§11/§12、`docs/NAMING.md` |
 | 下游 | `docs/openapi.yaml`（仅导出已实现端点）、`web/src/lib/api.ts` |
@@ -243,6 +243,8 @@
 | `/api/auth/login/totp` | POST | `PUBLIC` | 登录第二步（challengeToken）；CSRF；限流对齐 login |
 | `/api/auth/2fa/**` | GET/POST | `USER` | 两步验证自助（status/setup/activate/disable，§4.10） |
 | `/api/me/settings` | GET/PUT | `USER` | 用户设置 |
+| `/api/me/export` | GET | `USER` | 本人服务端账号数据导出（036，§4.11） |
+| `/api/auth/delete-account` | POST | `USER` | 自助删号：软删 + 30 天冷静期（036，§4.12） |
 | `/api/banks` | GET | `PUBLIC_OR_USER` | 公开题库 + 自己的私有题库 |
 | `/api/banks/{bankId}` | GET | `PUBLIC_OR_USER` | 题库详情 |
 | `/api/banks/{bankId}/sentences` | GET | `PUBLIC_OR_USER` | 增量拉句 |
@@ -296,7 +298,9 @@
 | account | `/api/auth/2fa/setup` | POST | USER | M2 | implemented（032，§4.10） |
 | account | `/api/auth/2fa/activate` | POST | USER | M2 | implemented（032，§4.10） |
 | account | `/api/auth/2fa/disable` | POST | USER | M2 | implemented（032，§4.10） |
-| account | `/api/me/settings` | GET/PUT | USER | M1 | planned |
+| account | `/api/me/settings` | GET/PUT | USER | M1 | implemented |
+| account | `/api/me/export` | GET | USER | M1 | implemented（036，§4.11） |
+| account | `/api/auth/delete-account` | POST | USER | M1 | implemented（036，§4.12） |
 | admin | `/api/admin/error-logs/{id}` | GET | ADMIN | M2 | implemented |
 | content | `/api/banks` | GET | PUBLIC_OR_USER | M1 | planned |
 | content | `/api/banks/{bankId}` | GET | PUBLIC_OR_USER | M1 | planned |
@@ -659,6 +663,67 @@ refresh 会话（口径镜像 §8.2b 重置密码；允许管理员对自己执�
 原因经 `OperationLogContext` 落库。
 
 `GET /api/admin/users` 行新增 `totpEnabled: boolean` 只读投影（§8.1），不含任何密钥材料。
+
+### 4.11 `GET /api/me/export`（implemented，036）
+
+本人服务端账号数据导出（AGENTS §2.6 允许单用户、禁批量；不做管理员单用户导出端点——那是 P1-05，不在 036 范围）。
+
+**响应是本契约统一信封的唯一显式例外**：HTTP 200 时响应体为**导出 JSON 本身**（可归档的纯数据，不携带
+`ApiResponse` 信封），并带 `Content-Disposition: attachment; filename="yilian-export-<UTC日期>.json"`
+与 `Content-Type: application/json`。失败路径（401 等）仍返回统一信封。
+
+整包结构（一次拉全，单人量级小）：
+
+```json
+{
+  "schemaVersion": 1,
+  "exportedAtUtc": "2026-11-19T00:00:00Z",
+  "account": {
+    "id": 7,
+    "username": "learner",
+    "email": "learner@example.com",
+    "createdAtUtc": "2026-11-01T00:00:00Z",
+    "settings": { "timezone": "Asia/Shanghai", "dailyGoal": 3, "ratingStandard": "TEM8",
+                   "desiredRetention": 0.9, "theme": "paper", "notificationsEnabled": false }
+  },
+  "attempts": [ /* 本人答题提交（DATA-MODEL §5.8 列投影，answer 为解析后的 JSON） */ ],
+  "attemptGradings": [ /* 本人提交关联的全部判分行（§5.9，含复核追加的高序号行） */ ],
+  "appeals": [ /* 本人申诉/不认同记录（§5.10） */ ],
+  "reviewCards": [ /* 本人复习卡 FSRS 当前投影（§5.11） */ ]
+}
+```
+
+数据范围：仅本人（按 `user_id` 过滤）；**不含**密码哈希、TOTP 密钥材料、恢复码等凭据投影，不含他人数据
+与题库内容（列名与 DATA-MODEL §5.8–§5.11 对齐，camelCase 投影）。匿名读 401（`40100`）；已删账号按
+未登录收敛（`40100`）。读接口不标审计。前端入口：设置页删号卡片「先导出我的数据」（下载动作不强制
+阻断删号）；本机 IndexedDB 导出（`exportLocalData`）与之互不替代。
+
+### 4.12 `POST /api/auth/delete-account`（implemented，036；USER，CSRF）
+
+请求：`{"password": "当前密码", "totpCode": "12345678"?}`——密码 BCrypt 确认必填；**开启两步验证的用户
+必须附**当前 8 位动态码或剩余恢复码之一（镜像 §4.10 disable 双确认）。
+
+成功（200）：软删置位（`deleted_at` 落值、`deleted_by`=本人，与 §8.2c 管理员删同口径）+ 吊销该用户全部
+refresh 会话 + 清 TOTP 注册（三列 + 恢复码行——预披露裁决：密钥材料不留给已删账号）；学习记录
+（attempts/attempt_gradings/appeals/review_logs）append-only 不动。响应回执：
+
+```json
+{ "code": 0, "message": "success", "data": {
+  "deletedAtUtc": "2026-11-19T00:00:00Z",
+  "anonymizeAtUtc": "2026-12-19T00:00:00Z" } }
+```
+
+`anonymizeAtUtc` = `deletedAtUtc` + 30 天（冷静期天数走配置键 `yilian.account.anonymize-grace-days`，
+与匿名化日调度 `AccountAnonymizationJob` 同键读取，不漂移）。冷静期语义：**30 天内数据原样保留**
+（管理员侧可查、争议期），到期由日调度匿名化（身份字段处置：username→`deleted_user_<id>`、email→NULL、
+password_hash→无效常量、个人化设置回默认、TOTP 三列清；`anonymized_at` 落值，见 DATA-MODEL §5.1/§11）。
+**无自助撤销**（删号后登录已不可达；PRD 未要求；管理员可通过既有管理面处置争议）。
+
+错误：`40000`（缺密码/动态码非 8 位）、`40101`（密码或动态码不正确）、`40900`（**账号已删除**——
+幂等口径裁决为显式冲突而非幂等 200，access token 最长 15 分钟余命内的重复提交据此停手；以及
+最后一个管理员不可自助删号）、`40100`、`42900`。
+限流：`delete-account` 场景 **5 次/60 秒（账号）**。审计：`@OperationLog(module=account, action=SELF_DELETE,
+targetType=user)`，reason 固定文案「用户自助删号」。
 
 ---
 
@@ -2258,7 +2323,7 @@ Prompt 版本治理（DATA-MODEL §5.19 写半边）：prompt_versions 注册表
 
 ---
 
-## 10. 实现状态总览（2026-11-18）
+## 10. 实现状态总览（2026-11-19）
 
 > 状态分级：**已实现** = 后端真实可用；**前端 mock** = 前端演示层已按本契约实现、服务端待开发（前端代码带 `TODO(mock)` 注释，接口落地后删除）；**未开发** = 契约在案、两侧均未实现。
 
@@ -2274,6 +2339,9 @@ Prompt 版本治理（DATA-MODEL §5.19 写半边）：prompt_versions 注册表
 | Account | `POST /api/auth/guest-upgrade` | 游客本机记录批量迁移：≤100 条/批、同 id 同载荷 skip、异载荷 40903 整体回滚；只落 attempts/attempt_gradings，不触发排程 | `AuthGuestUpgradeControllerTest`（切片：匿名 401/信封/限流注解） |
 | Account | `POST /api/auth/login/totp`、`GET /api/auth/2fa/status`、`POST /api/auth/2fa/setup`、`POST /api/auth/2fa/activate`、`POST /api/auth/2fa/disable`（032，§4.10） | TOTP 两步验证全链路：登录密码步 40305+challengeToken（5 分钟 purpose 限定 JWT，正反向互不冒用——challenge 当 Bearer 被过滤器链拒收、access token 当 challenge 被 purpose 校验拒绝）；login/totp 验 TOTP（±1 窗）或恢复码（**条件更新原子消费**：同码并发双发恰一成功、败者 40101「恢复码无效或已使用」，库内 used_at 只落一次）、剩余数随响应可见；setup 密钥/otpauth 一次性展示（重复调用作废旧密钥，activate 校验密文漂移）；activate 10 个 BCrypt 哈希恢复码一次性返回；disable 密码+动态码双确认（恢复码可代验）清注册；40305/40101/40100/40000 信封 | `AuthTotpFlowIntegrationTest`（真实 HTTP：40305 挑战与 purpose 正反向隔离、恢复码一次性消费与**两线程并发单次语义**（恰一 200 一 40101、used_at 只落一次）、reset-2fa 解救/幂等/40400）；`TotpControllerTest`（切片：匿名 401、40000/40101/40000 校验与业务透传、信封形状、限流注解契约）；限流口径（login-totp 10/min IP+challengeToken、三写端点账号 5/min）另由 `AuthRateLimitAnnotationTest` 锁定；Dao 原子消费由 `V15UserTotp2faSchemaIntegrationTest`（条件更新首标 true/重标 false、used_at 不被改写）覆盖 |
 | Account | `GET /api/me/settings`、`PUT /api/me/settings` | 主题/目标/评分标准/时区/保留率等 | `MeControllerTest`（切片：匿名 401、信封、40000 字段明细、40001、首登 40303）；DTO 注解层另由 `UserSettingsRequestValidationTest` 锁定 |
+| Account | `GET /api/me/export`（036，§4.11） | 本人服务端账号数据整包导出：账号块（身份投影+设置）+ attempts/全部判分行/appeals/reviewCards 四切片（DATA-MODEL §5.8–§5.11 投影）；**响应体为导出 JSON 本身而非统一信封**（文件下载语义的唯一显式例外，Content-Disposition 附件）+ 他人数据不可见 + 凭据投影（密码哈希/TOTP 材料/恢复码）不进文件 + 空数据形状 | `MeControllerTest`（切片：匿名 401、裸 JSON 形状与 Content-Disposition 附件头）；`SelfAccountLifecycleIntegrationTest`（真实 HTTP：本人数据整包与 `yilian-export-<UTC日期>.json` 附件头、他人 attempt 不可见（水平越权反向）、凭据投影字段不出现、空数据形状、已删账号导出 401） |
+| Account | `POST /api/auth/delete-account`（036，§4.12） | 自助删号：密码 BCrypt 确认（40101）+ 2FA 开启者双确认（缺码 40000、错码 40101，镜像 2FA disable）→ 软删（deleted_by=本人）+ 清 TOTP 注册与恢复码 + 吊销全部会话；回执 deletedAtUtc/anonymizeAtUtc（=+30 天，配置键 `yilian.account.anonymize-grace-days` 与匿名化调度同源）；已删重复调用 40900「账号已删除」（幂等口径裁决，预披露）；最后一个管理员不可删 40900；学习记录不动；限流 delete-account 5/min（账号）；审计 SELF_DELETE（reason 固定「用户自助删号」） | `SelfAccountLifecycleIntegrationTest`（真实 HTTP：错密 40101 且不删号、2FA 三分支（缺 40000/错 40101/动态码过 200 回执）、成功主链路（回执差值恰 30 天、deleted_by/软删落值、refresh 401、再登录 40101、attempt 行保留、重复删号 40900、导出 401））；限流注解契约另由 `AuthRateLimitAnnotationTest` 锁定；软删/清 2FA/幂等分支由 `UserAccountServiceImplTest`（selfDelete 成功/已删 40900/最后管理员 40900）覆盖 |
+| system/Account | （无端点，036 匿名化日调度） | `AccountAnonymizationJob`（DATA-MODEL §11 Job 登记）：每日扫 `deleted_at <= now-30d AND anonymized_at IS NULL` 逐用户匿名化（身份字段处置+设置回默认+TOTP 清+按软删时用户名吊销会话+落 anonymized_at），幂等重入零变更，学习记录 append-only 一律不动；审计=结构化日志（admin_audit_log 以管理员操作者为语义前提，自动化动作不留 actor） | `AccountAnonymizationJobIntegrationTest`（真实 MySQL：到期匿名化主链路与身份处置断言、未到期零变更、会话按软删时用户名吊销、attempt 不动、重入零变更、截止时刻口径）；列形状由 `V17UserAnonymizedAtSchemaIntegrationTest` 锁定 |
 | Content | `GET /api/banks`、`GET /api/banks/{bankId}`、`GET /api/banks/{bankId}/sentences`、`GET /api/banks/{bankId}/sentences/list`（020） | PUBLIC_OR_USER：匿名仅公开题库；句子为 §5.3 增量游标契约；`/sentences/list` 为选题句列表（§5.3.1：页码分页 + keyword/level/status 筛选 + 当前用户练过态，与增量端点刻意不同形） | `BankControllerTest`（切片：匿名放行与私有隔离、40004/40005/40401、tombstone 信封、限流注解契约 IP 120/60s；020 补选题句列表 5 例——匿名公开 200/本人私有 200 带练过态/匿名私有 40100/他人私有 40300/分页 40004，限流矩阵扩到 4 端点）；SQL 语义另由 `PickerSentenceQueryDaoIntegrationTest`（真实 MySQL：可见性三态/练过态按用户隔离/动态筛选与缺省隐藏回收站/分页排序）、`LikeEscapeIntegrationTest`（keyword LIKE 转义字面量语义：题库/题目/用户三链路）覆盖 |
 | Practice | `GET /api/practice/next`（D7 四参数 2026-11-03 服务端补齐，语义见 §6.1）、`POST /api/practice/attempts`（幂等 + norm-1/rubric-1 判分 + SRS 排程）、`GET /api/practice/attempts/{attemptId}`、批注 `appeal`/`dispute`（§6.4/§6.5）、`GET /api/practice/wrong-questions`、`GET /api/practice/reviews`、`POST /api/practice/reviews/{reviewId}/reset`、`GET /api/practice/reviews/overload`、`POST /api/practice/reviews/postpone`、`GET /api/practice/today` | 练习主链路（#8 波次三）；幂等口径 §6.2；复习卡一句一卡（DATA-MODEL §5.11 Q1）；next 指定句优先（MANUAL）/errors=1 错题池（与 §6.6 同口径）/excludeIds 合并去重/tag JSON 精确匹配，非法参数静默归一 | `PracticeControllerTest`（切片：全部 10 端点——匿名 401、mode 取值 40000、分页 40004、40903/40403/40404、信封形状、限流注解、D7 四参数归一透传）；`PracticeFlowIntegrationTest`（对拍：指定句优先/找不到退回、errors=1 错题口径与 exclude/tag/bankId 过滤、next 显式 bankId 40401/空态、并发同 attemptId 双发幂等收敛零 500） |
 | Analytics | `GET /api/analytics/accuracy`（含 `daily14`/`recent` 扩展）、`GET /api/analytics/error-tags` | 用户时区日界；disputed 批注排除 | `AnalyticsControllerTest`（切片：匿名 401、§7.1/§7.2 信封、参数透传、非法日期 40000、空 items=[]）；`AnalyticsIntegrationTest`（真实 MySQL：聚合对拍、dispute 排除、from/to 闭区间上限 92 天） |
@@ -2351,6 +2419,7 @@ Prompt 版本治理（DATA-MODEL §5.19 写半边）：prompt_versions 注册表
 | 2026-11-18 | v2.1 | 033 预算护栏（PRD §17，V16）：§6.12 答疑前置预算强制门（已设 `llm.budget` 月度预算且本月已用估算成本 ≥100% 时 `40306` 固定文案拒新调用，预算门先于三态门；80% WARN 只留痕：WARN 日志+§8.17 状态可见——无推送渠道的如实口径）；§6.13 复核预算门走既有 50000 降级且文案带预算原因（零模型调用零落行）；§6.4 初裁预算门落 `{"verdict":"UNAVAILABLE","reason":"BUDGET"}` 占位不阻塞提交；V16 建 `llm_usage.estimated_cost_micro_cny`（微元整数口径 ROUND_HALF_UP，无定价 NULL=不计入预算，三记账点补成本）；§8.14.1/8.14.2 扩 `monthlyBudgetCny`/`pricing`（键 `llm.budget`，状态型字段）；新增 §8.17 `GET /api/admin/llm/usage`（UTC 自然月用量视图：monthUtc/budgetCny/spentCny/percent/status/byScene，JPA 单表聚合）；§1.3 增 40306 MODEL_BUDGET_EXHAUSTED；§10.1 Admin 行同步 | 实现工程师 |
 | 2026-11-18 | v2.2 | 034 Prompt 注册表写路径 + 黄金集回归资产 + R2-01：新增 §8.18 `/api/admin/prompts` 三端点（GET 分页检索 name/label 过滤 011 口径、POST 登记 name 白名单/content ≤20000 码点/版本号服务端分配=label=CANDIDATE append-only、POST activate 仅 CANDIDATE 可激活同事务「降级→激活→evictAll」即时换轨、已 ACTIVE 幂等、无 DELETE 历史快照不删；审计 PROMPT_REGISTER/PROMPT_ACTIVATE）；§10.1 增 Admin/Practice 行；§6.4 初裁回执扩窗口竞态口径（终审先行时回执按存储真相投影为终审态，status 不恒 PENDING，R2-01）；§9.3 增 PromptVersionView 字段回溯 | 实现工程师 |
 | 2026-11-18 | v2.3 | 035 strict JSON 输出契约双执行点（GAP 029 DEF-01 方向①）：§6.13/§6.4 补「输出契约双执行点（035）」口径——系统提示（V13 种子语义不动）声明 + 用户消息末尾「输出格式要求」指令块强制（字段清单与解析端一一对应、只输出 JSON 对象本身）；受控实验+黄金集基线实证现网网关不生效 top-level system 字段（只写在系统提示的契约模型收不到、回复自由文本、解析必败），契约经用户消息 wire 级可达，尊重 system 的直连部署双重强调无害；指令块为 builder 代码侧静态文本不进 `prompt_versions`（无迁移，DATA-MODEL §5.19 注）；接口形状/错误码/限流零变化 | 实现工程师 |
+| 2026-11-19 | v2.4 | 036 自助删号（30 天冷静期匿名化）+ 服务端数据导出（GAP pending-20261117 P0-05）：新增 §4.11 `GET /api/me/export`（本人账号块+练习域四切片整包 JSON；**响应体为导出 JSON 本身而非统一信封**——文件下载语义的唯一显式例外，Content-Disposition 附件；凭据投影不进文件；不做管理员单用户导出=P1-05）与 §4.12 `POST /api/auth/delete-account`（密码确认 + 2FA 开启者双确认 → 软删（与 §8.2c 同口径，deleted_by=本人）+ 清 TOTP 注册 + 吊销全部会话；回执 deletedAtUtc/anonymizeAtUtc=+30 天（配置键 `yilian.account.anonymize-grace-days` 与匿名化日调度同源）；已删重复调用 40900「账号已删除」幂等口径裁决；无自助撤销预披露）；V17 `users.anonymized_at`（DATA-MODEL §5.1）；§10.1 矩阵三行（export/delete-account/匿名化 Job）；§10 头部日期 2026-11-18→2026-11-19 | 实现工程师 |
 
 ---
 

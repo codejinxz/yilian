@@ -72,4 +72,9 @@ public class JpaAttemptDao implements AttemptDao {
                 .limit(limit)
                 .toList();
     }
+
+    @Override
+    public List<Attempt> findAllByUser(Long userId) {
+        return attempts.findByUserIdOrderByCreatedAtAsc(userId);
+    }
 }

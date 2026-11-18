@@ -1,13 +1,16 @@
 package io.github.codejinxz.yilian.auth.service;
 
 import io.github.codejinxz.yilian.auth.dto.ChangePasswordRequest;
+import io.github.codejinxz.yilian.auth.dto.DeleteAccountRequest;
 import io.github.codejinxz.yilian.auth.dto.LoginRequest;
 import io.github.codejinxz.yilian.auth.dto.LoginTotpRequest;
 import io.github.codejinxz.yilian.auth.dto.RegisterRequest;
 import io.github.codejinxz.yilian.auth.dto.UserSettingsRequest;
+import io.github.codejinxz.yilian.auth.vo.AccountExportView;
 import io.github.codejinxz.yilian.auth.vo.AuthResponse;
 import io.github.codejinxz.yilian.auth.vo.CsrfTokenResponse;
 import io.github.codejinxz.yilian.auth.vo.CurrentUserResponse;
+import io.github.codejinxz.yilian.auth.vo.DeleteAccountReceiptView;
 import io.github.codejinxz.yilian.auth.vo.UserSettingsResponse;
 import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
 
@@ -122,4 +125,22 @@ public interface AuthService {
      * @return 更新后的设置
      */
     UserSettingsResponse updateSettings(YilianUserPrincipal principal, UserSettingsRequest request);
+
+    /**
+     * 服务端账号数据导出：本人账号块（身份投影+设置）与练习域切片（attempts/判分/申诉/复习卡） 整包一次返回；不含密码哈希、TOTP 材料等凭据投影，不含他人数据。
+     *
+     * @param principal 当前登录用户
+     * @return 导出视图（响应体为导出 JSON 本身，非统一信封）
+     */
+    AccountExportView exportAccountData(YilianUserPrincipal principal);
+
+    /**
+     * 自助删号：密码确认（开启 2FA 的用户还需动态码/恢复码）后软删账号、清 TOTP 注册、 吊销全部 refresh 会话；无自助撤销，30 天冷静期到期由日调度任务匿名化。
+     *
+     * @param principal 当前登录用户
+     * @param request 密码与可选动态码
+     * @return 回执（软删时刻与匿名化时点，UTC）
+     */
+    DeleteAccountReceiptView deleteAccount(
+            YilianUserPrincipal principal, DeleteAccountRequest request);
 }

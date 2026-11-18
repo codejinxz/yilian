@@ -61,6 +61,14 @@ public interface AppealJpaRepository extends JpaRepository<Appeal, Long> {
     List<Appeal> findByUserIdAndKindAndStatus(Long userId, AppealKind kind, String status);
 
     /**
+     * 用户全部申诉/不认同记录（服务端账号导出用，append-only 全量读取）。
+     *
+     * @param userId 用户 id
+     * @return 记录列表，created_at 升序
+     */
+    List<Appeal> findByUserIdOrderByCreatedAtAsc(Long userId);
+
+    /**
      * 定向 UPDATE 落 LLM 初裁结果：只碰裁决六列，不触碰 status 与提交数据（append-only 纪律—— 判分/提交数据一经落库不改写，裁决列是 appeals
      * 作为「可变投影」的受控 UPDATE 面）。
      *

@@ -9,10 +9,12 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.github.codejinxz.yilian.auth.service.AuthService;
+import io.github.codejinxz.yilian.auth.vo.AccountExportView;
 import io.github.codejinxz.yilian.auth.vo.UserSettingsResponse;
 import io.github.codejinxz.yilian.common.api.ApiCode;
 import io.github.codejinxz.yilian.common.logging.ErrorLogRecorder;
@@ -31,6 +33,7 @@ import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import java.math.BigDecimal;
 
@@ -181,6 +184,75 @@ class MeControllerTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value(ApiCode.PASSWORD_CHANGE_REQUIRED.code()));
         verifyNoInteractions(authService);
+    }
+
+    /** [AC-2] 匿名导出一律 401 信封（code=40100），不触达 Service。 */
+    @Test
+    void exportRejectAnonymousWith401() throws Exception {
+        mockMvc.perform(get("/api/me/export"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(ApiCode.AUTH_REQUIRED.code()));
+        verifyNoInteractions(authService);
+    }
+
+    /** [AC-2] 导出成功：响应体为裸导出 JSON（非统一信封）+ Content-Disposition 附件头。 */
+    @Test
+    void exportReturnsRawJsonWithAttachmentHeader() throws Exception {
+        when(authService.exportAccountData(USER)).thenReturn(exportView());
+
+        MvcResult result =
+                mockMvc.perform(
+                                get("/api/me/export")
+                                        .with(
+                                                authentication(
+                                                        new TestingAuthenticationToken(
+                                                                USER, null, "ROLE_USER"))))
+                        .andExpect(status().isOk())
+                        .andExpect(
+                                header().string(
+                                                "Content-Disposition",
+                                                org.hamcrest.Matchers.containsString("attachment")))
+                        .andExpect(
+                                header().string(
+                                                "Content-Disposition",
+                                                org.hamcrest.Matchers.matchesPattern(
+                                                        ".*yilian-export-\\d{4}-\\d{2}-\\d{2}\\.json.*")))
+                        .andReturn();
+
+        // 裸导出 JSON：schemaVersion 在顶层而非信封 data 内；body 是可归档的纯数据。
+        String body = result.getResponse().getContentAsString();
+        org.assertj.core.api.Assertions.assertThat(body).contains("\"schemaVersion\":1");
+        org.assertj.core.api.Assertions.assertThat(body).contains("\"username\":\"learner\"");
+        org.assertj.core.api.Assertions.assertThat(body)
+                .doesNotContain("\"code\":0,\"message\":\"success\"");
+        verify(authService).exportAccountData(USER);
+    }
+
+    /**
+     * 构造一份最小导出视图（空切片）。
+     *
+     * @return 导出视图
+     */
+    private static AccountExportView exportView() {
+        return new AccountExportView(
+                1,
+                "2026-11-19T00:00:00Z",
+                new AccountExportView.AccountBlock(
+                        7L,
+                        "learner",
+                        "learner@example.com",
+                        "2026-11-19T00:00:00Z",
+                        new AccountExportView.SettingsBlock(
+                                "Asia/Shanghai",
+                                3,
+                                "TEM8",
+                                new BigDecimal("0.900"),
+                                "paper",
+                                false)),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of());
     }
 
     /**

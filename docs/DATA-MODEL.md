@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 |---|---|
-| 版本 | v0.7（035 strict JSON 输出契约双执行点：review/appeal 用户消息指令块，V13 种子不动） |
-| 日期 | 2026-11-17 |
+| 版本 | v0.8（036 自助删号：users.anonymized_at 列（V17）+ 匿名化日调度 AccountAnonymizationJob 登记与口径） |
+| 日期 | 2026-11-19 |
 | 状态 | 待产品/技术负责人确认后冻结 |
 | 上游 | `AGENTS.md`、`docs/PRD.md` §5/§8/§11/§16/§17/§18、`docs/NAMING.md`、`docs/GAP-ANALYSIS.md` |
 | 下游 | `docs/API.md`（未开始）、`docs/openapi.yaml`（M1/M2 实现后导出） |
@@ -254,7 +254,8 @@ erDiagram
 | `disabled_reason` | VARCHAR(255) | 是 | NULL | 停用原因，管理员必填 |
 | `disabled_at` | DATETIME(6) | 是 | NULL | 停用时间 |
 | `deleted_at` | DATETIME(6) | 是 | NULL | 软删；30 天后匿名化 |
-| `deleted_by` | BIGINT | 是 | NULL | 操作者 |
+| `deleted_by` | BIGINT | 是 | NULL | 操作者（管理员删=管理员 id；036 自助删=本人 id） |
+| `anonymized_at` | DATETIME(6) | 是 | NULL | 匿名化完成时刻（036，V17）：冷静期到期由日调度落值，NULL=未匿名化；落值即不可逆终态 |
 | `created_at` | DATETIME(6) | 否 | — | UTC |
 | `updated_at` | DATETIME(6) | 否 | — | UTC |
 
@@ -267,6 +268,15 @@ erDiagram
 - 普通 `idx_users_deleted_at (deleted_at)`
 
 软删：`deleted_at` / `deleted_by`。`enabled=FALSE` 是停用，不是删除。
+
+匿名化口径（036）：删号当下只软删（018 管理员删与 036 自助删同口径）+ 吊销全部会话 + 清 TOTP 注册
+（凭据投影不留给已删账号）；**30 天冷静期内数据原样保留**，到期由日调度 `AccountAnonymizationJob`
+（§11 Job 登记）逐用户执行不可逆匿名化——`username`→`deleted_user_<id>`（占位保留外键语义引用完整性，
+`attempts.user_id` 指向的 id 不变）、`email`→NULL、`password_hash`→无效常量（非 BCrypt 格式，
+不可登录不可还原）、个人化设置（timezone/daily_goal/rating_standard/desired_retention/theme/
+notifications_enabled）回注册默认、TOTP 三列清+恢复码行删、按软删时的用户名吊销会话，
+最后落 `anonymized_at`。学习记录（attempts/attempt_gradings/appeals/review_logs）append-only
+一律不动（D-011 语义不冲突：匿名化≠清理）。无自助撤销（删号后登录不可达）。
 
 ### 5.2 `invite_codes`
 
@@ -1332,7 +1342,15 @@ RELEARNING --rating>=GOOD--> REVIEW
 
 | 数据 | 策略 |
 |---|---|
-| `users` | 软删 30 天后匿名化 `email/username/password_hash`；答题/审计保留 |
+| `users` | 软删 30 天后匿名化（036 已上线为日调度）：身份字段处置见 §5.1 匿名化口径；答题/审计保留 |
+
+**调度任务登记（036）**：`AccountAnonymizationJob`（system/job）——每日扫
+`deleted_at <= now-30d AND anonymized_at IS NULL` 逐用户匿名化；幂等重入（已匿名化不再命中、
+重复跑零变更）；单用户独立事务，单个失败只记日志不阻塞批次；冷静期天数走配置键
+`yilian.account.anonymize-grace-days`（默认 30，与删号回执 anonymizeAtUtc 同键读取，不漂移），
+调度 cron 走 `yilian.account.anonymization-cron`（默认每日 03:40）。审计口径：匿名化是自动化动作，
+操作者为调度任务而非管理员，不落 `admin_audit_log`（该表以管理员操作者为语义前提）；自动化可见性由
+结构化日志承接（逐用户一行含 userId/deletedAt/anonymizedAt），删号行为本身已有 SELF_DELETE 审计行。
 | `sentence_banks` / `sentences` | 软删进回收站；不硬删；删除 bump `version` |
 | `sentence_versions` | 永不删除；随题目保留 |
 | `attempts` / `attempt_gradings` | 只增不改；V1 不按 90 天清理（PRD §16 的 90 天保留与 AGENTS §2.5 冲突，登记为待定，见 D-011） |
@@ -1368,6 +1386,7 @@ RELEARNING --rating>=GOOD--> REVIEW
 | `V14__llm_provider_keys.sql` | `llm_provider_keys`（provider_id 主键/AES-GCM 密文/key_last4/updated_at） | 027B：provider 条目密钥管理端加密入库（主密钥 env `YILIAN_SECRET_MASTER_KEY`，AGENTS §3.4 修订） |
 | `V15__user_totp_2fa.sql` | `users` 加 `totp_secret_cipher/totp_enabled/totp_enrolled_at` 三列 + `user_2fa_recovery_codes` 表 | 032：管理员 2FA（TOTP 自研 RFC 6238）——密文列与恢复码投影表（§5.21），迁移前 mysqldump 快照 `server/data/pre-v15-2fa-snapshot.sql` |
 | `V16__llm_usage_estimated_cost.sql` | `llm_usage` 加 `estimated_cost_micro_cny BIGINT NULL` | 033：预算护栏（PRD §17）——估算成本微元列（无定价 NULL=不计入预算，append-only 不回填），迁移前 mysqldump 快照 `server/data/pre-v16-budget-snapshot.sql` |
+| `V17__user_anonymized_at.sql` | `users` 加 `anonymized_at DATETIME(6) NULL`（AFTER deleted_by，不新增索引——复用 idx_users_deleted_at） | 036：自助删号 30 天冷静期匿名化（§5.1 匿名化口径 + §11 Job 登记），迁移前 mysqldump 快照 `server/data/pre-v17-self-delete-snapshot.sql` |
 | 未来版本（M3） | `user_daily_stats`、`llm_*` 五表 | 暂不建，版本号顺延 |
 
 规则：
@@ -1493,3 +1512,4 @@ RELEARNING --rating>=GOOD--> REVIEW
 | 2026-11-18 | v0.5 | 032 管理员 2FA：§5.1 `users` 补三列（totp_secret_cipher AES-256-GCM 密文/totp_enabled/totp_enrolled_at，存量账号默认未启用——黑盒套件登录路径零变化）；新增 §5.21 `user_2fa_recovery_codes`（V15，BCrypt 哈希投影、使用落 used_at 不删行、disable/reset-2fa 同事务删行——凭据投影删除非历史抹除）；§2 实体清单补 account 行；迁移清单 V15 行（快照 pre-v15-2fa-snapshot.sql）；主密钥纪律复用 §5.20 的 `YILIAN_SECRET_MASTER_KEY`（SecretCipher 由 027B 加密器抽取至 common/security，TOTP 密钥入库复用同一加密） | 实现工程师 |
 | 2026-11-18 | v0.6 | 033 预算护栏：§5.18 `llm_usage` 补 `estimated_cost_micro_cny BIGINT NULL` 列（V16，微元整数口径 ROUND_HALF_UP，按 `llm.budget` 定价推算——无定价 NULL=不计入预算 fail-open、历史行不回填 append-only）与预算护栏消费口径注（UTC 自然月 SUM、三态 OK/WARN/EXCEEDED，管理端用量视图 API.md §8.17）；§2 实体清单 llm_usage 行同步；迁移清单 V16 行（快照 pre-v16-budget-snapshot.sql）；配置事实键 `llm.budget`（`{"schemaVersion":1,"monthlyBudgetCny":数字或null,"pricing":对象或null}`，API.md §8.14.2）随 §6.11 app_settings 键域记档 | 实现工程师 |
 | 2026-11-18 | v0.7 | 035 strict JSON 契约双执行点（GAP 029 DEF-01 方向①）：§5.19 增「035 注」——复核/初裁输出契约的 wire 级执行点移到 builder 用户消息末尾指令块（代码侧静态文本），系统提示语义未变故 **V13 种子不追加行、无迁移**，与「治理完备」的权衡如实披露（治理面覆盖指令块=登记新版本时写进新系统提示内容，历史行不改写）；ask 链路自由文本不动 | 实现工程师 |
+| 2026-11-19 | v0.8 | 036 自助删号（GAP pending-20261117 P0-05）：§5.1 `users` 补 `anonymized_at DATETIME(6) NULL` 列（V17，紧跟 deleted_by、不新增索引复用 idx_users_deleted_at）+ 匿名化口径注（身份字段处置清单/设置回默认/学习记录 append-only 不动/无自助撤销/占位 username 保留外键语义）；§11 保留与删除 users 行改「已上线为日调度」并登记 `AccountAnonymizationJob`（扫描条件/幂等重入/单用户事务/配置键 `yilian.account.anonymize-grace-days`+`yilian.account.anonymization-cron`/审计=结构化日志不落 admin_audit_log 的理由）；§12.1 迁移清单 V17 行（快照 pre-v17-self-delete-snapshot.sql） | 实现工程师 |

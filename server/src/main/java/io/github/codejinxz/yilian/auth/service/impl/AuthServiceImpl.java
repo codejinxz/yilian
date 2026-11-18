@@ -1,6 +1,7 @@
 package io.github.codejinxz.yilian.auth.service.impl;
 
 import io.github.codejinxz.yilian.auth.dto.ChangePasswordRequest;
+import io.github.codejinxz.yilian.auth.dto.DeleteAccountRequest;
 import io.github.codejinxz.yilian.auth.dto.LoginRequest;
 import io.github.codejinxz.yilian.auth.dto.LoginTotpRequest;
 import io.github.codejinxz.yilian.auth.dto.RegisterRequest;
@@ -10,9 +11,11 @@ import io.github.codejinxz.yilian.auth.service.CaptchaService;
 import io.github.codejinxz.yilian.auth.service.JwtTokenService;
 import io.github.codejinxz.yilian.auth.service.TotpService;
 import io.github.codejinxz.yilian.auth.vo.AccessToken;
+import io.github.codejinxz.yilian.auth.vo.AccountExportView;
 import io.github.codejinxz.yilian.auth.vo.AuthResponse;
 import io.github.codejinxz.yilian.auth.vo.CsrfTokenResponse;
 import io.github.codejinxz.yilian.auth.vo.CurrentUserResponse;
+import io.github.codejinxz.yilian.auth.vo.DeleteAccountReceiptView;
 import io.github.codejinxz.yilian.auth.vo.TotpChallengeView;
 import io.github.codejinxz.yilian.auth.vo.UserSettingsResponse;
 import io.github.codejinxz.yilian.common.api.ApiCode;
@@ -24,16 +27,20 @@ import io.github.codejinxz.yilian.common.security.YilianUserPrincipal;
 import io.github.codejinxz.yilian.common.session.RefreshSessionGuard;
 import io.github.codejinxz.yilian.common.util.DateTimeUtils;
 import io.github.codejinxz.yilian.common.util.PasswordUtils;
+import io.github.codejinxz.yilian.practice.service.PracticeService;
+import io.github.codejinxz.yilian.practice.service.vo.UserDataExportView;
 import io.github.codejinxz.yilian.system.service.TotpAccountService;
 import io.github.codejinxz.yilian.system.service.UserAccountService;
 import io.github.codejinxz.yilian.system.service.dto.RegisterCommand;
 import io.github.codejinxz.yilian.system.service.dto.TotpAccountView;
 import io.github.codejinxz.yilian.system.service.dto.UserCredentials;
+import io.github.codejinxz.yilian.system.service.dto.UserSettings;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.csrf.CsrfToken;
@@ -42,6 +49,7 @@ import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.Instant;
 
 /**
@@ -77,6 +85,10 @@ public class AuthServiceImpl implements AuthService {
     private final TotpService totpService;
     private final TotpAccountService totpAccountService;
     private final SecretCipher secretCipher;
+    private final PracticeService practiceService;
+
+    /** 匿名化冷静期天数：与 AccountAnonymizationJob 同一配置键，回执与调度不漂移。 */
+    private final int anonymizeGraceDays;
 
     /**
      * 依赖全部面向接口，便于测试时替换账号查询、token 签发与会话吊销。
@@ -90,6 +102,8 @@ public class AuthServiceImpl implements AuthService {
      * @param totpService TOTP 算法服务（登录第二步验码）
      * @param totpAccountService 账号 2FA 状态读取（system 接口，恢复码比对）
      * @param secretCipher AES-256-GCM 加密基建（解密落库密文供验码）
+     * @param practiceService 练习用例（账号导出的练习域切片，跨模块只依赖接口）
+     * @param anonymizeGraceDays 匿名化冷静期天数（默认 30，配置键见 AccountAnonymizationJob）
      */
     public AuthServiceImpl(
             UserAccountService userAccountService,
@@ -101,7 +115,9 @@ public class AuthServiceImpl implements AuthService {
             RefreshSessionGuard refreshSessionGuard,
             TotpService totpService,
             TotpAccountService totpAccountService,
-            SecretCipher secretCipher) {
+            SecretCipher secretCipher,
+            PracticeService practiceService,
+            @Value("${yilian.account.anonymize-grace-days:30}") int anonymizeGraceDays) {
         this.userAccountService = userAccountService;
         this.passwordEncoder = passwordEncoder;
         this.csrfTokenRepository = csrfTokenRepository;
@@ -112,6 +128,8 @@ public class AuthServiceImpl implements AuthService {
         this.totpService = totpService;
         this.totpAccountService = totpAccountService;
         this.secretCipher = secretCipher;
+        this.practiceService = practiceService;
+        this.anonymizeGraceDays = anonymizeGraceDays;
     }
 
     @Override
@@ -362,6 +380,93 @@ public class AuthServiceImpl implements AuthService {
         return UserSettingsResponse.from(
                 userAccountService.updateSettings(
                         requirePrincipal(principal).id(), request.toPatch()));
+    }
+
+    @Override
+    public AccountExportView exportAccountData(YilianUserPrincipal principal) {
+        long userId = requirePrincipal(principal).id();
+        UserCredentials user = requireLiveUser(userId);
+        UserSettings settings = userAccountService.getSettings(userId);
+        UserDataExportView slice = practiceService.exportUserData(userId);
+        return new AccountExportView(
+                1,
+                Instant.now().toString(),
+                new AccountExportView.AccountBlock(
+                        user.id(),
+                        user.username(),
+                        user.email(),
+                        user.createdAt().toString(),
+                        new AccountExportView.SettingsBlock(
+                                settings.timezone(),
+                                settings.dailyGoal(),
+                                settings.ratingStandard(),
+                                settings.desiredRetention(),
+                                settings.theme(),
+                                settings.notificationsEnabled())),
+                slice.attempts(),
+                slice.attemptGradings(),
+                slice.appeals(),
+                slice.reviewCards());
+    }
+
+    @Override
+    public DeleteAccountReceiptView deleteAccount(
+            YilianUserPrincipal principal, DeleteAccountRequest request) {
+        long userId = requirePrincipal(principal).id();
+        // 这里不能用 requireLiveUser（已删按 401 收敛）：重复删号要按 40900「账号已删除」
+        // 显式报出（access token 余命内的重复提交不是未登录，伪造 401 反而误导前端会话状态）。
+        UserCredentials user =
+                userAccountService
+                        .findById(userId)
+                        .orElseThrow(() -> new BusinessException(ApiCode.AUTH_REQUIRED));
+        if (user.deleted()) {
+            throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "账号已删除");
+        }
+        // 密码确认：与 2FA disable 同款 BCrypt 口径；错误不区分「密码错」以外的原因。
+        if (!passwordEncoder.matches(request.password(), user.passwordHash())) {
+            throw new BusinessException(ApiCode.AUTH_INVALID_CREDENTIALS, "当前密码不正确");
+        }
+        // 2FA 双确认（镜像 TotpAuthService.disable）：开启者必须动态码或剩余恢复码之一；
+        // 未开启时 totpCode 缺省合法，填了也不校验（没有注册密钥可比对，忽略比误导更稳）。
+        TotpAccountView account =
+                totpAccountService
+                        .findAccount(userId)
+                        .orElseThrow(() -> new BusinessException(ApiCode.AUTH_REQUIRED));
+        if (account.totpEnabled()) {
+            String code = request.totpCode();
+            if (code == null || code.isBlank()) {
+                throw new BusinessException(ApiCode.VALIDATION_FAILED, "请输入两步验证动态码或恢复码");
+            }
+            String plaintextSecret = secretCipher.decrypt(account.secretCipher());
+            boolean codeOk =
+                    totpService.verify(plaintextSecret, code, Instant.now())
+                            || account.unusedRecoveryCodes().stream()
+                                    .anyMatch(
+                                            candidate ->
+                                                    passwordEncoder.matches(
+                                                            code, candidate.codeHash()));
+            if (!codeOk) {
+                throw new BusinessException(ApiCode.AUTH_INVALID_CREDENTIALS, "验证码不正确，请重试");
+            }
+        }
+        Instant deletedAt = userAccountService.selfDelete(userId, Instant.now());
+        // 回执换算走同一配置键（yilian.account.anonymize-grace-days），与匿名化日调度零漂移。
+        return new DeleteAccountReceiptView(
+                deletedAt.toString(),
+                deletedAt.plus(Duration.ofDays(anonymizeGraceDays)).toString());
+    }
+
+    /**
+     * 加载当前登录用户；不存在或已软删统一按未登录收敛（已删账号不再有自助操作面）。
+     *
+     * @param userId 当前用户 id
+     * @return 认证视图
+     */
+    private UserCredentials requireLiveUser(long userId) {
+        return userAccountService
+                .findById(userId)
+                .filter(candidate -> !candidate.deleted())
+                .orElseThrow(() -> new BusinessException(ApiCode.AUTH_REQUIRED));
     }
 
     /**

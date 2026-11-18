@@ -53,6 +53,11 @@ public class JpaAppealDao implements AppealDao {
     }
 
     @Override
+    public List<Appeal> findAllByUser(Long userId) {
+        return appeals.findByUserIdOrderByCreatedAtAsc(userId);
+    }
+
+    @Override
     @Transactional
     public int updateAdjudication(
             long id,

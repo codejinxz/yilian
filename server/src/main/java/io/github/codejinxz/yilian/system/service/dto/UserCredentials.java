@@ -4,6 +4,7 @@ import io.github.codejinxz.yilian.system.entity.AppUser;
 import io.github.codejinxz.yilian.system.entity.UserRole;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 
 /**
  * 认证与练习所需的账号只读视图。
@@ -22,6 +23,7 @@ import java.math.BigDecimal;
  * @param dailyGoal 每日目标
  * @param desiredRetention FSRS 期望保留率
  * @param deleted 是否已软删
+ * @param createdAt 注册时间（UTC；账号导出账号块用）
  */
 public record UserCredentials(
         long id,
@@ -35,7 +37,8 @@ public record UserCredentials(
         String timezone,
         int dailyGoal,
         BigDecimal desiredRetention,
-        boolean deleted) {
+        boolean deleted,
+        Instant createdAt) {
 
     /**
      * 从实体抽取认证所需字段，避免把 JPA 实体带出 system 模块。
@@ -56,6 +59,7 @@ public record UserCredentials(
                 user.getTimezone(),
                 user.getDailyGoal(),
                 user.getDesiredRetention(),
-                user.getDeletedAt() != null);
+                user.getDeletedAt() != null,
+                user.getCreatedAt());
     }
 }
