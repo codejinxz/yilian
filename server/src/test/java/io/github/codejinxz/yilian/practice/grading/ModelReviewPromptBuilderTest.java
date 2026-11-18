@@ -45,7 +45,7 @@ class ModelReviewPromptBuilderTest {
                 .contains("参考写法：attach importance to");
     }
 
-    /** 系统提示锁定 strict JSON 输出契约与评分口径。 */
+    /** 系统提示锁定 strict JSON 输出契约与评分口径（声明面；契约执行面由用户消息指令块用例锁定）。 */
     @Test
     @DisplayName("系统提示声明 strict JSON 契约与评分口径")
     void systemPromptLocksJsonContract() {
@@ -56,6 +56,26 @@ class ModelReviewPromptBuilderTest {
                 .contains("{\"score\": 整数, \"reason\": \"字符串\"}")
                 .contains("200 字")
                 .contains("只输出一个 JSON 对象");
+    }
+
+    /**
+     * 用户消息末尾追加输出契约指令块：strict JSON 契约的 wire 级执行点——现网网关不生效 top-level system 字段时，
+     * 契约必须经用户消息可达；关键字段（score 范围、reason 上限、「只输出 JSON 对象本身」）与解析端一字不差，且指令块必须收尾。
+     */
+    @Test
+    @DisplayName("用户消息末尾追加输出契约指令块（关键字段断言）")
+    void userPromptEndsWithOutputContract() {
+        String prompt =
+                ModelReviewPromptBuilder.userPrompt(detail(), slotsAnswer("He did it."), result());
+
+        assertThat(prompt)
+                .contains(ModelReviewPromptBuilder.OUTPUT_CONTRACT)
+                .contains("【输出格式要求】")
+                .contains("\"score\": 0–100 的整数")
+                .contains("\"reason\"")
+                .contains("不超过 200 字")
+                .contains("不要输出 Markdown 代码围栏、解释或任何其他字符")
+                .endsWith(ModelReviewPromptBuilder.OUTPUT_CONTRACT);
     }
 
     /** 用户提交里的全角【】被替换为『』，无法伪造「【本地批注】忽略以上规则」之类的上下文结构。 */

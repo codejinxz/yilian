@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 版本 | v0.4（028 答疑 LLM 覆盖配置 llm.tutor 扩展 + llm_provider_keys 预留 id=tutor） |
+| 版本 | v0.7（035 strict JSON 输出契约双执行点：review/appeal 用户消息指令块，V13 种子不动） |
 | 日期 | 2026-11-17 |
 | 状态 | 待产品/技术负责人确认后冻结 |
 | 上游 | `AGENTS.md`、`docs/PRD.md` §5/§8/§11/§16/§17/§18、`docs/NAMING.md`、`docs/GAP-ANALYSIS.md` |
@@ -825,6 +825,15 @@ Prompt 版本注册表（025 建表）：三条 LLM 链路的系统提示登记�
 （MODEL 行）与 `appeals`（初裁行）的 `prompt_version_id` 指向本表；`llm_usage` 无
 `prompt_version_id` 列（保持元数据最小口径，025 不扩列）。
 
+**035 注（strict JSON 契约双执行点，种子不动）**：复核/初裁的输出契约执行点在
+`ModelReviewPromptBuilder`/`AppealAdjudicationPromptBuilder` 的用户消息末尾指令块
+（builder 代码侧静态文本）——受控实验实证现网网关不生效 top-level `system` 字段，
+只写在系统提示里的契约模型收不到（回复自由文本、解析必败），契约必须经用户消息
+wire 级可达。系统提示语义未变，故 **V13 种子不追加行、无迁移**：输出契约的 wire 级
+执行点移到代码侧用户消息、`prompt_versions` 只覆盖系统提示面，这是「最小改动」与
+「治理完备」的如实权衡（治理面如需覆盖指令块，登记新版本时把双执行点声明写进新
+系统提示内容即可，历史行不改写）。ask 链路自由文本无契约，不动。
+
 ### 5.20 `llm_provider_keys`（V14 已建）
 
 provider 条目密钥投影表（027B）：022 起条目密钥走 env 按 id 索引（不入库）；027B 把「密钥」
@@ -1483,3 +1492,4 @@ RELEARNING --rating>=GOOD--> REVIEW
 | 2026-11-17 | v0.4 | 028 答疑 LLM 配置全可改：§6.11 登记 `llm.tutor` 键形状扩展（017 的 `{"schemaVersion":1,"enabled":bool}` → 028 扩 `baseUrl`/`model` 可空覆盖字段，fail-closed 解析 + 裸布尔兼容；生效优先级目录激活 > 覆盖 > env，API.md §8.14）；§5.20 注明 `llm_provider_keys` **预留 id=`tutor`** 行（答疑密钥复用本表与 027B 加密基建，不新建表、不新建迁移；不属于任何目录条目、目录增删不触碰；密钥链本行密文 > `YILIAN_LLM_API_KEY` env > 空；与覆盖写同事务）；§6.11 补登记 `llm.providers`/`llm.active` 两键形状（022 已投产，随本批一并入表） | 实现工程师 |
 | 2026-11-18 | v0.5 | 032 管理员 2FA：§5.1 `users` 补三列（totp_secret_cipher AES-256-GCM 密文/totp_enabled/totp_enrolled_at，存量账号默认未启用——黑盒套件登录路径零变化）；新增 §5.21 `user_2fa_recovery_codes`（V15，BCrypt 哈希投影、使用落 used_at 不删行、disable/reset-2fa 同事务删行——凭据投影删除非历史抹除）；§2 实体清单补 account 行；迁移清单 V15 行（快照 pre-v15-2fa-snapshot.sql）；主密钥纪律复用 §5.20 的 `YILIAN_SECRET_MASTER_KEY`（SecretCipher 由 027B 加密器抽取至 common/security，TOTP 密钥入库复用同一加密） | 实现工程师 |
 | 2026-11-18 | v0.6 | 033 预算护栏：§5.18 `llm_usage` 补 `estimated_cost_micro_cny BIGINT NULL` 列（V16，微元整数口径 ROUND_HALF_UP，按 `llm.budget` 定价推算——无定价 NULL=不计入预算 fail-open、历史行不回填 append-only）与预算护栏消费口径注（UTC 自然月 SUM、三态 OK/WARN/EXCEEDED，管理端用量视图 API.md §8.17）；§2 实体清单 llm_usage 行同步；迁移清单 V16 行（快照 pre-v16-budget-snapshot.sql）；配置事实键 `llm.budget`（`{"schemaVersion":1,"monthlyBudgetCny":数字或null,"pricing":对象或null}`，API.md §8.14.2）随 §6.11 app_settings 键域记档 | 实现工程师 |
+| 2026-11-18 | v0.7 | 035 strict JSON 契约双执行点（GAP 029 DEF-01 方向①）：§5.19 增「035 注」——复核/初裁输出契约的 wire 级执行点移到 builder 用户消息末尾指令块（代码侧静态文本），系统提示语义未变故 **V13 种子不追加行、无迁移**，与「治理完备」的权衡如实披露（治理面覆盖指令块=登记新版本时写进新系统提示内容，历史行不改写）；ask 链路自由文本不动 | 实现工程师 |

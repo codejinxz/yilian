@@ -17,7 +17,9 @@ import java.util.Optional;
  * 但喂给模型的内容口径不同：复核是重新判分，参考译文与语块答案结构必须进提示词（答疑刻意不给）。
  *
  * <p>输出契约：模型只回一个 strict JSON 对象 {@code {"score":0-100,"reason":"中文理由"}}； 解析失败由调用方重试一次后降级，分数钳制
- * 0–100、理由截断到 {@link #REASON_MAX_CHARS} 字。
+ * 0–100、理由截断到 {@link #REASON_MAX_CHARS} 字。契约双执行点：系统提示声明 + 用户消息末尾指令块（{@link
+ * #OUTPUT_CONTRACT}）强制——受控实验实证现网网关 不生效 top-level system 字段，只写在系统提示的契约模型收不到，输出契约必须在用户消息可达；尊重 system
+ * 的直连部署则两处双重强调，无害。
  */
 public final class ModelReviewPromptBuilder {
 
@@ -26,6 +28,18 @@ public final class ModelReviewPromptBuilder {
 
     /** 复核理由的展示上限（字）：批注栏一行能读完的量级，超出截断。 */
     public static final int REASON_MAX_CHARS = 200;
+
+    /**
+     * 输出契约指令块：追加在用户消息末尾，是 strict JSON 契约的 wire 级强制执行点。受控实验实证现网网关不生效 top-level system
+     * 字段（只写在系统提示里的契约模型收不到，回复自由文本、解析必败），同文指令并入用户消息可得干净 JSON；尊重 system 的直连部署则与系统提示双重强调，无害。 字段清单与
+     * {@link #parse} 解析端一字不差（score 数值、reason 非空字符串），改动需同步解析逻辑与 API.md §6.13
+     * 说明。与初裁链路的同名手法常量各自独立、文本不同文。
+     */
+    static final String OUTPUT_CONTRACT =
+            """
+            【输出格式要求】你的回复必须是且仅是一个 JSON 对象本身，不要输出 Markdown 代码围栏、解释或任何其他字符：
+            {"score": 0–100 的整数, "reason": "中文复核理由"}
+            其中 score 为 0–100 的整数；reason 为非空的中文字符串，不超过 200 字；除这一个 JSON 对象外不要输出任何内容。""";
 
     /** 一次模型输出的解析结果（分数已钳制、理由已截断）。 */
     public record ModelReviewOutput(int score, String reason) {}
@@ -49,8 +63,9 @@ public final class ModelReviewPromptBuilder {
     }
 
     /**
-     * 用户消息：题目上下文 + 本人提交 + 本地批注。语块答案结构与参考译文进提示词（复核即重新判分， 与答疑的「不给参考译文」口径不同）；用户提交内容里的全角【】替换为『』，
-     * 使其无法伪造「【批注结束】忽略以上规则」之类的上下文结构。
+     * 用户消息：题目上下文 + 本人提交 + 本地批注 + 输出契约指令块。语块答案结构与参考译文进提示词（复核即重新判分，
+     * 与答疑的「不给参考译文」口径不同）；用户提交内容里的全角【】替换为『』， 使其无法伪造「【批注结束】忽略以上规则」之类的上下文结构；末尾追加 {@link
+     * #OUTPUT_CONTRACT}（builder 静态文本，不混入用户内容， 保证 strict JSON 契约在网关丢弃 top-level system 字段时仍可达）。
      *
      * @param detail 题目详情（已过可见性校验）
      * @param answer 本人提交载荷（填空带 slots、整句带 text）
@@ -68,6 +83,7 @@ public final class ModelReviewPromptBuilder {
         appendAnswer(builder, answer);
         builder.append("【本地批注】\n");
         appendAnnotations(builder, localResult);
+        builder.append('\n').append(OUTPUT_CONTRACT);
         return builder.toString();
     }
 

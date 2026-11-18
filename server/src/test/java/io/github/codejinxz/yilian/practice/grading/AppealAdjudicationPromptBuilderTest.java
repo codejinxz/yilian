@@ -44,7 +44,7 @@ class AppealAdjudicationPromptBuilderTest {
                 .doesNotContain("【参考译文】");
     }
 
-    /** 系统提示锁定三值 verdict 的 strict JSON 契约与「AI 意见不改判分」的边界。 */
+    /** 系统提示锁定三值 verdict 的 strict JSON 契约与「AI 意见不改判分」的边界（声明面；契约执行面由用户消息指令块用例锁定）。 */
     @Test
     @DisplayName("系统提示声明 strict JSON 契约与 AI 意见边界")
     void systemPromptLocksJsonContract() {
@@ -57,6 +57,27 @@ class AppealAdjudicationPromptBuilderTest {
                 .contains("300 字")
                 .contains("只输出一个 JSON 对象")
                 .contains("不直接改判分");
+    }
+
+    /**
+     * 用户消息末尾追加输出契约指令块：strict JSON 契约的 wire 级执行点——现网网关不生效 top-level system 字段时，
+     * 契约必须经用户消息可达；关键字段（verdict 三值枚举、reason 上限、「只输出 JSON 对象本身」）与解析端一字不差，且指令块必须收尾。
+     */
+    @Test
+    @DisplayName("用户消息末尾追加输出契约指令块（关键字段断言）")
+    void userPromptEndsWithOutputContract() {
+        String prompt =
+                AppealAdjudicationPromptBuilder.userPrompt(
+                        detail(), result(), annotation(), "attach importance to", "这个搭配更书面");
+
+        assertThat(prompt)
+                .contains(AppealAdjudicationPromptBuilder.OUTPUT_CONTRACT)
+                .contains("【输出格式要求】")
+                .contains("\"verdict\": \"SUPPORT|OPPOSE|UNCERTAIN\"")
+                .contains("\"reason\"")
+                .contains("不超过 300 字")
+                .contains("不要输出 Markdown 代码围栏、解释或任何其他字符")
+                .endsWith(AppealAdjudicationPromptBuilder.OUTPUT_CONTRACT);
     }
 
     /** 合法输出解析：verdict 校验、理由提取。 */

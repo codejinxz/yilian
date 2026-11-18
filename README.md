@@ -142,7 +142,7 @@ cd server
 YILIAN_TEST_DB_NAME=yilian_test_034 ./mvnw.cmd test "-Dtest=GoldenLlmSetTest" "-Dgolden.enabled=true"
 ```
 
-期望输出尾行：`Tests run: 63, Failures: 0, Errors: 0`（review 25 + appeal 26 + ask 12，BUILD SUCCESS）。双闸说明：未加 `-Dgolden.enabled=true` 或网关不可达（无可用客户端/探活失败）时整套件按 Assumptions 跳过（`Tests run: 0`），这是 CI 默认形态而非运行成功——**跳过 ≠ 通过**，第 2 步的结果必须实际跑出数字才算数。已知边界：网关不生效 top-level `system` 字段时 review/appeal 的 strict JSON 解析会失败（GAP 029 DEF-01 依赖侧登记），这正是黄金集要暴露的回归，出现时按用例 id 记录、走 DEF-01 修复方向而非放宽断言。
+期望输出尾行：`Tests run: 63, Failures: 0, Errors: 0`（review 25 + appeal 26 + ask 12，BUILD SUCCESS）。双闸说明：未加 `-Dgolden.enabled=true` 或网关不可达（无可用客户端/探活失败）时整套件按 Assumptions 跳过（`Tests run: 0`），这是 CI 默认形态而非运行成功——**跳过 ≠ 通过**，第 2 步的结果必须实际跑出数字才算数。指令位置说明（035 起）：review/appeal 的 strict JSON 输出契约是**双执行点**——系统提示（V13 种子）声明 + 用户消息末尾「输出格式要求」指令块强制（`ModelReviewPromptBuilder`/`AppealAdjudicationPromptBuilder` 代码侧静态文本），现网网关不生效 top-level `system` 字段时契约仍经用户消息可达（GAP 029 DEF-01 方向①已落，方向②网关侧维持登记）；黄金集实测出现 review/appeal strict JSON 解析失败时按用例 id 记录归因（模型能力 vs 契约可达性），走修复方向而非放宽断言。
 
 结果记录位置：变更的收口记录（GAP-ANALYSIS 当前状态行或对应 PR 文档）写明四层各自「通过条数 / 总条数 / 失败用例 id / 网关与模型名快照」。
 

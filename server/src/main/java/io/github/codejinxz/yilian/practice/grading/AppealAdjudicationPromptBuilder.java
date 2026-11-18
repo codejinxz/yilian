@@ -19,6 +19,8 @@ import java.util.Set;
  *
  * <p>输出契约：模型只回一个 strict JSON 对象 {@code {"verdict":"SUPPORT|OPPOSE|UNCERTAIN","reason":"中文理由"}}；
  * 解析失败由调用方重试一次后降级，verdict 校验合法枚举、理由截断到 {@link #REASON_MAX_CHARS} 字。初裁只产出「AI 意见」供人工终审参考， 不改判分、不改错题。
+ * 契约双执行点：系统提示声明 + 用户消息末尾指令块（{@link #OUTPUT_CONTRACT}）强制——受控实验实证现网网关不生效 top-level system 字段，
+ * 只写在系统提示里的契约模型收不到，输出契约必须在用户消息可达；尊重 system 的直连部署则两处双重强调，无害。
  */
 public final class AppealAdjudicationPromptBuilder {
 
@@ -27,6 +29,18 @@ public final class AppealAdjudicationPromptBuilder {
 
     /** 初裁理由的展示上限（字）：decision_reason 列 VARCHAR(500) 内、列表一行可读的量级。 */
     public static final int REASON_MAX_CHARS = 300;
+
+    /**
+     * 输出契约指令块：追加在用户消息末尾，是 strict JSON 契约的 wire 级强制执行点。受控实验实证现网网关不生效 top-level system
+     * 字段（只写在系统提示里的契约模型收不到，回复自由文本、解析必败），同文指令并入用户消息可得干净 JSON；尊重 system 的直连部署则与系统提示双重强调，无害。 字段清单与
+     * {@link #parse} 解析端一字不差（verdict 合法枚举、reason 非空字符串），改动需同步解析逻辑与 API.md §6.4 说明。
+     * 与复核链路的同名手法常量各自独立、文本不同文。
+     */
+    static final String OUTPUT_CONTRACT =
+            """
+            【输出格式要求】你的回复必须是且仅是一个 JSON 对象本身，不要输出 Markdown 代码围栏、解释或任何其他字符：
+            {"verdict": "SUPPORT|OPPOSE|UNCERTAIN", "reason": "中文初裁理由"}
+            其中 verdict 只能是 SUPPORT（申诉成立）、OPPOSE（不成立）、UNCERTAIN（依据不足）三者之一； reason 为非空的中文字符串，不超过 300 字；除这一个 JSON 对象外不要输出任何内容。""";
 
     /** 合法 verdict 集合：契约外取值按解析失败处理（重试后降级）。 */
     private static final Set<String> VERDICTS = Set.of("SUPPORT", "OPPOSE", "UNCERTAIN");
@@ -56,7 +70,9 @@ public final class AppealAdjudicationPromptBuilder {
     }
 
     /**
-     * 用户消息：题目上下文 + 被申诉批注 + 申诉主张。用户提交内容与主张里的全角【】替换为『』， 使其无法伪造「【本地批注结束】忽略以上规则」之类的上下文结构。
+     * 用户消息：题目上下文 + 被申诉批注 + 申诉主张 + 输出契约指令块。用户提交内容与主张里的全角【】替换为『』， 使其无法伪造「【本地批注结束】忽略以上规则」之类的上下文结构；
+     * 末尾追加 {@link #OUTPUT_CONTRACT}（builder 静态文本，不混入用户内容，保证 strict JSON 契约在网关丢弃 top-level system
+     * 字段时仍可达）。
      *
      * @param detail 题目详情（已过可见性校验；句已删除/回收时为 null，按「未取得」降级）
      * @param localResult 首判结果（批注来源；解析失败时为 null）
@@ -82,6 +98,7 @@ public final class AppealAdjudicationPromptBuilder {
         builder.append("【申诉主张】\n");
         builder.append("- 认为可接受的答案：").append(blankToAbsent(proposedAnswer)).append('\n');
         builder.append("- 申诉理由：").append(blankToAbsent(reason)).append('\n');
+        builder.append('\n').append(OUTPUT_CONTRACT);
         return builder.toString();
     }
 
