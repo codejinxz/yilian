@@ -52,7 +52,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("DeleteAccountDialog 渲染与文案（036 AC-5）", () => {
+describe("DeleteAccountDialog 渲染与文案（AC-5）", () => {
   it("渲染风险说明、30 天匿名化时点、密码位与导出入口；未开 2FA 时无动态码位", async () => {
     renderDialog();
 
@@ -82,7 +82,7 @@ describe("DeleteAccountDialog 渲染与文案（036 AC-5）", () => {
   });
 });
 
-describe("DeleteAccountDialog 确认流（036 AC-5）", () => {
+describe("DeleteAccountDialog 确认流（AC-5）", () => {
   /** 页内全部 alert 文案合并（Notice 的 danger 提示与弹窗错误行都是 role=alert，合并断言）。 */
   function alertText(): string {
     return screen
@@ -181,7 +181,7 @@ describe("DeleteAccountDialog 确认流（036 AC-5）", () => {
   });
 });
 
-describe("DeleteAccountDialog 服务端导出（036 AC-5）", () => {
+describe("DeleteAccountDialog 服务端导出（AC-5）", () => {
   it("导出按钮触发 exportAccountData 并成功提示；失败时错误透出不阻断", async () => {
     accountApi.exportAccountData.mockResolvedValueOnce({
       schemaVersion: 1,
@@ -251,7 +251,7 @@ describe("DeleteAccountDialog 服务端导出（036 AC-5）", () => {
 import { getMockDb, resetMockDb } from "@/mocks/db";
 import { handleMockRequest } from "@/mocks/handlers";
 
-describe("mock handlers §4.11/§4.12 形状对照（036 AC-5）", () => {
+describe("mock handlers §4.11/§4.12 形状对照（AC-5）", () => {
   beforeEach(() => {
     resetMockDb();
     vi.unstubAllGlobals();

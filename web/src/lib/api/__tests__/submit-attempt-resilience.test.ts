@@ -110,7 +110,7 @@ function seedCsrfCookie(): void {
   document.cookie = "XSRF-TOKEN=test-token; path=/";
 }
 
-describe("submitAttempt 的传输失败防御（014 冒烟离线误判根因）", () => {
+describe("submitAttempt 的传输失败防御（离线误判根因）", () => {
   beforeEach(() => {
     resetApiState();
     // 持有 access token 让 /practice/* 走网络而不是游客本地引擎。
@@ -124,7 +124,7 @@ describe("submitAttempt 的传输失败防御（014 冒烟离线误判根因）"
     vi.useRealTimers();
   });
 
-  it("015 AC-4: 超时(transport)后自动用同一载荷重试一次并成功——服务端曾处理也不产生假离线", async () => {
+  it("AC-4: 超时(transport)后自动用同一载荷重试一次并成功——服务端曾处理也不产生假离线", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -152,7 +152,7 @@ describe("submitAttempt 的传输失败防御（014 冒烟离线误判根因）"
     expect(readQueuedAttempts()).toHaveLength(0);
   });
 
-  it("015 AC-4: 2xx 后 body 校验失败(response 类)只调用一次、不判离线——服务端必已成功", async () => {
+  it("AC-4: 2xx 后 body 校验失败(response 类)只调用一次、不判离线——服务端必已成功", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/practice/attempts")) {
@@ -172,7 +172,7 @@ describe("submitAttempt 的传输失败防御（014 冒烟离线误判根因）"
     expect(isTransportError(failure)).toBe(false);
   });
 
-  it("015 AC-4: 浏览器报告离线时传输失败不重试，直接交给页面入离线队列", async () => {
+  it("AC-4: 浏览器报告离线时传输失败不重试，直接交给页面入离线队列", async () => {
     const onlineSpy = vi.spyOn(window.navigator, "onLine", "get").mockReturnValue(false);
     const fetchMock = vi.fn(async () => {
       throw new TypeError("Failed to fetch");
@@ -186,7 +186,7 @@ describe("submitAttempt 的传输失败防御（014 冒烟离线误判根因）"
     expect(isTransportError(failure)).toBe(true);
   });
 
-  it("015 AC-4: 在线但连续传输失败时重试一次后抛 transport 错误，页面据此入队而不是谎报成功", async () => {
+  it("AC-4: 在线但连续传输失败时重试一次后抛 transport 错误，页面据此入队而不是谎报成功", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).endsWith("/api/practice/attempts")) {
@@ -206,7 +206,7 @@ describe("submitAttempt 的传输失败防御（014 冒烟离线误判根因）"
   });
 });
 
-describe("提交响应内嵌复习卡的形状兼容（020 AC-0 提交假失败根因）", () => {
+describe("提交响应内嵌复习卡的形状兼容（AC-0 提交假失败根因）", () => {
   beforeEach(() => {
     resetApiState();
     setAccessToken("access-token");
@@ -254,7 +254,7 @@ describe("提交响应内嵌复习卡的形状兼容（020 AC-0 提交假失败�
   });
 });
 
-describe("离线队列补交的分类（014 冒烟同载荷重放链路）", () => {
+describe("离线队列补交的分类（同载荷重放链路）", () => {
   beforeEach(() => {
     resetApiState();
     setAccessToken("access-token");
@@ -262,7 +262,7 @@ describe("离线队列补交的分类（014 冒烟同载荷重放链路）", () 
     localStorage.removeItem(STORAGE_KEY);
   });
 
-  it("015 AC-4: 补交成功后队列清空对应项", async () => {
+  it("AC-4: 补交成功后队列清空对应项", async () => {
     const request = attemptRequest();
     enqueueAttempt(request);
     vi.stubGlobal(
@@ -282,7 +282,7 @@ describe("离线队列补交的分类（014 冒烟同载荷重放链路）", () 
     expect(readQueuedAttempts()).toHaveLength(0);
   });
 
-  it("015 AC-4: 补交遇 transport 失败保留队列并提示仍然离线，绝不静默丢弃", async () => {
+  it("AC-4: 补交遇 transport 失败保留队列并提示仍然离线，绝不静默丢弃", async () => {
     enqueueAttempt(attemptRequest());
     vi.stubGlobal(
       "fetch",

@@ -135,7 +135,7 @@ public class LlmProviderCatalog {
                         .toList();
         String value = objectMapper.writeValueAsString(new StoredProviders(SCHEMA_VERSION, stored));
         appSettingService.upsert(
-                PROVIDERS_KEY, value, "LLM provider 目录（022，密钥走 env 索引不入库）", operatorId);
+                PROVIDERS_KEY, value, "LLM provider 目录（密钥走 env 索引不入库）", operatorId);
     }
 
     /**
@@ -147,7 +147,7 @@ public class LlmProviderCatalog {
     public void saveActive(String providerId, Long operatorId) {
         String value =
                 objectMapper.writeValueAsString(new StoredActive(SCHEMA_VERSION, providerId));
-        appSettingService.upsert(ACTIVE_KEY, value, "激活的 LLM provider（022）", operatorId);
+        appSettingService.upsert(ACTIVE_KEY, value, "激活的 LLM provider", operatorId);
     }
 
     /**

@@ -178,7 +178,7 @@ export function SettingsPage() {
   const [exporting, setExporting] = useState(false);
   // 游客记录迁移状态：登录后读一次（已迁移 id 集合 + 欠账数量 + 未迁移记录数），
   // 手动同步完成后刷新。增量语义下入口显隐由「存在未迁移记录」决定——完成标记之后
-  // 登出又练的新记录也会再次出现入口（browser-smoke-wave4 缺陷修复）。
+  // 登出又练的新记录也会再次出现入口。
   const [upgradeState, setUpgradeState] = useState<GuestUpgradeState>({
     migratedIds: [],
     unsynced: 0,
@@ -571,7 +571,7 @@ export function SettingsPage() {
           <div className="space-y-3.5">
             {/* 如实标注：批改方式开关当前只存不生效——gradingMode 仅由本页读写
                 （展示选中态 + toast），判分链路（练习页本地判分、提交接口、服务端 Grader）没有任何
-                读取点；「本地/服务端判分切换」是给 M3 深度批改预留的历史过渡开关，服务端当前
+                读取点；「本地/服务端判分切换」是给深度批改预留的历史过渡开关，服务端当前
                 没有对应的路由能力。修到生效需要新建服务端深度批改（独立成切片），移除则破坏
                 原型对齐并失去后续接入位，故按「如实标注为演示」处理，选项描述改为将来时语义。 */}
             <p className="text-[11px] leading-[1.65] text-vermilion-deep">

@@ -59,7 +59,7 @@ class JpaAppSettingDaoIntegrationTest {
 
     /** 真双线程并发首写同键：无异常收敛为单行，值取其一（回退式实现在此抛 500）。 */
     @Test
-    @DisplayName("[R1-F1] 并发首写同键原子收敛为单行")
+    @DisplayName("并发首写同键原子收敛为单行")
     void concurrentFirstUpsertConvergesToSingleRow_r1() throws Exception {
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -88,7 +88,7 @@ class JpaAppSettingDaoIntegrationTest {
 
     /** 顺序覆盖：version 递增、value 末写胜出、首写 description 保留。 */
     @Test
-    @DisplayName("[R1-F1] 顺序覆盖递增版本并保留首写描述")
+    @DisplayName("顺序覆盖递增版本并保留首写描述")
     void sequentialUpsertsBumpVersionAndKeepDescription_r1() {
         appSettingService.upsert(KEY, VALUE_A, "首写描述", 1L);
         appSettingService.upsert(KEY, VALUE_B, "覆盖时不应生效的描述", 1L);

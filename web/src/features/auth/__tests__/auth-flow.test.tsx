@@ -212,7 +212,7 @@ describe("auth flow", () => {
     expect(await screen.findByLabelText("用户名或邮箱")).toBeInTheDocument();
   });
 
-  it("023 AC-1: logs in after a guest cold load and refetches anonymously cached banks so private banks appear", async () => {
+  it("AC-1: logs in after a guest cold load and refetches anonymously cached banks so private banks appear", async () => {
     // 冷加载竞态：游客先到今日页，题库 chips 以匿名口径发出并被缓存（staleTime 内
     // 不自愈）；登录确认后必须失效 content 组重取，否则私有库在缓存过期前一直缺失。
     markPlaced();
@@ -447,7 +447,7 @@ describe("auth flow", () => {
     expect(authUrls).toEqual([expect.stringContaining("/api/auth/refresh")]);
   });
 
-  it("027 AC-11: cold-start session restore marks the zustand session authenticated so gated UI stays consistent", async () => {
+  it("AC-11: cold-start session restore marks the zustand session authenticated so gated UI stays consistent", async () => {
     // 刷新后经 refresh cookie 恢复会话：me 查询写入缓存即视为「已确认登录」，
     // Zustand 登录态同步置位——练习页「让模型复核」等按 sessionStatus 门控的 UI
     // 在恢复路径下此前停留在 unknown，已登录用户看不到复核入口。
@@ -473,7 +473,7 @@ describe("auth flow", () => {
     expect(useSessionStore.getState().status).toBe("authenticated");
   });
 
-  it("027 AC-11: anonymous cold start never marks the session authenticated", async () => {
+  it("AC-11: anonymous cold start never marks the session authenticated", async () => {
     // 反向口径：refresh 401（无会话）时不得把登录态置成 authenticated，
     // 否则游客会看到只对登录者开放的入口。
     markPlaced();

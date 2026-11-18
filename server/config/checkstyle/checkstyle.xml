@@ -12,8 +12,9 @@
   fmt-maven-plugin 的 `fmt:check` 单独负责。
 
   注释纪律（AGENTS.md §3.2 的「注释只述 what/why」）：注释不得携带过程性引用
-  （批次号、评审轮次/条目号、指示来源、gitignored 文档引用、阶段词），只写
-  「这段代码做什么/为什么这样设计」。规则分两层：
+  （批次号 0XX/0XXX、里程碑编号 M[0-9]、评审轮次/条目号、冒烟运行与波次引用、
+  指示来源、gitignored 文档引用、阶段词），只写「这段代码做什么/为什么这样设计」。
+  规则分两层：
   - RegexpSinglelineJava：作用于原始行，仅放置经核实「字符串字面量中不出现」的
     CJK 词面模式（测试标题字符串不受影响）。
   - IllegalTokenText(COMMENT_CONTENT)：仅匹配注释 token 内容，放置会与字符串
@@ -99,6 +100,33 @@
       <property name="tokens" value="COMMENT_CONTENT"/>
       <property name="format" value="审查|巡检|冒烟|裁决点"/>
       <property name="message" value="注释禁止评审/巡检过程词：把问题与结论直接写清楚"/>
+    </module>
+
+    <!-- 里程碑/路线图编号：M2/M3（M2.1 亦覆盖）后接 CJK 即计划引用语义；TEM8 等考试代码
+         由前置字母负向后顾排除，M3_ROUTES 类标识符（下划线衔接）不匹配。 -->
+    <module name="IllegalTokenText">
+      <property name="tokens" value="COMMENT_CONTENT"/>
+      <property
+          name="format"
+          value="(?&lt;![A-Za-z0-9])M[0-9](?:\.[0-9])?(?=\s*[\p{IsHan}（(])"/>
+      <property name="message" value="注释禁止里程碑/路线图编号引用（M[0-9]）：改为能力状态语义（规划中/已接入）"/>
+    </module>
+
+    <!-- 评审/冒烟运行与波次引用：browser-smoke-waveN、波次、评审轮次词（首轮/二轮/第 N 轮）。
+         域内重试轮次语义用「段/遍/首次」表述（见 AnthropicMessagesLlmClientTest 失败脚本、判分扫描遍）。 -->
+    <module name="IllegalTokenText">
+      <property name="tokens" value="COMMENT_CONTENT"/>
+      <property name="format" value="browser-smoke|wave[0-9]|波次|首轮|二轮|三轮|第\s*[一二三四五N]\s*轮"/>
+      <property name="message" value="注释禁止评审/冒烟运行与波次引用：写问题与结论本身，不写发现过程"/>
+    </module>
+
+    <!-- 四位批次号形态（0232 等）：三位 0XX 模式的补漏位，后接 CJK/括号/[ 才触发。 -->
+    <module name="IllegalTokenText">
+      <property name="tokens" value="COMMENT_CONTENT"/>
+      <property
+          name="format"
+          value="(?&lt;![0-9.\-_])0[0-9]{3}(?=\s*[\p{IsHan}（(\[])"/>
+      <property name="message" value="注释禁止批次号引用（0XXX 形态）：改为语义描述"/>
     </module>
   </module>
 </module>

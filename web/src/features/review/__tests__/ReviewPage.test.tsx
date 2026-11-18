@@ -105,12 +105,12 @@ function renderPage() {
   );
 }
 
-describe("ReviewPage 冷启动会话恢复竞态（022 巡检 DEF-02）", () => {
+describe("ReviewPage 冷启动会话恢复竞态", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("DEF-02: 会话恢复中（me 未确认）渲染加载态，不落「这里还是空的」空态与全零计数", async () => {
+  it("会话恢复中（me 未确认）渲染加载态，不落「这里还是空的」空态与全零计数", async () => {
     apiStubs.isGuestSession.mockReturnValue(false);
     apiStubs.me.mockReturnValue(new Promise(() => {}));
     practiceApi.getReviews.mockReturnValue(new Promise(() => {}));
@@ -134,7 +134,7 @@ describe("ReviewPage 冷启动会话恢复竞态（022 巡检 DEF-02）", () => 
     expect(practiceApi.getReviews).toHaveBeenCalled();
   });
 
-  it("DEF-02: 会话确认后契约数据正常渲染，门控不阻塞真实数据", async () => {
+  it("会话确认后契约数据正常渲染，门控不阻塞真实数据", async () => {
     apiStubs.isGuestSession.mockReturnValue(false);
     apiStubs.me.mockResolvedValue({ id: "1", username: "admin", role: "ADMIN" });
     practiceApi.getReviews.mockResolvedValue(PAGE_WITH_ONE);
@@ -149,7 +149,7 @@ describe("ReviewPage 冷启动会话恢复竞态（022 巡检 DEF-02）", () => 
     expect(screen.queryAllByText("…")).toHaveLength(0);
   });
 
-  it("DEF-02: 游客语义（会话确认失败）下空队列仍渲染空态，门控不误伤真实游客", async () => {
+  it("游客语义（会话确认失败）下空队列仍渲染空态，门控不误伤真实游客", async () => {
     apiStubs.isGuestSession.mockReturnValue(true);
     apiStubs.me.mockRejectedValue(new Error("401 未登录"));
     engineApi.getReviewQueue.mockResolvedValue(EMPTY_QUEUE);
@@ -163,7 +163,7 @@ describe("ReviewPage 冷启动会话恢复竞态（022 巡检 DEF-02）", () => 
     expect(engineApi.getReviewQueue).toHaveBeenCalled();
   });
 
-  it("DEF-02: 登录态契约返回空目录时同样渲染空态（加载门控仅在恢复期生效）", async () => {
+  it("登录态契约返回空目录时同样渲染空态（加载门控仅在恢复期生效）", async () => {
     apiStubs.isGuestSession.mockReturnValue(false);
     apiStubs.me.mockResolvedValue({ id: "1", username: "admin", role: "ADMIN" });
     practiceApi.getReviews.mockResolvedValue(EMPTY_PAGE);

@@ -72,7 +72,7 @@ function renderPage() {
   );
 }
 
-describe("PlacementPage 已记录微反馈（027 AC-6）", () => {
+describe("PlacementPage 已记录微反馈（AC-6）", () => {
   beforeEach(() => {
     window.localStorage.clear();
     engine.getPlacementSentences.mockReset();

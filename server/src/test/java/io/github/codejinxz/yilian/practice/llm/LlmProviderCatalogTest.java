@@ -151,7 +151,7 @@ class LlmProviderCatalogTest {
                 .upsert(
                         eq(LlmProviderCatalog.PROVIDERS_KEY),
                         providersValue.capture(),
-                        eq("LLM provider 目录（022，密钥走 env 索引不入库）"),
+                        eq("LLM provider 目录（密钥走 env 索引不入库）"),
                         eq(1L));
         assertThat(providersValue.getValue())
                 .contains("\"schemaVersion\":1")
@@ -164,7 +164,7 @@ class LlmProviderCatalogTest {
                 .upsert(
                         eq(LlmProviderCatalog.ACTIVE_KEY),
                         activeValue.capture(),
-                        eq("激活的 LLM provider（022）"),
+                        eq("激活的 LLM provider"),
                         eq(1L));
         assertThat(activeValue.getValue())
                 .isEqualTo("{\"schemaVersion\":1,\"providerId\":\"zai\"}");

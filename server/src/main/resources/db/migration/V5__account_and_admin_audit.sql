@@ -56,7 +56,7 @@ CREATE TABLE invite_codes (
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_0900_ai_ci;
 
--- 系统配置只读表（编辑 M3）；键值用 JSON 并带 schemaVersion。
+-- 系统配置只读表（管理端编辑入口规划中）；键值用 JSON 并带 schemaVersion。
 CREATE TABLE app_settings (
     `key`        VARCHAR(128) NOT NULL,
     `value`      JSON         NOT NULL,

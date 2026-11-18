@@ -115,7 +115,7 @@ function mockExtrasEmpty() {
   engine.ensureCachedSentences.mockResolvedValue([]);
 }
 
-describe("TodayPage 今日 CTA 与题库 chips（027 AC-7）", () => {
+describe("TodayPage 今日 CTA 与题库 chips（AC-7）", () => {
   beforeEach(() => {
     window.localStorage.clear();
     practiceApi.getToday.mockReset();

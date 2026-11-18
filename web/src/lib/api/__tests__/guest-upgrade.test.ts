@@ -298,10 +298,10 @@ describe("guest-upgrade sync", () => {
 
     await syncGuestAttempts();
     // 完成标记之后登出又练了两条：id 不在已迁移集合，重新登录的自动迁移必须捕获它们
-    // （browser-smoke-wave4 缺陷：旧布尔标记让这批记录永远无法并入账号）。
+    // （旧的布尔完成标记曾让这类新增记录永远无法并入账号）。
     await appendAttempts(3, 2);
 
-    // 只看重试轮发出的批：清掉首轮记录。
+    // 只看重试发出的批：清掉首次同步的记录。
     batches.length = 0;
     const result = await syncGuestAttempts();
     // 只发新增两条，已迁移的三条不重发；标记增长到五条。
@@ -350,7 +350,7 @@ describe("guest-upgrade sync", () => {
     expect(afterFirst.migratedIds).toHaveLength(50);
     expect(afterFirst.migratedIds).not.toContain(attemptIdAt(0));
 
-    // 重试只重发欠账批（已迁移 id 不重发）；先清掉首轮成功批的记录再看重试轮。
+    // 重试只重发欠账批（已迁移 id 不重发）；先清掉首次同步成功批的记录再看重试。
     retryBatches.length = 0;
     const second = await syncGuestAttempts();
     expect(second).toEqual({ imported: 100, skipped: 0, unsynced: 0 });

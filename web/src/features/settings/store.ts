@@ -9,7 +9,7 @@ export type ResolvedTheme = "paper" | "night";
 
 /**
  * 批改方式。当前版本全部为本地判分：选 ALWAYS_MODEL 也按 AUTO 执行，
- * 这是给 M3 深度批改预留的本地偏好，先落 store 不参与判分。
+ * 这是给深度批改预留的本地偏好，先落 store 不参与判分。
  */
 export type GradingMode = "LOCAL" | "AUTO" | "ALWAYS_MODEL";
 

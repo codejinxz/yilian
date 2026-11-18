@@ -249,7 +249,7 @@ class PracticeAppealAdjudicationIntegrationTest {
                         USER_ID, submitted.attemptId(), "slot:0", PROPOSED, null);
 
         assertThat(appeal.status()).isEqualTo("PENDING");
-        // 029 [AC-4]：回执 verdict 对齐存储真相——decision 落 UNAVAILABLE JSON，回执也发 UNAVAILABLE。
+        // [AC-4]：回执 verdict 对齐存储真相——decision 落 UNAVAILABLE JSON，回执也发 UNAVAILABLE。
         assertThat(appeal.verdict()).isEqualTo("UNAVAILABLE");
         assertThat(appeal.decidedBy()).isNull();
 

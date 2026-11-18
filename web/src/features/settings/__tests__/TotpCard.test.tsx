@@ -7,7 +7,7 @@ import { resetApiState } from "@/lib/api";
 import { createQueryClient } from "@/lib/query";
 
 /**
- * 设置页两步验证卡片（0232 [AC-4]）交互测试：状态展示 → 开启流程（密码确认 → 密钥/otpauth
+ * 设置页两步验证卡片（[AC-4]）交互测试：状态展示 → 开启流程（密码确认 → 密钥/otpauth
  * 展示与复制 → 激活 → 恢复码一次性展示与已抄写确认）→ 关闭双确认入口。fetch 桩按 API §4.10 真实形状应答。
  */
 

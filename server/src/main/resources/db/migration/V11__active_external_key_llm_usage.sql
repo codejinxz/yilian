@@ -30,7 +30,7 @@ ALTER TABLE sentences
 -- 形状即 §5.18 登记的精简版：只记元数据（token/耗时/成败），不落问题与回答内容
 -- （AGENTS §3.6：日志与异常表不得写入完整译文；本表同口径）。无物理外键（V10 决策，
 -- 完整性由应用层校验），user_id / sentence_id 为逻辑引用，仅建查询索引：
---   idx_llm_usage_user_created  按用户聚合用量（M3 用量页、预算核算的主查询路径）
+--   idx_llm_usage_user_created  按用户聚合用量（管理端用量页、预算核算的主查询路径）
 --   idx_llm_usage_sentence      按题排障（某句的答疑调用史）
 --   idx_llm_usage_created       按时间段清扫/报表（无分区，保留策略后续裁决，先留扫描入口）
 -- scene 记调用场景（tutor-ask）；protocol/model 记当次生效的协议与模型快照——模型可能下线，

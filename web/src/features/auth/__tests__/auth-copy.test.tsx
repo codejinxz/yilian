@@ -53,7 +53,7 @@ function renderAuth(ui: ReactNode) {
   return render(<QueryClientProvider client={createQueryClient()}>{ui}</QueryClientProvider>);
 }
 
-describe("认证页数据叙事文案（027 AC-8）", () => {
+describe("认证页数据叙事文案（AC-8）", () => {
   beforeEach(() => {
     window.localStorage.clear();
     api.getCaptcha.mockReset();

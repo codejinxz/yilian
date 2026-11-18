@@ -337,7 +337,7 @@ class AuthTotpFlowIntegrationTest {
 
     /** [AC-5] 同一恢复码两线程并发登录：Dao 条件更新原子化消费，恰一 200 一 40101，库内 used_at 只落一次。 */
     @Test
-    @DisplayName("[AC-5] 恢复码并发单次语义（条件更新原子化，镜像 029 AC-1 并发样式）")
+    @DisplayName("[AC-5] 恢复码并发单次语义（条件更新原子化，镜像并发套件样式）")
     void ac5_recoveryCodeConcurrentSingleUse() throws Exception {
         Enrollment enrollment = enrollAdmin();
         String code = enrollment.recoveryCodes()[0].trim();

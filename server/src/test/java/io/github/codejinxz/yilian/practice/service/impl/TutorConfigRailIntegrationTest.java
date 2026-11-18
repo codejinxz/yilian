@@ -150,7 +150,7 @@ class TutorConfigRailIntegrationTest {
 
     /** [AC-2] 三级优先序（3/3）：目录激活条目压过覆盖；目录清空后覆盖轨回归；目录非空未激活仍 fail-closed（语义不变）。 */
     @Test
-    @DisplayName("[AC-2] 目录激活 > 覆盖 > env，且 022 fail-closed 语义保留")
+    @DisplayName("[AC-2] 目录激活 > 覆盖 > env，且 fail-closed 语义保留")
     void ac2_directoryBeatsOverrideAndFailClosedPreserved() {
         tutorService.updateAdminConfig(
                 new LlmConfigUpdateRequest(false, OVERRIDE_BASE_URL, "glm-override", null, null),

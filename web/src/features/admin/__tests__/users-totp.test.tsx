@@ -7,11 +7,11 @@ import { resetApiState } from "@/lib/api";
 import { createQueryClient } from "@/lib/query";
 
 /**
- * 管理端用户页 2FA 投影与重置（0232 [AC-6]）：列表 2FA 列（已开启/—）、抽屉状态行、
+ * 管理端用户页 2FA 投影与重置（[AC-6]）：列表 2FA 列（已开启/—）、抽屉状态行、
  * 重置两步验证走必填原因弹窗并调用 reset-2fa 端点；越权由路由与服务端矩阵保证。
  */
 
-/** 服务端 AdminUserView 形状（API §8.1，含 0232 新增 totpEnabled）。 */
+/** 服务端 AdminUserView 形状（API §8.1，含 totpEnabled）。 */
 function userRow(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
     id: "3",

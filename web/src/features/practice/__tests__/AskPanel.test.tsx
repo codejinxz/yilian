@@ -73,7 +73,7 @@ describe("AskPanel", () => {
   });
 
   /** 40304：先在面板内展示「答疑未开放」定向文案并保留问句，约 1.5s 后才通知父级收起——不再是零提示静默消失。 */
-  it("showsUnavailableMessageThenCollapsesOn40304_def01", async () => {
+  it("showsUnavailableMessageThenCollapsesOn40304", async () => {
     askTutorMock.mockRejectedValue(new ApiError(403, 40304, "答疑未开放"));
     const { onUnavailable } = renderPanel();
 
@@ -95,7 +95,7 @@ describe("AskPanel", () => {
   });
 
   /** 40400：文案指向 YILIAN_LLM_* 环境变量配置（服务端只回通用 404 文案，前端展开）。 */
-  it("showsConfigMissingMessageOn40400_def01", async () => {
+  it("showsConfigMissingMessageOn40400", async () => {
     askTutorMock.mockRejectedValue(new ApiError(404, 40400, "请求的资源不存在"));
     const { onUnavailable } = renderPanel();
 
@@ -128,7 +128,7 @@ describe("AskPanel", () => {
   });
 
   /** 等待回复时写明「最长约 30 秒」的预期，回复到位后等待提示消失。 */
-  it("showsPendingExpectationWhileWaiting_obs2", async () => {
+  it("showsPendingExpectationWhileWaiting", async () => {
     let resolveAsk: (reply: { answer: string; disclaimer: string }) => void = () => {};
     askTutorMock.mockImplementation(
       () =>

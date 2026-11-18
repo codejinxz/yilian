@@ -40,7 +40,7 @@ describe("appealAnnotation 超时窗口", () => {
     );
   }
 
-  it("029 AC-3: 服务端初裁链路内（10s）不掐断，到 35s 才以超时中止", async () => {
+  it("AC-3: 服务端初裁链路内（10s）不掐断，到 35s 才以超时中止", async () => {
     let aborted = false;
     stubHangingFetch(() => {
       aborted = true;

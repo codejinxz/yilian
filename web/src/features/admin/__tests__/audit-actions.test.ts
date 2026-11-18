@@ -41,13 +41,13 @@ const BACKEND_ACTION_UNIVERSE: Array<[string, string]> = [
 ];
 
 describe("管理端操作日志动作目录", () => {
-  it("015 AC-4: 动作标签覆盖后端 OperationLog 与 audit-events 白名单的全部动作", () => {
+  it("AC-4: 动作标签覆盖后端 OperationLog 与 audit-events 白名单的全部动作", () => {
     for (const [action, label] of BACKEND_ACTION_UNIVERSE) {
       expect(ACTION_LABELS[action], `${action} 缺少中文名`).toBe(label);
     }
   });
 
-  it("015 AC-4: 筛选下拉选项含「全部操作」与后端动作全集（含 GENERATION_IMPORT=生成导入）", () => {
+  it("AC-4: 筛选下拉选项含「全部操作」与后端动作全集（含 GENERATION_IMPORT=生成导入）", () => {
     const values = ACTION_FILTER_OPTIONS.map((option) => option.value);
     expect(values[0]).toBe("all");
     for (const [action] of BACKEND_ACTION_UNIVERSE) {
@@ -57,7 +57,7 @@ describe("管理端操作日志动作目录", () => {
     expect(generation?.label).toBe("生成导入");
   });
 
-  it("015 AC-4: 未知动作码在 actionLabel 原样透出，不吞掉新动作", () => {
+  it("AC-4: 未知动作码在 actionLabel 原样透出，不吞掉新动作", () => {
     expect(actionLabel("SOME_FUTURE_ACTION")).toBe("SOME_FUTURE_ACTION");
     expect(actionLabel("GENERATION_IMPORT")).toBe("生成导入");
   });

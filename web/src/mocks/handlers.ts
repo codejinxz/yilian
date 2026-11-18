@@ -1138,7 +1138,7 @@ export async function handleMockRequest(path: string, init: RequestInit = {}): P
     return authResponse(user);
   }
 
-  // ---- 两步验证自助端点（0232 同形：演示态密钥/恢复码存明文，接口形状与 API §4.10 一致） ----
+  // ---- 两步验证自助端点（与真实端点同形：演示态密钥/恢复码存明文，接口形状与 API §4.10 一致） ----
   if (pathname === "/auth/2fa/status" && method === "GET") {
     const user = requireUser(db);
     return {

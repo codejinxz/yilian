@@ -362,7 +362,7 @@ async function renderAttemptFor(sentence: PracticeSentence, attempt: AttemptResp
   return view;
 }
 
-describe("PracticePage 判分呈现体验（027）", () => {
+describe("PracticePage 判分呈现体验", () => {
   beforeAll(() => {
     // jsdom 未实现 scrollIntoView；useFocusScroll 在输入聚焦后会调用它。
     Element.prototype.scrollIntoView = vi.fn();

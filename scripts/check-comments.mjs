@@ -8,16 +8,18 @@
  * 强制，SQL 注释没有对应工具，由本脚本覆盖。禁词表与 server/config/checkstyle/checkstyle.xml
  * 保持同源，规则注释见该文件。
  *
- * 判定标准（与 GAP-ANALYSIS「038 注释纪律清扫+lint 规则」行同源，及
- * server/config/checkstyle/checkstyle.xml 的同名规则注释）：
- * - 禁止：批次号（0XX 形态）、评审轮次/条目号（R1/R2/S4/A-xx/F-xx/DEF-xx）、指示来源
- *   （任务书/计划文件/主人/pending-20261117/next-session-prompt）、gitignored 文档引用
+ * 判定标准（与 GAP-ANALYSIS「038 注释纪律清扫+lint 规则」「039 注释/字符串二扫」行同源，
+ * 及 server/config/checkstyle/checkstyle.xml 的同名规则注释）：
+ * - 禁止：批次号（0XX/0XXX 形态）、里程碑/路线图编号（M[0-9]）、评审轮次/条目号
+ *   （R1/R2/S4/A-xx/F-xx/DEF-xx）、冒烟运行与波次引用（browser-smoke/波次/首轮/二轮/第 N 轮）、
+ *   指示来源（任务书/计划文件/主人/pending-20261117/next-session-prompt）、gitignored 文档引用
  *   （docs/plans/、docs/retro/、docs/analysis/）、阶段词（本批/本迭代/消缺/遗留登记）。
  * - 保留（白名单，靠模式设计排除）：[AC-x] 测试标签（匹配前整行剥除该标签）、
  *   DATA-MODEL §/PRD §/API.md §/AGENTS § 章节指针、设计决策号 D-xxx（连字符前缀被
  *   数字模式的负向后顾排除）、S3/R2/S1 等协议与算法名、小数与 10_000 类数字（负向
  *   后顾排除）。
- * - 只扫注释（// 与 /* *\/ 与 --），字符串字面量（如测试标题 it("015 AC-4: …")）不扫。
+ * - 注释层只扫注释（// 与 /* *\/ 与 --）；字符串字面量不在注释模式下扫，但测试标题
+ *   （it/test/describe 首参与 Java @DisplayName）由独立的标题检测兜底（见 scanTitlePrefix）。
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -73,10 +75,34 @@ const RULES = [
     pattern: /DEF-[0-9]|[AF]-0[0-9]|R[12]-[0-9F]/u,
     message: "注释禁止评审条目号引用（DEF-/A-/F-/R1-/R2-）",
   },
+  {
+    // 里程碑/路线图编号 M2/M3（含 M2.1）：后接 CJK 即计划引用语义。
+    // TEM8 等考试代码由前置字母负向后顾排除；M3_ROUTES 类标识符（下划线衔接）不匹配。
+    pattern: /(?<![A-Za-z0-9])M[0-9](?:\.[0-9])?(?=\s*[\p{Script=Han}（(])/u,
+    message: "注释禁止里程碑/路线图编号引用（M[0-9]）：改为能力状态语义（规划中/已接入）",
+  },
+  {
+    // 评审/冒烟运行与波次引用；域内重试/扫描轮次语义用「段/遍/首次」表述。
+    pattern: /browser-smoke|wave[0-9]|波次|首轮|二轮|三轮|第\s*[一二三四五N]\s*轮/u,
+    message: "注释禁止评审/冒烟运行与波次引用：写问题与结论本身，不写发现过程",
+  },
+  {
+    // 四位批次号形态（0232 等）：三位 0XX 模式的补漏位。
+    pattern: /(?<![0-9.\-_])0[0-9]{3}(?=\s*[\p{Script=Han}（(\[])/u,
+    message: "注释禁止批次号引用（0XXX 形态）",
+  },
 ];
 
 /** [AC-x] 测试标签：匹配前从注释文本中剥除，其余文本照常受检。 */
 const AC_TAG = /\[AC-\d+\]/gu;
+
+/**
+ * 测试标题批次前缀模式。标题是字符串字面量：注释提取器刻意跳过字符串、Checkstyle
+ * IllegalTokenText 只作用于 COMMENT_CONTENT token，两层都看不到标题，故单独用
+ * 「调用点 + 首参」正则兜底（it/test/describe 的第一个字符串参数、Java @DisplayName）。
+ */
+const WEB_TITLE_PREFIX = /\b(?:it|test|describe)\s*\(\s*(["'`])\s*0[0-9]{2,3}[A-Z]?\s/u;
+const JAVA_TITLE_PREFIX = /@DisplayName\(\s*"(?:0[0-9]{2}[A-Z]?\s|0[0-9]{3}\s)/u;
 
 /**
  * 递归收集目录下指定扩展名的文件。
@@ -223,6 +249,25 @@ for (const file of collectFiles(SQL_DIR, [".sql"])) {
   targets.push({ file, extractor: extractSqlComments });
 }
 
+/**
+ * 测试标题批次前缀扫描：逐行匹配 it/test/describe 首参与 @DisplayName 的 `0XX ` 前缀。
+ *
+ * @param {string} file 文件绝对路径（用于报告）
+ * @param {string} source 源码文本
+ * @param {RegExp} pattern 标题前缀模式
+ * @returns {string[]} 违规描述列表
+ */
+function scanTitlePrefix(file, source, pattern) {
+  const found = [];
+  source.split("\n").forEach((line, index) => {
+    const match = line.match(pattern);
+    if (match) {
+      found.push(`${relative(repoRoot, file)}:${index + 1}: 测试标题禁止批次号前缀（0XX 形态）——命中「${match[0]}」`);
+    }
+  });
+  return found;
+}
+
 /** 违规收集器。 */
 const violations = [];
 for (const { file, extractor } of targets) {
@@ -238,6 +283,14 @@ for (const { file, extractor } of targets) {
       }
     }
   }
+}
+
+// 标题层（web 测试标题 + Java @DisplayName）：注释两层扫不到字符串，单独兜底。
+for (const file of collectFiles(WEB_SRC, [".ts", ".tsx"])) {
+  violations.push(...scanTitlePrefix(file, readFileSync(file, "utf8"), WEB_TITLE_PREFIX));
+}
+for (const file of collectFiles(join(repoRoot, "server", "src"), [".java"])) {
+  violations.push(...scanTitlePrefix(file, readFileSync(file, "utf8"), JAVA_TITLE_PREFIX));
 }
 
 if (violations.length > 0) {

@@ -1,7 +1,7 @@
 -- Q1 拍板「一句一卡」：复习卡唯一键收敛为 (user_id, sentence_id)；
 -- mode 保留为「最近练习模式」列（切换模式时覆盖更新，不新增卡片）。
 -- 另：review_logs.weights_version_id NOT NULL FK 需要一行 GLOBAL 原型权重种子
--- （Q2 本期不接优化器，权重为占位原型值；M2.1 优化器替换）。
+-- （权重为占位原型值；优化器接入后由拟合权重替换）。
 
 ALTER TABLE reviews
     DROP INDEX uk_review_card,

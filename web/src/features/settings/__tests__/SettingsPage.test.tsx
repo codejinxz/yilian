@@ -13,7 +13,7 @@ import { createQueryClient } from "@/lib/query";
  *
  * 本组用例锁定的事实：gradingMode 仅由 SettingsPage 读写（渲染选中态 +
  * toast），判分链路（练习页本地判分、提交接口、服务端 Grader）没有任何读取点；它是给
- * M3 深度批改预留的本地偏好，服务端也无对应的「本地/服务端判分切换」能力。修到生效需要
+ * 深度批改预留的本地偏好，服务端也无对应的「本地/服务端判分切换」能力。修到生效需要
  * 新建服务端深度批改（独立切片），移除则破坏原型对齐并失去后续接入位——按「如实标注为演示」
  * 处理：行内「演示预留」说明 + 选项描述改为将来时 + toast 说明当前仍按本地判分执行。
  */
@@ -74,7 +74,7 @@ function renderPage() {
   );
 }
 
-describe("SettingsPage 批改方式如实标注（027 AC-9）", () => {
+describe("SettingsPage 批改方式如实标注（AC-9）", () => {
   beforeEach(() => {
     window.localStorage.clear();
     // 游客语义：me 401（无重试），批改方式行对游客与登录用户同样渲染。

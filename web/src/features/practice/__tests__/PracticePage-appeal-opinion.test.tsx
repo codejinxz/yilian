@@ -183,7 +183,7 @@ async function openAppealForm() {
   return view;
 }
 
-describe("PracticePage 申诉透明度（025）", () => {
+describe("PracticePage 申诉透明度", () => {
   beforeAll(() => {
     Element.prototype.scrollIntoView = vi.fn();
   });

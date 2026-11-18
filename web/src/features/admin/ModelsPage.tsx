@@ -36,7 +36,7 @@ import {
 
 /** 模型页签（provider 目录管理）。 */
 
-/** 任务路由原型占位值（与原型 index.html 一致）；M3 任务路由域落地前仅作展示参考。 */
+/** 任务路由原型占位值（与原型 index.html 一致）；任务路由域规划中，当前仅作展示参考。 */
 const M3_ROUTES = [
   { task: "语块填空批改", model: "local-rules", note: "本地确定性判定，零成本零延迟" },
   { task: "整句翻译批改", model: "deepseek:deepseek-chat", note: "五维评分 + 逐句证据" },
@@ -57,7 +57,7 @@ const PROMPT_SCENE_OPTIONS = ["ask", "review", "appeal"] as const;
 /** 登记内容的长度上限（与服务端校验同口径：20000 字符）。 */
 const PROMPT_CONTENT_MAX_CHARS = 20000;
 
-/** AI 功能清单的将来功能插槽：只做占位展示，落地排期随 M3 计划。 */
+/** AI 功能清单的将来功能插槽：只做占位展示，接入排期待后续规划。 */
 const M3_FEATURES = [
   { id: "free-grading", name: "整句翻译批改（AI 增强）", meta: "五维评分 + 逐句证据" },
   { id: "appeal", name: "申诉裁决", meta: "只判断语义等价，不评价风格" },
@@ -324,7 +324,7 @@ function ProviderCard({
  * （CC Switch 式多 provider：列表/新增/编辑/删除/激活）、AI 功能清单按激活 provider 联动；
  * 下半区本月用量（真实用量视图）与预算护栏编辑（预算 + 模型定价，保存即时生效）；
  * Prompt 版本治理（API §8.18）：版本列表/登记新版本/激活换轨（append-only + label 流转）；
- * 任务路由仍为 M3 占位（原型参照，只读）。
+ * 任务路由仍为原型占位（原型参照，只读）。
  * @returns 页签内容
  */
 export function ModelsPage() {
@@ -970,13 +970,13 @@ export function ModelsPage() {
           {M3_FEATURES.map((feature) => (
             <Row key={feature.id}>
               <RowText main={feature.name} meta={feature.meta} />
-              <StatePill tone="muted">M3 预留</StatePill>
+              <StatePill tone="muted">规划中</StatePill>
             </Row>
           ))}
         </RowList>
       </AdminSection>
 
-      <AdminSection title="任务路由" action={<StatePill tone="muted">M3 预留</StatePill>}>
+      <AdminSection title="任务路由" action={<StatePill tone="muted">规划中</StatePill>}>
         <RowList>
           {M3_ROUTES.map((route) => (
             <Row key={route.task}>
@@ -991,7 +991,7 @@ export function ModelsPage() {
           ))}
         </RowList>
         <p className="mt-3.5 font-mono text-[11px] leading-[1.7] tracking-[0.06em] text-ink-faint">
-          各任务走本地规则还是模型、走哪个模型，随 M3 任务路由域落地；当前批改一律本地判定。
+          各任务走本地规则还是模型、走哪个模型——该能力规划中，当前批改一律本地判定。
         </p>
       </AdminSection>
 

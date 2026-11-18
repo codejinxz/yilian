@@ -39,7 +39,7 @@ describe("askTutor 超时窗口", () => {
     );
   }
 
-  it("023 AC-1: 服务端降级链路内（10s）不掐断，到 35s 才以超时中止", async () => {
+  it("AC-1: 服务端降级链路内（10s）不掐断，到 35s 才以超时中止", async () => {
     let aborted = false;
     stubHangingFetch(() => {
       aborted = true;

@@ -209,7 +209,7 @@ class AnthropicMessagesLlmClientTest {
     /** [AC-1] 连续 429：只重试一次，第二次仍 429 则向上抛（TutorServiceImpl 统一降级），不出现第三次请求。 */
     @Test
     void givesUpAfterSingleRetryOnPersistent429_ac1() {
-        // 两轮失败脚本：重试后的第二次调用仍是 429（未入队即缺省 200，须显式补第二轮）。
+        // 两段失败脚本：重试后的第二次调用仍是 429（未入队即缺省 200，须显式补第二段失败）。
         for (int i = 0; i < 2; i++) {
             statusQueue.add(429);
             bodyQueue.add(GATEWAY_429_BODY);

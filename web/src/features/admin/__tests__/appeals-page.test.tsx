@@ -147,7 +147,7 @@ function renderPage() {
   );
 }
 
-describe("AppealsPage 申诉终审页签（025）", () => {
+describe("AppealsPage 申诉终审页签", () => {
   beforeEach(() => {
     resetApiState();
     vi.unstubAllGlobals();

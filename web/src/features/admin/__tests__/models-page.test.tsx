@@ -490,7 +490,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     document.cookie = "XSRF-TOKEN=test-token; path=/";
   });
 
-  it("024 AC-1: 服务不可达（网络断）时错误卡为管理语境——「管理数据加载失败」，不带练习页离线队列文案", async () => {
+  it("AC-1: 服务不可达（网络断）时错误卡为管理语境——「管理数据加载失败」，不带练习页离线队列文案", async () => {
     // 后端 8080 未启动 / 断网：fetch 抛 TypeError，请求客户端归一为 status=0 的 ApiError。
     vi.stubGlobal(
       "fetch",
@@ -510,7 +510,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
   });
 
-  it("024 AC-1: 服务 5xx 时错误卡同为管理语境，服务端文案透出且无练习页队列文案", async () => {
+  it("AC-1: 服务 5xx 时错误卡同为管理语境，服务端文案透出且无练习页队列文案", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => jsonResponse({ code: 50000, message: "服务响应异常，请稍后重试" }, 500)),
@@ -525,7 +525,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     expect(alert).not.toHaveTextContent("已经填写的答案会保存在本机");
   });
 
-  it("019 AC-1: hasKey=true 且 enabled=true 时显示已配置、当前模型（inline 回显）与答疑「启用中」，不出环境变量指引", async () => {
+  it("AC-1: hasKey=true 且 enabled=true 时显示已配置、当前模型（inline 回显）与答疑「启用中」，不出环境变量指引", async () => {
     stubAdminLlmFetch(CONFIGURED_ON);
 
     renderModelsPage();
@@ -543,7 +543,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     expect(screen.queryByText(/尚未配置模型凭证/)).not.toBeInTheDocument();
   });
 
-  it("019 AC-1: hasKey=false 时显示未配置与 YILIAN_LLM_* 环境变量两件套指引（注明可加密入库或环境变量注入），答疑联动为「未开放」", async () => {
+  it("AC-1: hasKey=false 时显示未配置与 YILIAN_LLM_* 环境变量两件套指引（注明可加密入库或环境变量注入），答疑联动为「未开放」", async () => {
     stubAdminLlmFetch({
       ...CONFIGURED_ON,
       enabled: false,
@@ -570,7 +570,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     expect(screen.getByRole("button", { name: "启用答疑" })).toBeEnabled();
   });
 
-  it("017R2 OBS-1: 开关已开且凭证按协议口径不齐（credentialsComplete=false）时，答疑关联显示「未生效（缺凭证）」而非笼统的未开放，并附下一步说明", async () => {
+  it("开关已开且凭证按协议口径不齐（credentialsComplete=false）时，答疑关联显示「未生效（缺凭证）」而非笼统的未开放，并附下一步说明", async () => {
     // legacy openai 轨组合：enabled=true + 凭证不齐（hasKey=false 是不齐的原因），
     // 管理员视角「开关是开的、功能却不存在」。齐备性判定以服务端 credentialsComplete
     // 为准（协议分口径），hasKey 只是展示徽标。
@@ -593,7 +593,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     expect(screen.getByText("未配置")).toBeInTheDocument();
   });
 
-  it("023 AC-1: anthropic 轨 hasKey=false 是合法可启用态——credentialsComplete=true 且开关已开时答疑关联为「启用中」，不出现缺凭证提示", async () => {
+  it("AC-1: anthropic 轨 hasKey=false 是合法可启用态——credentialsComplete=true 且开关已开时答疑关联为「启用中」，不出现缺凭证提示", async () => {
     // anthropic-messages 轨 key 可空（齐备只看端点）：hasKey=false 不是缺凭证。
     // 若展示仍按 openai 语义把 hasKey=false 当缺凭证，管理员在网关部署上会看到
     // 「未生效（缺凭证）」与事实相反——这里按 credentialsComplete 口径锁死。
@@ -618,7 +618,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     expect(screen.queryByText("缺 Key")).not.toBeInTheDocument();
   });
 
-  it("019 AC-1: 点击启用提交 PUT（enabled 翻转 + 表单当前值），成功后乐观刷新缓存并提示", async () => {
+  it("AC-1: 点击启用提交 PUT（enabled 翻转 + 表单当前值），成功后乐观刷新缓存并提示", async () => {
     const observed = stubAdminLlmFetch({ ...CONFIGURED_ON, enabled: false });
 
     renderModelsPage();
@@ -641,7 +641,7 @@ describe("ModelsPage 统一模型配置状态中心", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(/答疑已启用/);
   });
 
-  it("019 AC-1: 未配凭证时点启用，服务端 40000 文案透出为提示，开关不翻转、缓存不失效", async () => {
+  it("AC-1: 未配凭证时点启用，服务端 40000 文案透出为提示，开关不翻转、缓存不失效", async () => {
     const observed = stubAdminLlmFetch(
       {
         ...CONFIGURED_ON,
@@ -671,14 +671,14 @@ describe("ModelsPage 统一模型配置状态中心", () => {
   });
 });
 
-describe("ModelsPage provider 目录管理（022 AC-3）", () => {
+describe("ModelsPage provider 目录管理（AC-3）", () => {
   beforeEach(() => {
     resetApiState();
     // biome-ignore lint/suspicious/noDocumentCookie: 测试需要写入可读的 CSRF cookie
     document.cookie = "XSRF-TOKEN=test-token; path=/";
   });
 
-  it("022 AC-3: 目录列表卡展示名称/协议徽标/端点/模型/hasKey 徽标，激活条目高亮「激活中」", async () => {
+  it("AC-3: 目录列表卡展示名称/协议徽标/端点/模型/hasKey 徽标，激活条目高亮「激活中」", async () => {
     stubAdminLlmFetch(
       { ...CONFIGURED_ON, providerId: "zcode-gateway", protocol: "anthropic-messages" },
       { providers: [ZCODE_GATEWAY, ZHIPU] },
@@ -704,7 +704,7 @@ describe("ModelsPage provider 目录管理（022 AC-3）", () => {
     expect(screen.getByText(/数据源：ZCode 网关（anthropic-messages）/)).toBeInTheDocument();
   });
 
-  it("022 AC-3: 目录为空时显示 legacy 环境变量直配形态与切换指引", async () => {
+  it("AC-3: 目录为空时显示 legacy 环境变量直配形态与切换指引", async () => {
     stubAdminLlmFetch(CONFIGURED_ON);
 
     renderModelsPage();
@@ -718,7 +718,7 @@ describe("ModelsPage provider 目录管理（022 AC-3）", () => {
     expect(screen.queryByRole("button", { name: /^激活 provider/ })).toBeNull();
   });
 
-  it("022 AC-3: 新增 provider 提交 POST 元数据形状（无 apiKey 字段），成功后目录重新拉取", async () => {
+  it("AC-3: 新增 provider 提交 POST 元数据形状（无 apiKey 字段），成功后目录重新拉取", async () => {
     const observed = stubAdminLlmFetch(
       { ...CONFIGURED_ON, providerId: "zcode-gateway", protocol: "anthropic-messages" },
       { providers: [ZCODE_GATEWAY] },
@@ -753,7 +753,7 @@ describe("ModelsPage provider 目录管理（022 AC-3）", () => {
     await waitFor(() => expect(screen.getByText("ZCode 网关（远程）")).toBeInTheDocument());
   });
 
-  it("022 AC-3: 激活提交 PUT /{id}/activate，成功后激活态翻转并提示", async () => {
+  it("AC-3: 激活提交 PUT /{id}/activate，成功后激活态翻转并提示", async () => {
     const observed = stubAdminLlmFetch(
       { ...CONFIGURED_ON, providerId: "zcode-gateway", protocol: "anthropic-messages" },
       { providers: [ZCODE_GATEWAY, ZHIPU] },
@@ -774,7 +774,7 @@ describe("ModelsPage provider 目录管理（022 AC-3）", () => {
     );
   });
 
-  it("022 AC-3: 删除需确认；激活中的 provider 服务端 40000 文案透出且不删除", async () => {
+  it("AC-3: 删除需确认；激活中的 provider 服务端 40000 文案透出且不删除", async () => {
     const observed = stubAdminLlmFetch(
       { ...CONFIGURED_ON, providerId: "zcode-gateway", protocol: "anthropic-messages" },
       { providers: [ZCODE_GATEWAY, ZHIPU], providersMode: "delete-active-rejected" },
@@ -793,7 +793,7 @@ describe("ModelsPage provider 目录管理（022 AC-3）", () => {
     expect(screen.getByText("ZCode 网关")).toBeInTheDocument();
   });
 
-  it("022 AC-3: 编辑回填条目且 id 固定不可改，提交 PUT /{id} 整体覆盖元数据", async () => {
+  it("AC-3: 编辑回填条目且 id 固定不可改，提交 PUT /{id} 整体覆盖元数据", async () => {
     const observed = stubAdminLlmFetch(
       { ...CONFIGURED_ON, providerId: "zcode-gateway", protocol: "anthropic-messages" },
       { providers: [ZCODE_GATEWAY] },
@@ -955,7 +955,7 @@ describe("ModelsPage provider 表单去预设与全字段动态编辑", () => {
   });
 });
 
-describe("ModelsPage provider 密钥管理（027B 写-only 与投影）", () => {
+describe("ModelsPage provider 密钥管理（写-only 与投影）", () => {
   beforeEach(() => {
     resetApiState();
     // biome-ignore lint/suspicious/noDocumentCookie: 测试需要写入可读的 CSRF cookie
@@ -974,7 +974,7 @@ describe("ModelsPage provider 密钥管理（027B 写-only 与投影）", () => 
     active: true,
   };
 
-  it("027B AC-4: 列表卡展示 last4（入库态）且 env 态不显示 last4，hasKey 徽标口径不受影响", async () => {
+  it("AC-4: 列表卡展示 last4（入库态）且 env 态不显示 last4，hasKey 徽标口径不受影响", async () => {
     stubAdminLlmFetch(
       { ...CONFIGURED_ON, providerId: "stored-prov", protocol: "openai-chat" },
       { providers: [STORED_KEY, ZHIPU] },
@@ -992,7 +992,7 @@ describe("ModelsPage provider 密钥管理（027B 写-only 与投影）", () => 
     expect(envCard.textContent).not.toContain("尾号");
   });
 
-  it("027B AC-4: 编辑抽屉密钥字段写-only——留空提交不携带 apiKey，填入提交携带明文且输入框为 password 掩码", async () => {
+  it("AC-4: 编辑抽屉密钥字段写-only——留空提交不携带 apiKey，填入提交携带明文且输入框为 password 掩码", async () => {
     const observed = stubAdminLlmFetch(
       { ...CONFIGURED_ON, providerId: "stored-prov", protocol: "openai-chat" },
       { providers: [STORED_KEY] },
@@ -1030,7 +1030,7 @@ describe("ModelsPage provider 密钥管理（027B 写-only 与投影）", () => 
     expect(screen.queryByText("sk-rotated-plaintext-99ab")).not.toBeInTheDocument();
   });
 
-  it("027B AC-4: 新增 provider 携带 apiKey 时 POST 写-only 字段，成功后卡片按 hasKey+尾号投影", async () => {
+  it("AC-4: 新增 provider 携带 apiKey 时 POST 写-only 字段，成功后卡片按 hasKey+尾号投影", async () => {
     const observed = stubAdminLlmFetch(
       { ...CONFIGURED_ON, providerId: "legacy", protocol: "openai-chat" },
       { providers: [] },
@@ -1060,14 +1060,14 @@ describe("ModelsPage provider 密钥管理（027B 写-only 与投影）", () => 
     expect(screen.queryByText("sk-new-plaintext-cd34")).not.toBeInTheDocument();
   });
 });
-describe("ModelsPage 答疑 LLM 卡 legacy 态编辑（028 AC-4）", () => {
+describe("ModelsPage 答疑 LLM 卡 legacy 态编辑（AC-4）", () => {
   beforeEach(() => {
     resetApiState();
     // biome-ignore lint/suspicious/noDocumentCookie: 测试需要写入可读的 CSRF cookie
     document.cookie = "XSRF-TOKEN=test-token; path=/";
   });
 
-  it("028 AC-4: legacy 态 inline 编辑模型/端点保存——PUT 携带表单当前值（状态型字段语义），保存后徽标换「自定义」且回显新值", async () => {
+  it("AC-4: legacy 态 inline 编辑模型/端点保存——PUT 携带表单当前值（状态型字段语义），保存后徽标换「自定义」且回显新值", async () => {
     const observed = stubAdminLlmFetch(CONFIGURED_ON);
 
     renderModelsPage();
@@ -1102,7 +1102,7 @@ describe("ModelsPage 答疑 LLM 卡 legacy 态编辑（028 AC-4）", () => {
     );
   });
 
-  it("028 AC-4: 密钥写-only——password 掩码、留空=不变更不携带字段；填入=加密入库投影尾号且明文不残留 DOM", async () => {
+  it("AC-4: 密钥写-only——password 掩码、留空=不变更不携带字段；填入=加密入库投影尾号且明文不残留 DOM", async () => {
     const observed = stubAdminLlmFetch(CONFIGURED_ON);
 
     renderModelsPage();
@@ -1131,7 +1131,7 @@ describe("ModelsPage 答疑 LLM 卡 legacy 态编辑（028 AC-4）", () => {
     expect(screen.queryByText("sk-tutor-plaintext-99ab")).not.toBeInTheDocument();
   });
 
-  it("028 AC-4: 「重置为环境默认」需确认——确认后 PUT 清覆盖（空串）+ clearKey 删 tutor 密钥，徽标回「环境变量」", async () => {
+  it("AC-4: 「重置为环境默认」需确认——确认后 PUT 清覆盖（空串）+ clearKey 删 tutor 密钥，徽标回「环境变量」", async () => {
     const observed = stubAdminLlmFetch({
       ...CONFIGURED_ON,
       source: "custom",
@@ -1164,7 +1164,7 @@ describe("ModelsPage 答疑 LLM 卡 legacy 态编辑（028 AC-4）", () => {
     expect(screen.queryByText("自定义")).not.toBeInTheDocument();
   });
 
-  it("028 AC-4: 来源徽标三态——目录激活=「目录」（字段指引走抽屉、无 inline 编辑）；覆盖态=「自定义」；纯 env=「环境变量」", async () => {
+  it("AC-4: 来源徽标三态——目录激活=「目录」（字段指引走抽屉、无 inline 编辑）；覆盖态=「自定义」；纯 env=「环境变量」", async () => {
     // 目录激活态：徽标「目录」，无 inline 输入，指引指向抽屉。
     const observed = stubAdminLlmFetch(
       { ...CONFIGURED_ON, providerId: "zcode-gateway", protocol: "anthropic-messages" },
@@ -1195,7 +1195,7 @@ describe("ModelsPage 答疑 LLM 卡 legacy 态编辑（028 AC-4）", () => {
     expect(observed.getCalls).toBeGreaterThanOrEqual(0);
   });
 
-  it("028 AC-4: 编辑态下外部变更不抹输入（dirty 守卫）——有未保存输入时服务端状态回填不覆盖表单", async () => {
+  it("AC-4: 编辑态下外部变更不抹输入（dirty 守卫）——有未保存输入时服务端状态回填不覆盖表单", async () => {
     const observed = stubAdminLlmFetch(CONFIGURED_ON);
     const queryClient = createQueryClient();
     render(
@@ -1217,7 +1217,7 @@ describe("ModelsPage 答疑 LLM 卡 legacy 态编辑（028 AC-4）", () => {
     expect(observed.getCalls).toBeGreaterThanOrEqual(0);
   });
 
-  it("028 AC-4: model-only 覆盖（清端点保留模型）保存后徽标为「自定义」——与覆盖轨实际生效一致，不误报回退环境变量", async () => {
+  it("AC-4: model-only 覆盖（清端点保留模型）保存后徽标为「自定义」——与覆盖轨实际生效一致，不误报回退环境变量", async () => {
     const observed = stubAdminLlmFetch(CONFIGURED_ON);
 
     renderModelsPage();
@@ -1240,7 +1240,7 @@ describe("ModelsPage 答疑 LLM 卡 legacy 态编辑（028 AC-4）", () => {
   });
 });
 
-describe("ModelsPage 本月用量与预算护栏（033）", () => {
+describe("ModelsPage 本月用量与预算护栏", () => {
   beforeEach(() => {
     resetApiState();
     // biome-ignore lint/suspicious/noDocumentCookie: 测试需要写入可读的 CSRF cookie
@@ -1261,7 +1261,7 @@ describe("ModelsPage 本月用量与预算护栏（033）", () => {
     },
   };
 
-  it("033 AC-7: 用量卡片渲染已用/预算/百分比/状态徽标与分场景小计（含场景中文名）", async () => {
+  it("AC-7: 用量卡片渲染已用/预算/百分比/状态徽标与分场景小计（含场景中文名）", async () => {
     stubAdminLlmFetch(CONFIGURED_ON, { usage: USAGE_WARN });
 
     renderModelsPage();
@@ -1284,7 +1284,7 @@ describe("ModelsPage 本月用量与预算护栏（033）", () => {
     expect(screen.getByText(/0 次 · 0 tokens/)).toBeInTheDocument();
   });
 
-  it("033 AC-7: 未设预算显示「未设预算」徽标与预算/百分比占位（护栏不生效如实口径）", async () => {
+  it("AC-7: 未设预算显示「未设预算」徽标与预算/百分比占位（护栏不生效如实口径）", async () => {
     stubAdminLlmFetch(CONFIGURED_ON, {
       usage: { ...USAGE_WARN, budgetCny: null, percent: null, status: "UNSET" },
     });
@@ -1297,7 +1297,7 @@ describe("ModelsPage 本月用量与预算护栏（033）", () => {
     expect(budgetCell?.textContent).toContain("—");
   });
 
-  it("033 AC-7: EXCEEDED 状态显示强制门徽标与降级说明文案", async () => {
+  it("AC-7: EXCEEDED 状态显示强制门徽标与降级说明文案", async () => {
     stubAdminLlmFetch(CONFIGURED_ON, {
       usage: {
         ...USAGE_WARN,
@@ -1313,7 +1313,7 @@ describe("ModelsPage 本月用量与预算护栏（033）", () => {
     expect(screen.getByText(/答疑拒新调用（40306），复核\/申诉初裁走降级路径/)).toBeInTheDocument();
   });
 
-  it("033 AC-7: 用量视图加载失败时区块内降级提示可重试，不拖垮整页配置卡", async () => {
+  it("AC-7: 用量视图加载失败时区块内降级提示可重试，不拖垮整页配置卡", async () => {
     stubAdminLlmFetch(CONFIGURED_ON, { usageMode: "error" });
 
     renderModelsPage();
@@ -1325,7 +1325,7 @@ describe("ModelsPage 本月用量与预算护栏（033）", () => {
     expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
   });
 
-  it("033 AC-7: 预算编辑保存 PUT 携带预算与定价（legacy 态同载端点/模型），成功后提示并回显", async () => {
+  it("AC-7: 预算编辑保存 PUT 携带预算与定价（legacy 态同载端点/模型），成功后提示并回显", async () => {
     const observed = stubAdminLlmFetch(CONFIGURED_ON, { usage: USAGE_WARN });
 
     renderModelsPage();
@@ -1360,7 +1360,7 @@ describe("ModelsPage 本月用量与预算护栏（033）", () => {
     await waitFor(() => expect(observed.usageGets).toBeGreaterThanOrEqual(2));
   });
 
-  it("033 AC-7: 清空预算保存 = 清除语义（无 monthlyBudgetCny 字段、定价空对象），并拦截非正数输入", async () => {
+  it("AC-7: 清空预算保存 = 清除语义（无 monthlyBudgetCny 字段、定价空对象），并拦截非正数输入", async () => {
     const observed = stubAdminLlmFetch(
       { ...CONFIGURED_ON, monthlyBudgetCny: 80, pricing: null },
       {
@@ -1389,7 +1389,7 @@ describe("ModelsPage 本月用量与预算护栏（033）", () => {
     expect(observed.putBodies[0]).toHaveProperty("pricing", {});
   });
 
-  it("033 AC-7: 服务端 40000（定价非法）文案透出为提示，表单输入保留", async () => {
+  it("AC-7: 服务端 40000（定价非法）文案透出为提示，表单输入保留", async () => {
     const observed = stubAdminLlmFetch(CONFIGURED_ON, { usage: USAGE_WARN });
 
     renderModelsPage();
@@ -1411,7 +1411,7 @@ describe("ModelsPage 本月用量与预算护栏（033）", () => {
     expect(screen.getByLabelText("定价行 1 模型名")).toHaveValue("glm-4.7");
   });
 
-  it("033 AC-7: 服务端 40000 预算超上限（≤1e9 元）文案透出为提示，表单按服务端值重新对齐", async () => {
+  it("AC-7: 服务端 40000 预算超上限（≤1e9 元）文案透出为提示，表单按服务端值重新对齐", async () => {
     const observed = stubAdminLlmFetch(CONFIGURED_ON, { usage: USAGE_WARN });
 
     renderModelsPage();
@@ -1431,14 +1431,14 @@ describe("ModelsPage 本月用量与预算护栏（033）", () => {
   });
 });
 
-describe("ModelsPage Prompt 版本治理（034）", () => {
+describe("ModelsPage Prompt 版本治理", () => {
   beforeEach(() => {
     resetApiState();
     // biome-ignore lint/suspicious/noDocumentCookie: 测试需要写入可读的 CSRF cookie
     document.cookie = "XSRF-TOKEN=test-token; path=/";
   });
 
-  it("034 AC-7: 版本列表渲染——场景名/版本/时间/标签与内容摘要，启用中不出现激活按钮", async () => {
+  it("AC-7: 版本列表渲染——场景名/版本/时间/标签与内容摘要，启用中不出现激活按钮", async () => {
     const observed = stubAdminLlmFetch(CONFIGURED_ON);
 
     renderModelsPage();
@@ -1461,7 +1461,7 @@ describe("ModelsPage Prompt 版本治理（034）", () => {
     ).toBeInTheDocument();
   });
 
-  it("034 AC-7: 候选行显示激活按钮；激活确认后 POST activate 并刷新标签流转", async () => {
+  it("AC-7: 候选行显示激活按钮；激活确认后 POST activate 并刷新标签流转", async () => {
     const withCandidate: PromptVersionFixture[] = [
       ...DEFAULT_PROMPTS,
       {
@@ -1500,7 +1500,7 @@ describe("ModelsPage Prompt 版本治理（034）", () => {
     expect(screen.queryByRole("button", { name: "激活 Prompt review v1" })).toBeInTheDocument();
   });
 
-  it("034 AC-7: 登记对话框——场景选择、内容校验（空拦截不发请求）、成功后 CANDIDATE 入列", async () => {
+  it("AC-7: 登记对话框——场景选择、内容校验（空拦截不发请求）、成功后 CANDIDATE 入列", async () => {
     const observed = stubAdminLlmFetch(CONFIGURED_ON);
 
     renderModelsPage();
@@ -1532,7 +1532,7 @@ describe("ModelsPage Prompt 版本治理（034）", () => {
     expect(screen.getByRole("button", { name: "激活 Prompt review v2" })).toBeInTheDocument();
   });
 
-  it("034 AC-7: 登记请求 40000（场景白名单等）业务文案透出且列表不新增", async () => {
+  it("AC-7: 登记请求 40000（场景白名单等）业务文案透出且列表不新增", async () => {
     const observed = stubAdminLlmFetch(CONFIGURED_ON, { promptsPostMode: "reject" });
 
     renderModelsPage();
@@ -1551,7 +1551,7 @@ describe("ModelsPage Prompt 版本治理（034）", () => {
     expect(screen.queryByTitle("任意正文")).not.toBeInTheDocument();
   });
 
-  it("034 AC-7: Prompt 区块加载失败只降级为本区块提示，不拖垮整页", async () => {
+  it("AC-7: Prompt 区块加载失败只降级为本区块提示，不拖垮整页", async () => {
     stubAdminLlmFetch(CONFIGURED_ON, { promptsMode: "error" });
 
     renderModelsPage();

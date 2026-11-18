@@ -88,7 +88,7 @@ function renderPicker(overrides?: {
   return { onJump, onClose };
 }
 
-describe("SentencePicker（020 AC-2/AC-3）", () => {
+describe("SentencePicker（AC-2/AC-3）", () => {
   beforeEach(() => {
     getPickerSentencesMock.mockReset();
     getPickerSentencesMock.mockResolvedValue(pickerPage(pickerRows()));
@@ -200,7 +200,7 @@ describe("SentencePicker（020 AC-2/AC-3）", () => {
   });
 
   /** [AC-1] 无 bankId（他人私有库不在可见列表 → 页面入口不渲染同源）：bank=null 时不请求，降级为「题库不可用」而非永久加载态。 */
-  it("showsBankUnavailableInsteadOfPendingWhenBankMissing_023ac1", () => {
+  it("showsBankUnavailableInsteadOfPendingWhenBankMissing_ac1", () => {
     renderPicker({ bank: null });
 
     expect(getPickerSentencesMock).not.toHaveBeenCalled();
@@ -212,7 +212,7 @@ describe("SentencePicker（020 AC-2/AC-3）", () => {
   });
 
   /** [AC-1] 列表请求期间题库被下架/删除（40401）：同归「题库不可用」口径，不给重试误导。 */
-  it("showsBankUnavailableOn40401_023ac1", async () => {
+  it("showsBankUnavailableOn40401_ac1", async () => {
     getPickerSentencesMock.mockRejectedValue(new ApiError(404, 40401, "题库不存在", "response"));
     renderPicker();
 
@@ -223,7 +223,7 @@ describe("SentencePicker（020 AC-2/AC-3）", () => {
   });
 
   /** [AC-1] 面板 portal 到 body：脱离壳层 .page 的层叠上下文，遮罩与 × 不再被 .topbar 盖住。 */
-  it("rendersPanelIntoDocumentBody_023ac1", () => {
+  it("rendersPanelIntoDocumentBody_ac1", () => {
     const { container } = render(
       <QueryClientProvider client={createQueryClient()}>
         <SentencePicker

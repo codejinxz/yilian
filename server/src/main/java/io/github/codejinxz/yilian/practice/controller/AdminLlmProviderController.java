@@ -205,7 +205,7 @@ public class AdminLlmProviderController {
     @Operation(
             summary = "激活 LLM provider",
             description =
-                    "激活唯一；激活条目即时成为答疑等 AI 功能的数据源（017 答疑开关 llm.tutor 独立沿用）。"
+                    "激活唯一；激活条目即时成为答疑等 AI 功能的数据源（答疑开关 llm.tutor 独立沿用）。"
                             + "凭证不齐（缺 env key/端点）时激活成功但答疑保持「功能不存在」。")
     @ApiResponses({
         @io.swagger.v3.oas.annotations.responses.ApiResponse(

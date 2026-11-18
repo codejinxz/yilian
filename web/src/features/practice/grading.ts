@@ -319,7 +319,7 @@ export function alignToReference(answers: string[], received: string): ChunkAlig
       (alt) => normalizeAnswer(alt) === normalizedReceived[receivedIndex],
     );
 
-  // 第一轮：按位置比对，与判分部分分同口径。
+  // 第一遍：按位置比对，与判分部分分同口径。
   const hitFlags = canonicalWords.map((word, position) => {
     if (receivedWords[position] && matchesExpected(position, word, position)) {
       consumed[position] = true;
@@ -327,7 +327,7 @@ export function alignToReference(answers: string[], received: string): ChunkAlig
     }
     return false;
   });
-  // 第二轮：位置错开的兜底匹配，只对仍未命中的期望词找未被占用的同词面输入。
+  // 第二遍：位置错开的兜底匹配，只对仍未命中的期望词找未被占用的同词面输入。
   for (let position = 0; position < canonicalWords.length; position += 1) {
     if (hitFlags[position]) {
       continue;

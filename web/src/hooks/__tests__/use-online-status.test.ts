@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useOnlineStatus } from "@/hooks/use-online-status";
 
-describe("useOnlineStatus 的 offline 事件防抖（014 冒烟瞬时抖动防御）", () => {
+describe("useOnlineStatus 的 offline 事件防抖（瞬时抖动防御）", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -11,7 +11,7 @@ describe("useOnlineStatus 的 offline 事件防抖（014 冒烟瞬时抖动防�
     vi.useRealTimers();
   });
 
-  it("015 AC-4: offline 事件持续超过 1.5 秒才翻转在线态", () => {
+  it("AC-4: offline 事件持续超过 1.5 秒才翻转在线态", () => {
     const { result } = renderHook(() => useOnlineStatus());
     expect(result.current).toBe(true);
 
@@ -30,7 +30,7 @@ describe("useOnlineStatus 的 offline 事件防抖（014 冒烟瞬时抖动防�
     expect(result.current).toBe(false);
   });
 
-  it("015 AC-4: 防抖窗口内来了 online 事件则取消翻转（瞬时 offline→online 抖动不误判）", () => {
+  it("AC-4: 防抖窗口内来了 online 事件则取消翻转（瞬时 offline→online 抖动不误判）", () => {
     const { result } = renderHook(() => useOnlineStatus());
 
     act(() => {
@@ -48,7 +48,7 @@ describe("useOnlineStatus 的 offline 事件防抖（014 冒烟瞬时抖动防�
     expect(result.current).toBe(true);
   });
 
-  it("015 AC-4: online 事件立即生效，恢复联网不等防抖窗口", () => {
+  it("AC-4: online 事件立即生效，恢复联网不等防抖窗口", () => {
     const { result } = renderHook(() => useOnlineStatus());
 
     act(() => {

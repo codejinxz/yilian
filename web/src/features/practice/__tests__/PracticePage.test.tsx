@@ -122,7 +122,7 @@ async function askInPanel(question: string) {
   await user.click(panel.getByRole("button", { name: "提问" }));
 }
 
-describe("PracticePage 答疑入口显隐（017 三态 + 017R2 会话记忆）", () => {
+describe("PracticePage 答疑入口显隐（三态 + 会话记忆）", () => {
   beforeAll(() => {
     // jsdom 未实现 scrollIntoView；useFocusScroll 在输入聚焦后 250ms 会调用它，
     // 不打桩会在测试尾部抛出未处理错误。
@@ -166,7 +166,7 @@ describe("PracticePage 答疑入口显隐（017 三态 + 017R2 会话记忆）",
    * 40400 收敛链路：定向文案先展示、输入保留，约 1.5s 后入口整体收起，
    * 且隐藏状态写入会话记忆——卸载重挂（重进练习页）后入口不再重现，切断循环困惑。
    */
-  it("keepsEntryHiddenAcrossRemountsAfterUnavailable_def01", async () => {
+  it("keepsEntryHiddenAcrossRemountsAfterUnavailable", async () => {
     practiceApi.askTutor.mockRejectedValue(new ApiError(404, 40400, "请求的资源不存在"));
     const view = renderPage();
 
