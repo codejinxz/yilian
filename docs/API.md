@@ -290,9 +290,9 @@
 | account | `/api/auth/refresh` | POST | PUBLIC | M1 | implemented |
 | account | `/api/auth/logout` | POST | PUBLIC | M1 | implemented |
 | account | `/api/auth/me` | GET | USER | M1 | implemented |
-| account | `/api/auth/register` | POST | PUBLIC | M1 | planned |
-| account | `/api/auth/password` | PUT | USER | M1 | planned |
-| account | `/api/auth/guest-upgrade` | POST | USER | M2 | planned |
+| account | `/api/auth/register` | POST | PUBLIC | M1 | implemented |
+| account | `/api/auth/password` | PUT | USER | M1 | implemented |
+| account | `/api/auth/guest-upgrade` | POST | USER | M2 | implemented（021，§4.8） |
 | account | `/api/auth/login/totp` | POST | PUBLIC | M2 | implemented（032，§4.10） |
 | account | `/api/auth/2fa/status` | GET | USER | M2 | implemented（032，§4.10） |
 | account | `/api/auth/2fa/setup` | POST | USER | M2 | implemented（032，§4.10） |
@@ -302,23 +302,23 @@
 | account | `/api/me/export` | GET | USER | M1 | implemented（036，§4.11） |
 | account | `/api/auth/delete-account` | POST | USER | M1 | implemented（036，§4.12） |
 | admin | `/api/admin/error-logs/{id}` | GET | ADMIN | M2 | implemented |
-| content | `/api/banks` | GET | PUBLIC_OR_USER | M1 | planned |
-| content | `/api/banks/{bankId}` | GET | PUBLIC_OR_USER | M1 | planned |
-| content | `/api/banks/{bankId}/sentences` | GET | PUBLIC_OR_USER | M1/M2 | planned |
-| content | `/api/admin/uploads/preview` | POST | ADMIN | M1 | planned |
-| content | `/api/admin/uploads/{batchId}/commit` | POST | ADMIN | M1 | planned |
-| content | `/api/admin/uploads/{batchId}` | GET | ADMIN | M1 | planned |
-| content | `/api/admin/uploads` | GET | ADMIN | M1 | planned |
-| content | `/api/admin/uploads/{batchId}/rollback` | POST | ADMIN | M1 | planned |
-| practice | `/api/practice/next` | GET | USER | M2 | planned |
-| practice | `/api/practice/attempts` | POST | USER | M2 | planned |
-| practice | `/api/practice/attempts/{attemptId}` | GET | USER | M2 | planned |
-| practice | `/api/practice/attempts/{attemptId}/annotations/{key}/appeal` | POST | USER | M2/M3 | planned |
-| practice | `/api/practice/attempts/{attemptId}/annotations/{key}/dispute` | POST | USER | M2 | planned |
-| practice | `/api/practice/wrong-questions` | GET | USER | M2 | planned |
-| practice | `/api/practice/reviews` | GET | USER | M2 | planned |
-| practice | `/api/practice/reviews/{reviewId}/reset` | POST | USER | M2 | planned |
-| practice | `/api/practice/today` | GET | USER | M2 | planned |
+| content | `/api/banks` | GET | PUBLIC_OR_USER | M1 | implemented |
+| content | `/api/banks/{bankId}` | GET | PUBLIC_OR_USER | M1 | implemented |
+| content | `/api/banks/{bankId}/sentences` | GET | PUBLIC_OR_USER | M1/M2 | implemented |
+| content | `/api/admin/uploads/preview` | POST | ADMIN | M1 | implemented |
+| content | `/api/admin/uploads/{batchId}/commit` | POST | ADMIN | M1 | implemented |
+| content | `/api/admin/uploads/{batchId}` | GET | ADMIN | M1 | implemented |
+| content | `/api/admin/uploads` | GET | ADMIN | M1 | implemented |
+| content | `/api/admin/uploads/{batchId}/rollback` | POST | ADMIN | M1 | implemented |
+| practice | `/api/practice/next` | GET | USER | M2 | implemented |
+| practice | `/api/practice/attempts` | POST | USER | M2 | implemented |
+| practice | `/api/practice/attempts/{attemptId}` | GET | USER | M2 | implemented |
+| practice | `/api/practice/attempts/{attemptId}/annotations/{key}/appeal` | POST | USER | M2/M3 | implemented（025，§6.4） |
+| practice | `/api/practice/attempts/{attemptId}/annotations/{key}/dispute` | POST | USER | M2 | implemented |
+| practice | `/api/practice/wrong-questions` | GET | USER | M2 | implemented |
+| practice | `/api/practice/reviews` | GET | USER | M2 | implemented |
+| practice | `/api/practice/reviews/{reviewId}/reset` | POST | USER | M2 | implemented |
+| practice | `/api/practice/today` | GET | USER | M2 | implemented |
 | analytics | `/api/analytics/accuracy` | GET | USER | M3 | implemented |
 | analytics | `/api/analytics/error-tags` | GET | USER | M3 | implemented |
 | fsrs | `/api/admin/fsrs/optimize`、`/api/admin/fsrs/parameters`、`/api/admin/fsrs/parameters/{id}/enable` | GET/POST | ADMIN | M2.1 | implemented（014/M2.1，§8.13） |
@@ -334,6 +334,7 @@
 | admin | `/api/admin/error-logs` | GET | ADMIN | M2 | implemented |
 | admin | `/api/admin/generation/import` | POST | ADMIN | M2 | implemented |
 | admin | `/api/admin/audit-events` | POST | ADMIN | M2 | implemented |
+| admin | `/api/admin/appeals`、`/api/admin/appeals/{id}/decision` | GET/POST | ADMIN | M2 | implemented（025，§8.16） |
 | admin | `/api/admin/attempts/{attemptId}/raw` | POST | ADMIN | M2 | planned |
 | admin | `/api/admin/banks` | GET/POST | ADMIN | M1 | implemented |
 | admin | `/api/admin/banks/{bankId}` | GET/PATCH/DELETE | ADMIN | M1 | implemented |
@@ -344,7 +345,7 @@
 | admin | `/api/admin/sentences/{sentenceId}` | PATCH | ADMIN | M1 | implemented |
 | admin | `/api/admin/sentences/{sentenceId}/status` | PATCH | ADMIN | M1 | implemented |
 
-> `implemented` 只覆盖当前认证骨架；其余在 M1/M2 实现后再改为 `implemented`。`transitional` 的 upload 上传接口见 §10，不纳入本表。
+> `implemented` 与 §10.1 实现矩阵对齐维护；状态与实态不一致时以 §10.1 为准修正本表。`transitional` 的 upload 上传接口见 §10，不纳入本表。
 
 ---
 
