@@ -43,8 +43,10 @@ import javax.crypto.spec.SecretKeySpec;
  * 值；改名会让既有部署的已加密数据无法解密，故属性名保持原样，语义由「provider 密钥主密钥」 扩展为「本类所有落库凭据的主密钥」。
  *
  * <p><strong>密文格式</strong>：Base64(12 字节随机 IV ‖ GCM 密文含 128 位 auth tag)。IV 每次加密 用 {@link
- * SecureRandom} 现场生成（GCM 语义要求 IV 绝不复用）；解密时 auth tag 校验失败 （密文被篡改/主密钥不符）抛 {@link
- * SecretCipherException}，读路径调用方按「密钥不存在」 处理，不放大成调用失败。明文只在方法参数/返回值的内存里短暂存在，本类不打任何 含明文的日志。
+ * SecureRandom} 现场生成（GCM 语义要求 IV 绝不复用）；解密时 auth tag 校验失败 （AEADBadTagException：密文被篡改或主密钥不符）抛 {@link
+ * SecretCipherException}，处置权在调用方，按链路语义分化——provider 密钥解析链（{@code LlmProviderKeys}）捕获后按「该条目密钥不存在」回退
+ * env，不阻塞目录读；2FA/删号读路径（TOTP 验码、登录第二步、删号双确认）不捕获，异常向上传播按未知异常收敛为 500（fail-closed）：
+ * 主密钥漂移属配置事故，宁可让相关请求显式失败也不静默禁用 2FA。明文只在方法参数/返回值的内存里短暂存在，本类不打任何 含明文的日志。
  */
 @Component
 public class SecretCipher {
@@ -139,7 +141,8 @@ public class SecretCipher {
      *
      * @param cipherText {@link #encrypt} 产出的密文（Base64(IV ‖ 密文+tag)）
      * @return 明文
-     * @throws SecretCipherException 密文格式非法、被篡改或主密钥不符（调用方读路径按 「密钥不存在」处理，不阻塞主链路）
+     * @throws SecretCipherException 密文格式非法、被篡改或主密钥不符（处置权在调用方：provider 链按「密钥不存在」回退 env；
+     *     2FA/删号读路径不捕获，向上传播以 500 收敛）
      */
     public String decrypt(String cipherText) {
         try {
@@ -227,7 +230,7 @@ public class SecretCipher {
         return out;
     }
 
-    /** 加解密失败异常：读路径按「密钥不存在」吞掉回退，写路径让管理端保存显式失败。 */
+    /** 加解密失败异常：provider 密钥解析链捕获后按「密钥不存在」回退 env；2FA/删号读路径不捕获，向上传播 fail-closed；写路径让管理端保存显式失败。 */
     public static class SecretCipherException extends RuntimeException {
 
         /**

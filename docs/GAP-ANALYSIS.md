@@ -91,6 +91,23 @@
 | code-review 07 第二轮 · R2-01 | 初裁落列 `updateAdjudication` WHERE 仅按 id（AppealJpaRepository:77-82）——申诉落库后 ~31.5s LLM 窗口内该行 PENDING 可见于管理端，若管理员窗口内合法终审，随后到达的初裁会覆盖终审理由与 decided_by 且不可自愈（status 已非 PENDING）；「预检代替守卫」同型第三实例（终审已修、复核已修、此为初裁侧），一处 JPQL 加 status 谓词+窗口竞态测试即可 | **P2 已闭合（034）**：WHERE 携带 `status='PENDING'`，行数=0 不落初裁列、回执按存储真相投影；窗口竞态集成 `AppealAdjudicationWindowRaceIntegrationTest` 在案 |
 | code-review 07 第二轮 · R2-02 | 复核事务持连接+attempts 行锁贯穿外呼（~31.5s）——≥10 跨账号并发复核触达连接池上限/第 3+ 等待者撞 InnoDB 50s 锁等待超时，均有已捕获降级路径；取舍已留痕（代码注释+API.md），量化登记防未来误修 | P3 |
 
+## push-review 20261119 登记（push 门第一轮消缺批登记入册，2026-11-19）
+
+来源：[push-review-20261119](analysis/push-review-20261119/00-汇总.md)（双 skill 单会话亲审降级形态：BLOCKER 0 / MAJOR 0 / MINOR 5 + 测试体检 MINOR 2 / 观察 6+5）与 [041 计划](plans/041-push-gate-remediation.md)。**M-1/M-2/M-5 已随本批闭合**（M-1 adminDeleteUser 补清 2FA 材料并同步单测/集成断言、M-5 API.md §3 总表补 llm/prompts/fsrs/analytics 行）；**M-2 处置口径**：SecretCipher 注释自述矛盾修正为如实表述，行为保持 fail-closed——`SecretCipherException` 在 2FA/删号读路径（TOTP 验码、登录第二步、删号双确认）不捕获、向上传播按未知异常以 500 收敛，主密钥漂移属配置事故，宁显式失败也不静默禁用 2FA；provider 密钥解析链维持「按密钥不存在回退 env」不变；给三读路径补降级业务码另行排期；**M-4 已处置**（监督者实测：039 提交后既有库按 BACKUP-RESTORE §5 执行 flyway repair exit 0，V17 启动 validate 通过）。余量如下：
+
+| 来源条目 | 一句话 | 级别 |
+|---|---|---|
+| push-review M-3 | `llm.budget` 读路径缺写路径同款上限复核——`BudgetGuardService.budgetMicroCny` 对越界预算 `longValueExact` 抛异常使答疑/复核/初裁三链路 500 而非收敛为「未设预算」，仅绕管理端直改库才可触发（管理端合法写入不可能产生越界值），整改=read() 补与写路径同源钳制或捕获归「未设预算」 | MINOR |
+| push-review test MINOR-1 | `BudgetGuardServiceTest`/`LlmBudgetSettingsTest` 用 `@MockitoSettings(strictness = LENIENT)`，未使用的 stub 不会使测试失败、可能掩盖 mock 漂移（当前逐参数显式 stub 无实际漂移）——STRICT_STUBS 迁移另行评估波及面 | MINOR |
+| push-review test MINOR-2 | 前端「biome 全零违规」基线表述与实态有歧义：0 error / 44 warning（全部 `src/mocks/db.ts` 存量 noNonNullAssertion，CI 同口径 exit 0 阻断不受影响）——基线口径统一为「0 错误 / 44 警告」 | MINOR |
+| push-review O-1 | prompt activate 的 `evictAll` 在事务提交前执行，「evictAll 后、提交前」窗口内并发读回源未提交旧值回填缓存、提交后短暂陈旧（毫秒级窗口、短 TTL 收敛、类注释部分披露，登记防未来误修；整改方向=afterCommit 失效或注释补全） | 观察 |
+| push-review O-2 | 匿名化日调度 cron 未指定 zone，执行时刻随服务器时区漂移（截止口径用绝对时间计算，不受影响） | 观察 |
+| push-review O-3 | BACKUP-RESTORE.md repair 命令含本机绝对路径与文档化 local dev 口令（与 BOOTSTRAP.md 016 裁决先例一致） | 观察 |
+| push-review O-4 | login/totp 并发消费恢复码时响应的剩余数按消费前快照计算，可能偏大 1（纯显示层偏差；幂等与安全由条件更新 `markUsedIfUnused` 保证） | 观察 |
+| push-review O-5 | 已登记缺口引用 8 项（export 无端点限流、appeal/dispute 无端点 @RateLimit、主密钥单次 SHA-256 无 KDF、application-local.yml.example 落后、register 64KB 字节上限误报 40900、ConfirmDialog 死参数/匿名化断言缺 desiredRetention、DEF-01 方向②依赖侧、RPO 24h/每日调度未建/PITR 未实测/异地副本未建——见 05 报告 §2 引用表，不重复计账） | 观察 |
+| push-review test 观察 | GoldenLlmSetTest 缺省双闸跳过=手动诊断工具而非回归门禁（最近真网关跑批 39/63，4 条方向失败逐条归因留档）；答疑链预算门为 mock 级单测而申诉/复核两链为真库级；8080 黑盒目标实例编译态略旧于 HEAD（delta=3 处 description 字符串+SQL 注释，黑盒零断言依赖，push 后按 SOP 重启开发实例）；golden 播种复用已有 `llm.providers` 行时未登记清理责任（异常退出遗留脏行不被 @AfterAll 清理）；前端覆盖率无 CI 级阈值（与 029 登记同项）；黑盒套件手工复跑形态依赖人工读码、人工环节脆弱可考虑低频 CI 化 | 观察 |
+
+
 
 ## P0：上线前必须补
 

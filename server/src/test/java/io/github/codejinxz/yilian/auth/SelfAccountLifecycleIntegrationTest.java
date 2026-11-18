@@ -35,7 +35,7 @@ import javax.crypto.spec.SecretKeySpec;
  * <p>导出：本人数据整包（attempts/gradings/appeals/review_cards/账号块）、他人数据不可见、 空数据形状、Content-Disposition
  * 附件与非统一信封的裸 JSON 体。删号：密码确认错密 40101、 2FA 开启者双确认（缺码 40000/错码 40101/动态码通过 200）、成功后软删+吊销会话+清 2FA、 回执
  * deletedAtUtc 与 anonymizeAtUtc 相差恰 30 天（配置键 yilian.account.anonymize-grace-days）、 已删重复调用
- * 40900、已删账号导出 401。
+ * 40900、已删账号导出 401。管理员删除开启 2FA 的账号同样清 2FA 材料（恢复码行清零、TOTP 三列清空）， 与自助删号同口径。
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -284,6 +284,52 @@ class SelfAccountLifecycleIntegrationTest {
         assertThat(exportAfter.body()).contains("\"code\":40100");
     }
 
+    /** [AC-1] 管理员删除开启 2FA 的账号：恢复码行清零、TOTP 三列清空（密钥材料不留给已删账号）。 */
+    @Test
+    @DisplayName("[AC-1] 管理员删号清理 2FA 材料")
+    void ac1_adminDeleteUserClears2faMaterials() throws Exception {
+        String[] access = registerAndLogin("admin-del-totp", "delete-password");
+        Long targetId = userIdOf("admin-del-totp");
+        enrollTotp(newClient(), access[0], "delete-password");
+        Integer enrolled =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM user_2fa_recovery_codes WHERE user_id = ?",
+                        Integer.class,
+                        targetId);
+        assertThat(enrolled).isEqualTo(10);
+
+        HttpClient adminClient = newClient();
+        String adminToken = login(adminClient, ADMIN_USERNAME, TEST_ADMIN_PASSWORD);
+        HttpResponse<String> deleted =
+                send(
+                        adminClient,
+                        "DELETE",
+                        "/api/admin/users/" + targetId,
+                        Map.of("reason", "违规账号清退"),
+                        Map.of(
+                                "X-XSRF-TOKEN",
+                                csrfToken(adminClient),
+                                "Authorization",
+                                bearer(adminToken)));
+        assertThat(deleted.statusCode()).as("delete body=%s", deleted.body()).isEqualTo(200);
+
+        Integer remaining =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM user_2fa_recovery_codes WHERE user_id = ?",
+                        Integer.class,
+                        targetId);
+        assertThat(remaining).isZero();
+        Map<String, Object> row =
+                jdbcTemplate.queryForMap(
+                        "SELECT totp_enabled, totp_secret_cipher, totp_enrolled_at, deleted_at"
+                                + " FROM users WHERE id = ?",
+                        targetId);
+        assertThat(row.get("totp_enabled")).isEqualTo(Boolean.FALSE);
+        assertThat(row.get("totp_secret_cipher")).isNull();
+        assertThat(row.get("totp_enrolled_at")).isNull();
+        assertThat(row.get("deleted_at")).isNotNull();
+    }
+
     // ------------------------------------------------------------------ helpers
 
     /**
@@ -321,6 +367,25 @@ class SelfAccountLifecycleIntegrationTest {
     private Long userIdOf(String username) {
         return jdbcTemplate.queryForObject(
                 "SELECT id FROM users WHERE username = ?", Long.class, username);
+    }
+
+    /**
+     * 以既有账号登录，返回 access token。
+     *
+     * @param client HTTP 客户端
+     * @param username 用户名
+     * @param password 密码
+     * @return access token
+     */
+    private String login(HttpClient client, String username, String password) throws Exception {
+        HttpResponse<String> response =
+                post(
+                        client,
+                        "/api/auth/login",
+                        Map.of("username", username, "password", password),
+                        Map.of("X-XSRF-TOKEN", csrfToken(client)));
+        assertThat(response.statusCode()).as("login body=%s", response.body()).isEqualTo(200);
+        return accessToken(response.body());
     }
 
     /**

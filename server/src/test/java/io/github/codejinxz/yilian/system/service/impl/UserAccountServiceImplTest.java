@@ -429,7 +429,27 @@ class UserAccountServiceImplTest {
         assertThat(target.getDeletedAt()).isNotNull();
         assertThat(target.getDeletedBy()).isEqualTo(1L);
         assertThat(target.isEnabled()).isFalse();
+        verify(recoveryCodeDao).deleteByUserId(3L);
         verify(refreshSessions).findByPrincipalName("learner");
+    }
+
+    /** [AC-1] 管理员删号清 2FA 材料：TOTP 三列清空、恢复码行删除、会话全吊销，与自助删号同口径。 */
+    @Test
+    void adminDeleteUserClears2faMaterialsLikeSelfDelete_ac1() {
+        AppUser target = user(3L, "enrolled");
+        target.activateTotp("cipher-3", Instant.now());
+        when(appUserDao.findById(3L)).thenReturn(Optional.of(target));
+        when(appUserDao.save(any(AppUser.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.adminDeleteUser(1L, 3L, "违规账号清退");
+
+        assertThat(target.getDeletedAt()).isNotNull();
+        assertThat(target.isTotpEnabled()).isFalse();
+        assertThat(target.getTotpSecretCipher()).isNull();
+        assertThat(target.getTotpEnrolledAt()).isNull();
+        verify(recoveryCodeDao).deleteByUserId(3L);
+        verify(refreshSessions).findByPrincipalName("enrolled");
     }
 
     /** [AC-6b] 已删账号再删：40400（软删惯例裁决，见实现注释），不再重复吊销。 */

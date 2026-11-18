@@ -336,8 +336,12 @@ public class UserAccountServiceImpl implements UserAccountService {
         if (target.getRole() == UserRole.ADMIN && appUserDao.countActiveAdminsForUpdate() <= 1) {
             throw new BusinessException(ApiCode.IDEMPOTENT_CONFLICT, "不能删除最后一个管理员");
         }
+        // 软删 + 清 2FA + 吊销全部会话同事务（密钥材料不留给已删账号，与 selfDelete 同口径：
+        // 管理员删除与自助删号对 2FA 材料的处置必须一致，TOTP 密文与恢复码哈希都不等到匿名化才清）。
         target.softDelete(actorId, Instant.now());
+        target.clearTotp();
         appUserDao.save(target);
+        recoveryCodeDao.deleteByUserId(targetId);
         // 软删即吊销全部 refresh 会话：deleted=true 的账号 refresh 校验拒绝，无需等 access token 过期。
         revokeRefreshSessions(target.getUsername());
         return AdminUserView.from(target);

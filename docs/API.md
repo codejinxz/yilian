@@ -319,8 +319,11 @@
 | practice | `/api/practice/reviews` | GET | USER | M2 | planned |
 | practice | `/api/practice/reviews/{reviewId}/reset` | POST | USER | M2 | planned |
 | practice | `/api/practice/today` | GET | USER | M2 | planned |
-| analytics | `/api/analytics/accuracy` | GET | USER | M3 | planned |
-| analytics | `/api/analytics/error-tags` | GET | USER | M3 | planned |
+| analytics | `/api/analytics/accuracy` | GET | USER | M3 | implemented |
+| analytics | `/api/analytics/error-tags` | GET | USER | M3 | implemented |
+| fsrs | `/api/admin/fsrs/optimize`、`/api/admin/fsrs/parameters`、`/api/admin/fsrs/parameters/{id}/enable` | GET/POST | ADMIN | M2.1 | implemented（014/M2.1，§8.13） |
+| llm | `/api/admin/llm/config`、`/api/admin/llm/providers`、`/api/admin/llm/providers/{id}`、`/api/admin/llm/providers/{id}/activate`、`/api/admin/llm/usage` | GET/PUT/POST/DELETE | ADMIN | M2 | implemented（017/022/028/033，§8.14/§8.15/§8.17） |
+| prompts | `/api/admin/prompts`、`/api/admin/prompts/{id}/activate` | GET/POST | ADMIN | M2 | implemented（034，§8.18） |
 | admin | `/api/admin/users` | GET | ADMIN | M2 | implemented |
 | admin | `/api/admin/users/{id}/status` | PATCH | ADMIN | M2 | implemented |
 | admin | `/api/admin/users/{id}/role` | PATCH | ADMIN | M2 | implemented |
@@ -1681,13 +1684,13 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 
 请求：`{ "reason": "用户申请注销" }`（必填）。
 
-行为：`deleted_at/deleted_by` 置位且 `enabled=false`（软删，不删答题与审计，append-only）；吊销目标用户全部 refresh 会话；最后一个活跃 ADMIN 不可删（与「停用最后一个管理员」同款行锁护栏）。
+行为：`deleted_at/deleted_by` 置位且 `enabled=false`（软删，不删答题与审计，append-only）；同事务清 2FA 材料（TOTP 三列清空 + 恢复码行删除，与 §4.12 自助删号同口径——密钥材料不留给已删账号）；吊销目标用户全部 refresh 会话；最后一个活跃 ADMIN 不可删（与「停用最后一个管理员」同款行锁护栏）。
 
 响应：软删后的 `AdminUserView`（`deleted=true`、`enabled=false`）；错误 `40000`、`40100`、`40300`（自己删自己）、`40400`（用户不存在/**已删再删同码**——软删惯例裁决：与 §8.2「用户已删除」口径一致，幂等 200 会把「目标不存在」伪装成成功并让审计失真）、`40900`（最后一个管理员）、`50000`。
 
 审计：action=`USER_DELETE`。
 
-字段回溯：`users.deleted_at/deleted_by/enabled`；`admin_audit_log.*`；Spring Session 删除。
+字段回溯：`users.deleted_at/deleted_by/enabled`；`users` TOTP 三列；`user_2fa_recovery_codes` 行删除；`admin_audit_log.*`；Spring Session 删除。
 
 ### 8.2d `POST /api/admin/users/{id}/reset-2fa`（implemented，032）
 
@@ -2420,6 +2423,7 @@ Prompt 版本治理（DATA-MODEL §5.19 写半边）：prompt_versions 注册表
 | 2026-11-18 | v2.2 | 034 Prompt 注册表写路径 + 黄金集回归资产 + R2-01：新增 §8.18 `/api/admin/prompts` 三端点（GET 分页检索 name/label 过滤 011 口径、POST 登记 name 白名单/content ≤20000 码点/版本号服务端分配=label=CANDIDATE append-only、POST activate 仅 CANDIDATE 可激活同事务「降级→激活→evictAll」即时换轨、已 ACTIVE 幂等、无 DELETE 历史快照不删；审计 PROMPT_REGISTER/PROMPT_ACTIVATE）；§10.1 增 Admin/Practice 行；§6.4 初裁回执扩窗口竞态口径（终审先行时回执按存储真相投影为终审态，status 不恒 PENDING，R2-01）；§9.3 增 PromptVersionView 字段回溯 | 实现工程师 |
 | 2026-11-18 | v2.3 | 035 strict JSON 输出契约双执行点（GAP 029 DEF-01 方向①）：§6.13/§6.4 补「输出契约双执行点（035）」口径——系统提示（V13 种子语义不动）声明 + 用户消息末尾「输出格式要求」指令块强制（字段清单与解析端一一对应、只输出 JSON 对象本身）；受控实验+黄金集基线实证现网网关不生效 top-level system 字段（只写在系统提示的契约模型收不到、回复自由文本、解析必败），契约经用户消息 wire 级可达，尊重 system 的直连部署双重强调无害；指令块为 builder 代码侧静态文本不进 `prompt_versions`（无迁移，DATA-MODEL §5.19 注）；接口形状/错误码/限流零变化 | 实现工程师 |
 | 2026-11-19 | v2.4 | 036 自助删号（30 天冷静期匿名化）+ 服务端数据导出（GAP pending-20261117 P0-05）：新增 §4.11 `GET /api/me/export`（本人账号块+练习域四切片整包 JSON；**响应体为导出 JSON 本身而非统一信封**——文件下载语义的唯一显式例外，Content-Disposition 附件；凭据投影不进文件；不做管理员单用户导出=P1-05）与 §4.12 `POST /api/auth/delete-account`（密码确认 + 2FA 开启者双确认 → 软删（与 §8.2c 同口径，deleted_by=本人）+ 清 TOTP 注册 + 吊销全部会话；回执 deletedAtUtc/anonymizeAtUtc=+30 天（配置键 `yilian.account.anonymize-grace-days` 与匿名化日调度同源）；已删重复调用 40900「账号已删除」幂等口径裁决；无自助撤销预披露）；V17 `users.anonymized_at`（DATA-MODEL §5.1）；§10.1 矩阵三行（export/delete-account/匿名化 Job）；§10 头部日期 2026-11-18→2026-11-19 | 实现工程师 |
+| 2026-11-19 | v2.5 | §3 端点总表补漏：fsrs/llm/prompts 三组 implemented 行回填（端点清单与 §8.13/§8.14/§8.15/§8.17/§8.18 对齐），analytics 两行 planned→implemented（§7.1/§7.2 已随存量落地）；§4.12 删号口径补记管理员删除同清 2FA 材料（§8.2c 行为随批次更新，与自助删号一致） | 实现工程师 |
 
 ---
 
