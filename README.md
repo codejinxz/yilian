@@ -207,6 +207,7 @@ YILIAN_TEST_DB_NAME=yilian_test_034 ./mvnw.cmd test "-Dtest=GoldenLlmSetTest" "-
 | [docs/RESEARCH.md](docs/RESEARCH.md) | 设计决策（教学法/架构取舍） |
 | [docs/GAP-ANALYSIS.md](docs/GAP-ANALYSIS.md) | 待办与优先级、当前状态 |
 | [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) | 新机从零启动手册（含测试口令三层口径） |
+| [docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md) | 备份与恢复 runbook（快照/恢复/PITR/迁移前快照 SOP/季度演练） |
 | [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) | 验收与手工检查清单 |
 | [docs/NAMING.md](docs/NAMING.md) | 命名与工程结构 |
 | [docs/WORKFLOW-PROMPTS.md](docs/WORKFLOW-PROMPTS.md) | 六阶段流程与门禁 |
