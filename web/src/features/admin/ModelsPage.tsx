@@ -1025,7 +1025,10 @@ export function ModelsPage() {
           <>
             <RowList>
               {promptsQuery.data.items.map((prompt) => (
-                <Row key={prompt.id}>
+                // 候选行有 4 个子元素（主文本/label 徽标/内容摘要/激活按钮），默认 3 列模板会把
+                // 激活按钮挤到第二行渲染成全宽框——按 4 列模板整体替换（SentencesPage 同惯例）；
+                // 启用中行只有 3 个子元素，第 4 列留空不影响对齐。
+                <Row key={prompt.id} cols="grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-5">
                   <RowText
                     main={`${PROMPT_NAME_LABELS[prompt.name] ?? prompt.name}（${prompt.name}）`}
                     meta={`v${prompt.version} · 登记于 ${prompt.createdAt.slice(0, 10)}`}
