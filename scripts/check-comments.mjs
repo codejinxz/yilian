@@ -8,7 +8,8 @@
  * 强制，SQL 注释没有对应工具，由本脚本覆盖。禁词表与 server/config/checkstyle/checkstyle.xml
  * 保持同源，规则注释见该文件。
  *
- * 判定标准（docs/plans/038-comment-hygiene-lint.md）：
+ * 判定标准（与 GAP-ANALYSIS「038 注释纪律清扫+lint 规则」行同源，及
+ * server/config/checkstyle/checkstyle.xml 的同名规则注释）：
  * - 禁止：批次号（0XX 形态）、评审轮次/条目号（R1/R2/S4/A-xx/F-xx/DEF-xx）、指示来源
  *   （任务书/计划文件/主人/pending-20261117/next-session-prompt）、gitignored 文档引用
  *   （docs/plans/、docs/retro/、docs/analysis/）、阶段词（本批/本迭代/消缺/遗留登记）。
