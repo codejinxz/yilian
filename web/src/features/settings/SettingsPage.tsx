@@ -875,15 +875,20 @@ export function SettingsPage() {
       </div>
 
       {/* 036 自助删号：真实链路（风险说明 + 服务端导出 + 密码/2FA 双确认 + 二次确认）。
-          成功后清会话回登录页——删号已吊销全部会话，本机 access token 余命无意义。 */}
+          成功后清会话回登录页——删号已吊销全部会话，本机 access token 余命无意义。
+          成功提示经 history state 跨路由送达登录页：本页 toast 随导航卸载即丢失（D-1），
+          登录页挂载时一次性读取渲染并清除 state。 */}
       <DeleteAccountDialog
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}
         onDeleted={() => {
           setDeleteOpen(false);
           clearSession(queryClient);
-          void navigate({ to: "/login", replace: true });
-          showToast("账号已删除：30 天冷静期后匿名化。感谢使用译练。");
+          void navigate({
+            to: "/login",
+            replace: true,
+            state: { flash: "账号已删除：30 天冷静期后匿名化。感谢使用译练。" },
+          });
         }}
       />
 

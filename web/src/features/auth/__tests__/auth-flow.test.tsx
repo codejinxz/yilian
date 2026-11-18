@@ -119,15 +119,19 @@ function businessQueryResponse(url: string): Response | null {
 
 /**
  * 以内存 history 渲染整个应用，避免测试依赖真实浏览器地址。
+ * memory history 的 initialEntries 只收字符串（对象会被当 href 解析），带 state 的
+ * 初始场景在构造 router 前用 history.replace 播种。
  * @param initialPath 初始路由路径
+ * @param initialState 可选的 history state（跨路由提示等场景）
  * @returns 本次渲染使用的 router 与 queryClient
  */
-function renderApp(initialPath: string) {
+function renderApp(initialPath: string, initialState?: unknown) {
   const queryClient = createQueryClient();
-  const router = createAppRouter({
-    queryClient,
-    history: createMemoryHistory({ initialEntries: [initialPath] }),
-  });
+  const history = createMemoryHistory({ initialEntries: [initialPath] });
+  if (initialState !== undefined) {
+    history.replace(initialPath, initialState);
+  }
+  const router = createAppRouter({ queryClient, history });
   render(<AppProviders router={router} queryClient={queryClient} />);
   return { router, queryClient };
 }
@@ -179,6 +183,33 @@ describe("auth flow", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/today"));
     expect(getAccessToken()).toBe("access-token");
     expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("D-1: 删号成功提示经 history state 送达登录页一次性渲染并清除", async () => {
+    // 跨路由提示链路（036 R2）：删号页 navigate 带 { flash } state → 登录页挂载取入
+    // 组件态渲染 Notice（role=status），同时清掉 history state——刷新/后退不重放。
+    // 不许用来源页 toast（随导航卸载即丢失，DOM 级监听证实从未进 DOM）。
+    // markPlaced 防止壳层定级门把未定级游客先劫去 /placement（那里也有 role=status 骨架）。
+    markPlaced();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/auth/captcha-image")) {
+        return jsonResponse(successEnvelope({ enabled: false, captchaId: "", imageBase64: "" }));
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { router } = renderApp("/login", {
+      flash: "账号已删除：30 天冷静期后匿名化。感谢使用译练。",
+    });
+
+    const notice = await screen.findByRole("status");
+    expect(notice.textContent).toContain("账号已删除：30 天冷静期后匿名化");
+    // state 已清除（提示在组件态，history 里不再携带）。
+    await waitFor(() => expect(router.state.location.state?.flash).toBeUndefined());
+    // 登录表单仍正常渲染（提示不抢占页面功能）。
+    expect(await screen.findByLabelText("用户名或邮箱")).toBeInTheDocument();
   });
 
   it("023 AC-1: logs in after a guest cold load and refetches anonymously cached banks so private banks appear", async () => {

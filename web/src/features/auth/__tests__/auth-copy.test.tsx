@@ -38,7 +38,7 @@ const guestUpgrade = vi.hoisted(() => ({
 
 vi.mock("@/lib/api/guest-upgrade", () => guestUpgrade);
 
-/** 最小 router 桩：认证页只用 Link（页签）与 useNavigate。 */
+/** 最小 router 桩：认证页只用 Link（页签）、useNavigate 与 useLocation（跨路由提示读取）。 */
 vi.mock("@tanstack/react-router", () => ({
   Link: (props: { to?: string; className?: string; children?: ReactNode }) => (
     <a href="#stub" className={props.className}>
@@ -46,6 +46,7 @@ vi.mock("@tanstack/react-router", () => ({
     </a>
   ),
   useNavigate: () => async () => {},
+  useLocation: () => ({ pathname: "/login", state: null }),
 }));
 
 function renderAuth(ui: ReactNode) {

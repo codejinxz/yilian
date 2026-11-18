@@ -420,4 +420,12 @@ declare module "@tanstack/react-router" {
   interface Register {
     router: typeof router;
   }
+
+  /**
+   * history state 的全仓形状：跨路由一次性提示（删号成功回执等）由跳转方携带
+   * `{ flash }`，登录页挂载读取后清除。字段全部可选——普通导航不带 state。
+   */
+  interface HistoryState {
+    flash?: string;
+  }
 }

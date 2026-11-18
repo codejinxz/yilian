@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { z } from "zod";
-import { FieldError } from "@/components/feedback";
+import { FieldError, Notice } from "@/components/feedback";
 import { useSessionStore } from "@/features/auth/session";
 import { api, type CaptchaChallenge } from "@/lib/api";
 import { syncGuestAttemptsInBackground } from "@/lib/api/guest-upgrade";
@@ -64,6 +64,18 @@ const INITIAL_FORM: AuthFormState = {
   captchaCode: "",
 };
 
+/**
+ * history state 的跨路由一次性提示形状（删号成功回执等）：只认
+ * `{ flash: 非空字符串 }`，未知来源 state 一律忽略，不渲染任意内容。
+ */
+const flashStateSchema = z.object({ flash: z.string().min(1) });
+
+/** 从当前 history state 读取一次性提示；形状不合法视为无提示。 */
+function readFlashState(state: unknown): string | null {
+  const parsed = flashStateSchema.safeParse(state);
+  return parsed.success ? parsed.data.flash : null;
+}
+
 /** 页签样式；.auth-tabs button：12px、10px 下距、激活朱红下边框压住容器底线。 */
 function authTabClass(active: boolean): string {
   return cn(
@@ -96,9 +108,13 @@ function fieldLabelClass(): string {
  */
 export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMode }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const setAuthenticated = useSessionStore((state) => state.setAuthenticated);
   const mode = initialMode;
+  // 一次性跨路由提示（如删号成功回执）：挂载时从 history state 取入组件态并立即
+  // 清掉路由 state——刷新或后退不会重复弹出；提示在组件态里持续可见到用户离开本页。
+  const [flash] = useState<string | null>(() => readFlashState(location.state));
   const usernameId = useId();
   const emailId = useId();
   const registerUsernameId = useId();
@@ -128,6 +144,14 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
   useEffect(() => {
     loadCaptcha();
   }, [loadCaptcha]);
+
+  // 提示取入组件态后清掉 history state：replace 同路径不产生新历史项，刷新/后退不重放；
+  // pathname 是字符串依赖，replace 后 location 对象虽变化但值不变，effect 不会重跑。
+  useEffect(() => {
+    if (flash) {
+      void navigate({ to: location.pathname, replace: true, state: {} });
+    }
+  }, [flash, navigate, location.pathname]);
 
   const mutation = useMutation({
     mutationFn: (input: SubmitInput) =>
@@ -352,6 +376,14 @@ export function LoginPage({ initialMode = "login" }: { initialMode?: AuthPageMod
         <p className="mb-[30px] mt-[10px] text-[13px] leading-[1.75] text-ink-muted">
           登录或注册后，本机的练习记录会自动并入账号（原始记录仍保留在本机，设置页可导出或重试）；复习安排不随记录迁移，会按之后的练习重新排。不登录也能练，数据留在这台设备。
         </p>
+
+        {/* 跨路由一次性提示（删号成功回执）：来源页 toast 随导航卸载即丢失（D-1），
+            由 history state 携带至此渲染；state 已在挂载时清除，刷新/后退不重放。 */}
+        {flash ? (
+          <Notice tone="info" className="mb-[30px]">
+            {flash}
+          </Notice>
+        ) : null}
 
         {totpChallengeToken ? (
           <p className="mb-[30px] mt-[10px] text-[13px] leading-[1.75] text-ink-muted">
