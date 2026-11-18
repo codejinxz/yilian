@@ -93,7 +93,7 @@
 
 ## push-review 20261119 登记（push 门第一轮消缺批登记入册，2026-11-19）
 
-来源：[push-review-20261119](analysis/push-review-20261119/00-汇总.md)（双 skill 单会话亲审降级形态：BLOCKER 0 / MAJOR 0 / MINOR 5 + 测试体检 MINOR 2 / 观察 6+5）与 [041 计划](plans/041-push-gate-remediation.md)。**M-1/M-2/M-5 已随本批闭合**（M-1 adminDeleteUser 补清 2FA 材料并同步单测/集成断言、M-5 API.md §3 总表补 llm/prompts/fsrs/analytics 行）；**M-2 处置口径**：SecretCipher 注释自述矛盾修正为如实表述，行为保持 fail-closed——`SecretCipherException` 在 2FA/删号读路径（TOTP 验码、登录第二步、删号双确认）不捕获、向上传播按未知异常以 500 收敛，主密钥漂移属配置事故，宁显式失败也不静默禁用 2FA；provider 密钥解析链维持「按密钥不存在回退 env」不变；给三读路径补降级业务码另行排期；**M-4 已处置**（监督者实测：039 提交后既有库按 BACKUP-RESTORE §5 执行 flyway repair exit 0，V17 启动 validate 通过）。余量如下：
+来源：[push-review-20261119](analysis/push-review-20261119/00-汇总.md)（双 skill 单会话亲审降级形态：BLOCKER 0 / MAJOR 0 / MINOR 5 + 测试体检 MINOR 2 / 观察 6+5）与 [041 计划](plans/041-push-gate-remediation.md)。**M-1/M-2 已随本批闭合；M-5 主体随本批闭合（4/5 组）并于第二轮 R2-1 完全闭合**（M-1 adminDeleteUser 补清 2FA 材料并同步单测/集成断言、M-5 API.md §3 总表补 llm/prompts/fsrs/analytics 行；第二轮发现 appeals 行在报告链上丢失，R2-1 已系统性对齐 §3 表：20 行 planned→implemented+补 appeals 行+脚注改为以 §10.1 为准）；**M-2 处置口径**：SecretCipher 注释自述矛盾修正为如实表述，行为保持 fail-closed——`SecretCipherException` 在 2FA/删号读路径（TOTP 验码、登录第二步、删号双确认）不捕获、向上传播按未知异常以 500 收敛，主密钥漂移属配置事故，宁显式失败也不静默禁用 2FA；provider 密钥解析链维持「按密钥不存在回退 env」不变；给三读路径补降级业务码另行排期；**M-4 已处置**（监督者实测：039 提交后既有库按 BACKUP-RESTORE §5 执行 flyway repair exit 0，V17 启动 validate 通过）。余量如下：
 
 | 来源条目 | 一句话 | 级别 |
 |---|---|---|
