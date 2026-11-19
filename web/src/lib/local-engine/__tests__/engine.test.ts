@@ -4,6 +4,7 @@
  * 今日/统计聚合与「不认同」排除。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { localDateString } from "@/lib/format";
 import type { AttemptRequest, PracticeSentence } from "@/lib/schemas/practice";
 import {
   clearLocalData,
@@ -540,6 +541,62 @@ describe("本地引擎：拉题与降载", () => {
   });
 });
 
+describe("本地引擎：复习队列 7 日到期日历", () => {
+  /**
+   * 直接改写指定句子的卡片状态与到期时间：分桶断言不经过答题排程的间接路径。
+   * @param overrides sentenceId 到局部字段的映射
+   */
+  async function rewriteCards(overrides: Record<string, Partial<StoredReview>>): Promise<void> {
+    const store = await backend.reviews();
+    for (const card of await store.getAll()) {
+      const patch = overrides[card.sentenceId];
+      if (patch) {
+        await store.put(card.sentenceId, { ...card, ...patch });
+      }
+    }
+  }
+
+  /**
+   * 构造本地时区正午的 ISO 时间：正午远离任何日界与夏令时切换边沿，桶位断言与运行环境时区无关。
+   * @param daysAhead 相对今天的天数
+   * @returns ISO 时间
+   */
+  function localNoonIso(daysAhead: number): string {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysAhead, 12).toISOString();
+  }
+
+  /** [AC-3] 引擎快照与契约分页产同形日历：7 桶、日界键与今日页/统计页同一 localDateString 口径、今日桶兜住逾期。 */
+  it("getReviewQueue 产出 7 桶到期日历：学习中卡按本地日界落桶，已掌握与 7 天外不进桶", async () => {
+    await seedBank();
+    for (const id of ["s1", "s2", "s3", "s4", "s5"]) {
+      await submitLocalAttempt(buildAttempt(id, {}));
+    }
+    await rewriteCards({
+      s1: { dueAt: localNoonIso(0) },
+      s2: { dueAt: localNoonIso(1) },
+      s3: { dueAt: localNoonIso(2) },
+      s4: { dueAt: localNoonIso(7) },
+      s5: { state: "MASTERED", dueAt: localNoonIso(1) },
+    });
+
+    const { dueCalendar } = await getReviewQueue();
+    expect(dueCalendar.complete).toBe(true);
+    expect(dueCalendar.buckets).toHaveLength(7);
+    const { buckets } = dueCalendar;
+    expect(buckets[0]).toEqual({
+      date: localDateString(new Date()),
+      count: 1,
+      isToday: true,
+    });
+    expect(buckets[1]?.date).toBe(localDateString(new Date(localNoonIso(1))));
+    expect(buckets[1]?.count).toBe(1);
+    expect(buckets[2]?.count).toBe(1);
+    expect(buckets[3]?.count).toBe(0);
+    // 7 天外（s4）与已掌握（s5）不进任何桶，桶计数总量即窗口内学习中卡数。
+    expect(buckets.reduce((sum, bucket) => sum + bucket.count, 0)).toBe(3);
+  });
+});
 describe("本地引擎：今日与统计聚合", () => {
   it("今日快照聚合完成数、正确率、目标与连续天数", async () => {
     await seedBank();

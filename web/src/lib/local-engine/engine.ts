@@ -13,6 +13,7 @@
 import { z } from "zod";
 import { gradeCloze, gradeFree, tokenizeAnswer } from "@/features/practice/grading";
 import { ApiError } from "@/lib/api-error";
+import { buildDueCalendar, type DueCalendar } from "@/lib/due-calendar";
 import { localDateString } from "@/lib/format";
 import { bankPageSchema, versionedSentencesSchema } from "@/lib/schemas/content";
 import {
@@ -801,13 +802,15 @@ export async function getTodaySnapshot(): Promise<LocalTodaySnapshot> {
 }
 
 /**
- * 复习队列全量：到期/学习中/已掌握汇总与按 dueAt 升序的卡片行。
- * 题库缓存里已不存在的句子（例如题库下架）不返回。
- * @returns 汇总与行
+ * 复习队列全量：到期/学习中/已掌握汇总、按 dueAt 升序的卡片行与 7 日到期日历。
+ * 题库缓存里已不存在的句子（例如题库下架）不返回；日历与行同源，
+ * 只统计仍可展示的学习中卡。
+ * @returns 汇总、行与 7 桶日历
  */
 export async function getReviewQueue(): Promise<{
   summary: { due: number; learning: number; mastered: number };
   rows: Array<{ sentence: PracticeSentence; review: LocalReviewState }>;
+  dueCalendar: DueCalendar;
 }> {
   const cards = (await allReviews()).sort((a, b) => a.dueAt.localeCompare(b.dueAt));
   const nowMs = Date.now();
@@ -824,7 +827,11 @@ export async function getReviewQueue(): Promise<{
     // StoredReview 是 LocalReviewState 的超集，页面只消费子集字段。
     return sentence ? [{ sentence, review: card as LocalReviewState }] : [];
   });
-  return { summary, rows };
+  const dueCalendar = buildDueCalendar(
+    rows.filter((row) => row.review.state === "LEARNING").map((row) => row.review.dueAt),
+    new Date(),
+  );
+  return { summary, rows, dueCalendar };
 }
 
 /**

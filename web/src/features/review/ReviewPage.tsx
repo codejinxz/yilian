@@ -5,6 +5,12 @@ import { ErrorState, LoadingBlock } from "@/components/feedback";
 import { Pagination } from "@/components/pagination";
 import { isGuestSession } from "@/lib/api";
 import { getReviewOverload, getReviews, postponeReviews } from "@/lib/api/practice";
+import {
+  buildDueCalendar,
+  DUE_CALENDAR_DAYS,
+  type DueBucket,
+  type DueCalendar,
+} from "@/lib/due-calendar";
 import { shortId } from "@/lib/format";
 import {
   ensureCachedSentences,
@@ -25,6 +31,9 @@ type RouteFilter = Exclude<Filter, "all">;
 const DAY_MS = 86_400_000;
 /** 客户端分页默认每页条数：真实模式的 useState 初值与 mock 的服务端 size 参数共用。 */
 const PAGE_SIZE = 20;
+
+/** 周几短标签：第 3 桶起按桶位日期的周几展示。 */
+const WEEKDAY_LABELS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
 const FILTERS: ReadonlyArray<{ value: Filter; label: string }> = [
   { value: "all", label: "全部" },
@@ -134,6 +143,99 @@ function ReviewToast({ message, visible }: { message: string | null; visible: bo
 }
 
 /**
+ * 桶位标签：前两桶单独命名，其余按桶位日期的周几。
+ * @param index 桶位序号（0 为今天）
+ * @param bucket 到期桶
+ * @returns 可直接展示的短标签
+ */
+function bucketLabel(index: number, bucket: DueBucket): string {
+  if (index === 0) {
+    return "今天";
+  }
+  if (index === 1) {
+    return "明天";
+  }
+  return WEEKDAY_LABELS[new Date(`${bucket.date}T00:00:00`).getDay()];
+}
+
+/**
+ * 7 日到期日历区段：今天..+6 天七个日界桶的到期计数，今日桶以描边与朱红数字可辨。
+ * 数据未就绪或读取失败时按桶位渲染占位，不给假数字；统计被单页截断时如实标注上限。
+ * @param props calendar 日历视图（null 表示尚未取得数据）
+ * @param props pending 数据是否仍在读取
+ * @param props errored 数据读取是否失败
+ * @param props limitHint 分页截断时的上限提示（null 表示未截断）
+ */
+function ReviewDueCalendar({
+  calendar,
+  pending,
+  errored,
+  limitHint,
+}: {
+  calendar: DueCalendar | null;
+  pending: boolean;
+  errored: boolean;
+  limitHint: string | null;
+}) {
+  // 数据未就绪时整段隐藏：会话恢复与查询进行中不给假数字，也不让 0 计数先落屏；
+  // 引擎快照未携带日历字段（null 且已就绪）时才退到占位桶。
+  if (calendar === null && pending) {
+    return null;
+  }
+  return (
+    <section aria-label="未来 7 天到期" className="mt-[26px] border-b border-rule pb-5">
+      <p className="font-mono text-[10px] tracking-[0.14em] text-ink-faint">未来 7 天到期</p>
+      {calendar ? (
+        <ol className="mt-3 grid grid-cols-7 gap-x-1.5">
+          {calendar.buckets.map((bucket, index) => (
+            <li
+              key={bucket.date}
+              aria-current={bucket.isToday ? "date" : undefined}
+              className={cn(
+                "flex flex-col items-center gap-[7px] rounded-[4px] border py-[10px]",
+                bucket.isToday ? "border-vermilion/35 bg-vermilion/[0.04]" : "border-transparent",
+              )}
+            >
+              <b
+                className={cn(
+                  "font-serif text-[19px] font-medium leading-none",
+                  bucket.isToday && bucket.count > 0 ? "text-vermilion" : "text-ink",
+                )}
+              >
+                {bucket.count}
+              </b>
+              <span className="font-mono text-[10px] tracking-[0.08em] text-ink-faint">
+                {bucketLabel(index, bucket)}
+              </span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <ol className="mt-3 grid grid-cols-7 gap-x-1.5">
+          {Array.from({ length: DUE_CALENDAR_DAYS }, (_, index) => (
+            <li
+              // biome-ignore lint/suspicious/noArrayIndexKey: 占位桶没有业务标识，7 个槽位由固定算法生成且顺序稳定，index 即稳定标识。
+              key={`placeholder-${index}`}
+              className="flex flex-col items-center py-[10px] font-serif text-[19px] leading-none text-ink-faint"
+            >
+              …
+            </li>
+          ))}
+        </ol>
+      )}
+      {limitHint ? (
+        <p className="mt-[10px] font-mono text-[10px] tracking-[0.06em] text-ink-faint">
+          {limitHint}
+        </p>
+      ) : null}
+      {errored && !calendar ? (
+        <p className="mt-[10px] text-xs text-ink-muted">到期日历暂时读不到，稍后会自动重试。</p>
+      ) : null}
+    </section>
+  );
+}
+
+/**
  * 复习页：view-review——降载条、三档汇总、四页签与中文句行列表。
  *
  * 数据源按登录态分流：游客直连本地引擎 getReviewQueue（行自带中文句与考点，
@@ -219,6 +321,14 @@ export function ReviewPage() {
     enabled: !guest,
   });
 
+  /** 7 日日历与列表/汇总共用既有 /reviews 分页端点：登录态取学习中首页（dueAt 升序）
+      客户端按本地日界分桶，游客侧由引擎快照直出，组件不感知来源差异。 */
+  const calendarQuery = useQuery({
+    queryKey: queryKeys.reviews({ page: 1, size: PAGE_SIZE, state: "LEARNING" }),
+    queryFn: ({ signal }) => getReviews({ page: 1, size: PAGE_SIZE, state: "LEARNING" }, signal),
+    enabled: !guest,
+  });
+
   /** mock 与登录态：复习卡契约不含中文句，用题库缓存 join；缓存为空时行退回短 id 展示。
       mock 保持只读本地缓存（不触发真实网络刷新），登录态缓存为空时联网重建一次。 */
   const joinQuery = useQuery({
@@ -296,6 +406,25 @@ export function ReviewPage() {
   const listPending =
     sessionRestoring || (guest ? engineQueueQuery.isPending : contractPageQuery.isPending);
   const listError = guest ? engineQueueQuery.error : contractPageQuery.error;
+
+  /** 7 日日历视图：游客读引擎快照自带日历；mock/登录态用契约首页条目按本地日界分桶。 */
+  const dueCalendar = guest
+    ? (engineQueueQuery.data?.dueCalendar ?? null)
+    : calendarQuery.data
+      ? buildDueCalendar(
+          calendarQuery.data.items.map((item) => item.dueAt),
+          new Date(),
+          !calendarQuery.data.hasNext,
+        )
+      : null;
+  const calendarPending =
+    sessionRestoring || (guest ? engineQueueQuery.isPending : calendarQuery.isPending);
+  const calendarErrored = guest ? engineQueueQuery.isError : calendarQuery.isError;
+  // 游客引擎全量分桶无截断；契约侧被单页截断时如实标注统计上限，不假装全量。
+  const calendarLimitHint =
+    guest || !calendarQuery.data?.hasNext
+      ? null
+      : `到期较多，日历只统计最近取回的 ${PAGE_SIZE} 句。`;
 
   const allRows = guest ? engineRows : contractRows;
   const nowMs = Date.now();
@@ -396,6 +525,13 @@ export function ReviewPage() {
           </span>
         </div>
       </div>
+
+      <ReviewDueCalendar
+        calendar={dueCalendar}
+        pending={calendarPending}
+        errored={calendarErrored}
+        limitHint={calendarLimitHint}
+      />
 
       {/* 原型 .filters：无边框容器、12px 页签、仅下边线指示选中（与 FilterTabs 的整行分隔线形态不同）。 */}
       {/* biome-ignore lint/a11y/useSemanticElements: role=group 表达纯筛选分组语义；fieldset 自带默认样式与布局差异，会破坏稿纸式排版。 */}

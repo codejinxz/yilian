@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ReviewPage } from "@/features/review/ReviewPage";
@@ -97,9 +97,9 @@ const EMPTY_TEXT = "这里还是空的。去练几句，答错的会自动进来
  * 挂载复习页（页面自身用 react-query，包 QueryClient 即可）。
  * @returns RTL 句柄
  */
-function renderPage() {
+function renderPage(client = createQueryClient()) {
   return render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={client}>
       <ReviewPage />
     </QueryClientProvider>,
   );
@@ -173,5 +173,158 @@ describe("ReviewPage 冷启动会话恢复竞态", () => {
     renderPage();
 
     await screen.findByText(EMPTY_TEXT);
+  });
+});
+
+/**
+ * 构造本地时区正午的 ISO 时间：正午远离日界与夏令时切换边沿，桶位断言与运行环境时区无关。
+ * @param daysAhead 相对今天的天数
+ * @returns ISO 时间
+ */
+function localNoonIso(daysAhead: number): string {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysAhead, 12).toISOString();
+}
+
+/** 日历页与列表页共用的一张学习中复习卡（页面消费字段的最小集）。 */
+function reviewCard(id: string, zh: string, dueAt: string) {
+  return {
+    id,
+    state: "LEARNING",
+    fsrsState: "REVIEW",
+    dueAt,
+    stability: 1.2,
+    difficulty: 4.6,
+    reps: 2,
+    lapses: 1,
+    scheduledDays: 1,
+    sentenceId: id,
+    zh,
+    mode: "CLOZE",
+  };
+}
+
+/**
+ * 按参数分流 getReviews 桩：日历（学习中首页 dueAt 升序）、三档汇总（size=1）与列表首页三个去向。
+ * 列表首页固定空目录，日历计数与列表渲染互不干扰。
+ * @param calendarItems 日历页条目
+ * @param options hasNext 与 total（缺省按未截断、条目数计）
+ */
+function stubContractPages(
+  calendarItems: ReturnType<typeof reviewCard>[],
+  options: { hasNext?: boolean; total?: number } = {},
+) {
+  practiceApi.getReviews.mockImplementation(
+    (params: { size?: number; state?: string; due?: boolean }) => {
+      if (params.size === 20 && params.state === "LEARNING" && !params.due) {
+        return Promise.resolve({
+          items: calendarItems,
+          page: 1,
+          size: 20,
+          total: options.total ?? calendarItems.length,
+          totalPages: 1,
+          hasNext: options.hasNext ?? false,
+        });
+      }
+      if (params.size === 1) {
+        // 三档汇总固定 3/4/5，与日历桶计数互不重合，避免文本断言串位。
+        return Promise.resolve({
+          items: [],
+          page: 1,
+          size: 1,
+          total: params.due ? 3 : params.state === "MASTERED" ? 5 : 4,
+          totalPages: 1,
+          hasNext: false,
+        });
+      }
+      return Promise.resolve({
+        items: [],
+        page: 1,
+        size: 20,
+        total: 0,
+        totalPages: 1,
+        hasNext: false,
+      });
+    },
+  );
+}
+
+/** 登录态桩的公共部分：会话已确认、题库缓存为空、无降载。 */
+function stubLoggedInUser() {
+  apiStubs.isGuestSession.mockReturnValue(false);
+  apiStubs.me.mockResolvedValue({ id: "1", username: "admin", role: "ADMIN" });
+  engineApi.ensureCachedSentences.mockResolvedValue([]);
+  practiceApi.getReviewOverload.mockResolvedValue({ overload: false, dueCount: 0, pushLimit: 5 });
+}
+
+describe("ReviewPage 7 日到期日历", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /** [AC-1] 未来 7 天七个日界桶：逾期与今天到期并入今天桶，今日列以 aria-current="date" 可辨。 */
+  it("登录态渲染 7 桶日历：到期卡按本地日界分桶、今日列可辨", async () => {
+    stubLoggedInUser();
+    stubContractPages([
+      reviewCard("c1", "已到期卡", "2026-11-06T00:00:00Z"),
+      reviewCard("c2", "两天后卡", localNoonIso(2)),
+      reviewCard("c3", "另一张两天后卡", localNoonIso(2)),
+    ]);
+    renderPage();
+
+    const region = await screen.findByRole("region", { name: "未来 7 天到期" });
+    const cells = within(region).getAllByRole("listitem");
+    expect(cells).toHaveLength(7);
+    expect(within(cells[0]).getByText("今天")).toBeTruthy();
+    expect(within(cells[0]).getByText("1")).toBeTruthy();
+    expect(within(cells[2]).getByText("2")).toBeTruthy();
+    expect(within(cells[1]).getByText("0")).toBeTruthy();
+    expect(cells[0]).toHaveAttribute("aria-current", "date");
+    expect(cells[1]).not.toHaveAttribute("aria-current");
+  });
+
+  /** [AC-2] 无到期卡：7 桶全 0 照常渲染，不给假分布也不出现上限提示。 */
+  it("无到期卡时 7 桶全 0 不破相，也不出现统计上限提示", async () => {
+    stubLoggedInUser();
+    stubContractPages([]);
+    renderPage();
+
+    const region = await screen.findByRole("region", { name: "未来 7 天到期" });
+    expect(within(region).getAllByText("0")).toHaveLength(7);
+    expect(within(region).getByText("今天")).toBeTruthy();
+    expect(screen.queryByText(/只统计最近取回的/)).toBeNull();
+  });
+
+  /** [AC-2] 到期超过单页：只按已取页聚合，如实标注统计上限，不假装全量。 */
+  it("到期超过单页时按已取页统计并如实标注上限", async () => {
+    stubLoggedInUser();
+    const items = Array.from({ length: 20 }, (_, index) =>
+      reviewCard(`c${index}`, `到期句 ${index}`, "2026-11-06T00:00:00Z"),
+    );
+    stubContractPages(items, { hasNext: true, total: 27 });
+    renderPage();
+
+    const region = await screen.findByRole("region", { name: "未来 7 天到期" });
+    const cells = within(region).getAllByRole("listitem");
+    expect(within(cells[0]).getByText("20")).toBeTruthy();
+    expect(screen.getByText("到期较多，日历只统计最近取回的 20 句。")).toBeTruthy();
+  });
+
+  /** [AC-1] 日历查询与列表/汇总共用全局 30s staleTime：口径内重挂载全部命中缓存，不重复请求。 */
+  it("日历查询进缓存：30s staleTime 口径内重挂载不重复请求", async () => {
+    stubLoggedInUser();
+    stubContractPages([reviewCard("c1", "已到期卡", "2026-11-06T00:00:00Z")]);
+    const client = createQueryClient();
+    const first = renderPage(client);
+    await screen.findByRole("region", { name: "未来 7 天到期" });
+    // 等三档汇总最后落屏，全部查询收口后再计数，避免在途请求造成抖动。
+    await screen.findByText("4");
+    const callsAfterFirst = practiceApi.getReviews.mock.calls.length;
+    expect(callsAfterFirst).toBeGreaterThan(0);
+    first.unmount();
+
+    renderPage(client);
+    await screen.findByRole("region", { name: "未来 7 天到期" });
+    expect(practiceApi.getReviews.mock.calls.length).toBe(callsAfterFirst);
   });
 });
