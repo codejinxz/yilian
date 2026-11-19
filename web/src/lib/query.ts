@@ -21,6 +21,8 @@ export const queryKeys = {
     tag?: string;
     excludeIds?: string[];
     excludeSentenceId?: string;
+    /** 只在错题池取题；errors 进参数即进 key，错题取题与同参数普通取题不共用缓存。 */
+    errors?: boolean;
   }) => ["practice", "next", params] as const,
   attempt: (attemptId: string) => ["practice", "attempt", attemptId] as const,
   reviews: (params: {

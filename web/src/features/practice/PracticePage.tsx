@@ -99,6 +99,9 @@ const SENTENCE_SNAPSHOT_PREFIX = "yilian.practice.sentence.";
 /** 答疑入口「本会话不可用」记忆键；与会话快照共用前缀风格。 */
 const ASK_UNAVAILABLE_KEY = "yilian.practice.askUnavailable";
 
+/** 题库下拉「错题集」选项的取值：错题不是题库表行、没有真实 bankId，用固定哨兵值表示。 */
+const ERRORS_BANK_OPTION = "errors";
+
 /**
  * 读取答疑入口的会话级隐藏记忆。
  * @returns 本会话内是否已确认答疑不可用（40304/40400）
@@ -440,7 +443,7 @@ export function PracticePage() {
   const searchMode = search.mode;
   // 今日页题库 chips 的深链：限定在该题库内取题。
   const searchBankId = typeof search.bankId === "string" ? search.bankId : undefined;
-  // 今日页「错题」chip 的深链：只在错题里取下一题。
+  // 今日页「错题」chip 与题库下拉「错题集」选项共用这条深链：只在错题里取下一题。
   const errorsMode = search.errors === true;
 
   const [mode, setMode] = useState<PracticeMode>(() =>
@@ -557,23 +560,20 @@ export function PracticePage() {
   const selectedBankId = errorsMode
     ? (bankId ?? (searchBankValid ? searchBankId : undefined))
     : effectiveBankId;
+  // errors 只进取题参数（query key 由参数对象整体派生）：错题模式与同参数普通取题
+  // 各持一份缓存，互不覆盖。
   const nextParams = {
     mode,
     ...(selectedBankId ? { bankId: selectedBankId } : {}),
     ...(searchSentenceId ? { sentenceId: searchSentenceId } : {}),
     ...(drillTag ? { tag: drillTag } : {}),
     ...(excludeIds.length > 0 ? { excludeIds } : {}),
+    ...(errorsMode ? { errors: true } : {}),
   };
-  const baseNextKey = queryKeys.nextPractice(nextParams);
-  // queryKeys.nextPractice（lib/query.ts）暂无 errors 维度；键尾追加 "errors" 标记位
-  // 区分错题取题与同参数普通取题，避免两者共用同一份缓存。
-  // TODO: 将 errors 维度收进 queryKeys.nextPractice 的参数类型。
-  const nextQueryKey = errorsMode ? ([...baseNextKey, "errors"] as const) : baseNextKey;
 
   const nextQuery = useQuery({
-    queryKey: nextQueryKey,
-    queryFn: ({ signal }) =>
-      getNextPractice({ ...nextParams, ...(errorsMode ? { errors: true } : {}) }, signal),
+    queryKey: queryKeys.nextPractice(nextParams),
+    queryFn: ({ signal }) => getNextPractice(nextParams, signal),
     enabled: !attemptId && !optimistic,
   });
 
@@ -1071,18 +1071,22 @@ export function PracticePage() {
   }
 
   /**
-   * 切换题库；未修复的错题同样挡住。指定句深链随切换清除，否则取题参数会继续命中旧句。
-   * @param nextBankId 目标题库 id
+   * 切换取题来源（题库下拉）：置顶的「错题集」选项进入错题模式——URL search 写入
+   * errors=true 并清空 bankId，search 是唯一真源，页面取题状态从 search 派生；
+   * 选普通题库则清除错题模式、按 bankId 取题。未修复的错题同样挡住，避免切池绕开
+   * 「改对才过」。指定句深链随切换清除，否则取题参数会继续命中旧句。
+   * @param nextValue 下拉选中值；普通题库为其 id，「错题集」为固定哨兵值
    */
-  function switchBank(nextBankId: string) {
-    if (!nextBankId || nextBankId === effectiveBankId) {
+  function switchBank(nextValue: string) {
+    const nextIsErrors = nextValue === ERRORS_BANK_OPTION;
+    if (nextIsErrors ? errorsMode : !errorsMode && nextValue === effectiveBankId) {
       return;
     }
     if (attempt?.nextAction.retryRequired) {
       toast("先把这句改对，或点「稍后再练」");
       return;
     }
-    setBankId(nextBankId);
+    setBankId(nextIsErrors ? undefined : nextValue);
     setExcludeIds([]);
     setDrillTag(undefined);
     if (attempt || attemptId || searchSentenceId) {
@@ -1093,9 +1097,14 @@ export function PracticePage() {
       setRevealConfirm(false);
       setReview(null);
       setRetryFixed(false);
-      // 清掉 URL 里过期的深链 bankId（本页手选已接管），错题模式随回跳保留。
-      void navigate({ to: "/practice", search: errorsMode ? { errors: true } : {}, replace: true });
     }
+    // 进错题集清空 bankId、回普通题库清空 errors：双向都同步到 URL search，
+    // 页面不另维护平行的错题开关状态，避免双状态漂移。
+    void navigate({
+      to: "/practice",
+      search: nextIsErrors ? { errors: true } : { bankId: nextValue },
+      replace: true,
+    });
   }
 
   /**
@@ -1499,15 +1508,17 @@ export function PracticePage() {
           {/* 会话条：题库下拉｜到期 chip｜本轮进度｜今天到此（本轮总结）。
               原型里它是左栏第一个子元素：640px 内右缘与题干列对齐、批注栏与之顶对齐。 */}
           <div className="mb-[26px] flex flex-wrap items-center gap-x-[18px] gap-y-2.5 border-b border-rule pb-3.5 font-mono text-[10px] tracking-[0.1em] text-ink-faint">
-            {publishedBanks.length > 0 ? (
+            {publishedBanks.length > 0 || errorsMode ? (
               <select
-                value={effectiveBankId ?? ""}
+                value={errorsMode ? ERRORS_BANK_OPTION : (effectiveBankId ?? "")}
                 onChange={(event) => switchBank(event.target.value)}
-                title="选择题库"
+                title="选择题库或错题集"
                 aria-label="选择题库"
                 // 样式与原型 .select + .bank-select 一致：无衬线 11px、内边距 4px 8px、只显示题库名。
                 className="rounded-[2px] border border-rule bg-transparent px-2 py-1 font-sans text-[11px] tracking-[0.02em] text-ink-muted outline-none focus:border-ink-faint"
               >
+                {/* 错题集置顶：选中即进入错题模式（URL search 写 errors=true 并清空 bankId）。 */}
+                <option value={ERRORS_BANK_OPTION}>错题集</option>
                 {publishedBanks.map((bank) => (
                   <option key={bank.id} value={bank.id}>
                     {bank.name}

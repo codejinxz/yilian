@@ -172,6 +172,15 @@ export function TodayPage() {
   const remainingToday = Math.max(0, (today?.goal ?? 0) - doneCount);
   const ctaLabel = remainingToday > 0 ? `开始今日 ${remainingToday} 题` : `今日已清完，可自由练习`;
 
+  /**
+   * 今日进度条：纯展示，只消费既有 today 聚合的 doneCount/goal（服务端与本地引擎
+   * 产出的 Today 同形）；达成态（目标大于 0 且已练达标）换苔绿，与练习页「已修复」
+   * 同语义色。
+   */
+  const goal = today?.goal ?? 0;
+  const progressAchieved = goal > 0 && doneCount >= goal;
+  const progressPercent = goal > 0 ? Math.min(100, Math.round((doneCount / goal) * 1000) / 10) : 0;
+
   const dateHeader = (
     <div className="flex items-center gap-2.5 font-mono text-[11px] tracking-[0.12em] text-ink-faint">
       <span>今日</span>
@@ -223,7 +232,24 @@ export function TodayPage() {
           今天
         </small>
       </p>
-      <p className="mb-[34px] mt-3 font-mono text-xs tracking-[0.06em] text-ink-faint">
+      {/* 今日进度条：占比可读（读屏走 progressbar 语义），达成态可辨；不新增数据来源。 */}
+      <div
+        role="progressbar"
+        aria-label="今日进度"
+        aria-valuemin={0}
+        aria-valuemax={goal}
+        aria-valuenow={Math.min(doneCount, goal)}
+        className="mt-3 h-[3px] w-full overflow-hidden rounded-full bg-rule/60"
+      >
+        <div
+          className={cn(
+            "h-full transition-[width] duration-500 ease-out",
+            progressAchieved ? "bg-moss" : "bg-vermilion",
+          )}
+          style={{ width: `${progressPercent}%` }}
+        />
+      </div>
+      <p className="mb-[34px] mt-2 font-mono text-xs tracking-[0.06em] text-ink-faint">
         已练 {today.doneCount} / {today.goal} · 连续 {today.streakDays} 天
       </p>
 

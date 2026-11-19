@@ -182,3 +182,66 @@ describe("TodayPage 今日 CTA 与题库 chips（AC-7）", () => {
     expect(screen.queryByText(/回收库/)).toBeNull();
   });
 });
+
+describe("TodayPage 今日进度条", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    practiceApi.getToday.mockReset();
+    practiceApi.getWrongQuestions.mockReset();
+    contentApi.getBanks.mockReset();
+    practiceApi.getWrongQuestions.mockResolvedValue({
+      items: [],
+      page: 1,
+      size: 1,
+      total: 4,
+      totalPages: 4,
+      hasNext: false,
+    } satisfies PageResponse<never>);
+    contentApi.getBanks.mockResolvedValue({
+      items: [OFFICIAL_BANK],
+      page: 1,
+      size: 100,
+      total: 1,
+      totalPages: 1,
+      hasNext: false,
+    } satisfies PageResponse<BankView>);
+    mockExtrasEmpty();
+  });
+
+  /** [AC-4] 占比可读：1/3 渲染 33.3% 宽度，progressbar 语义带目标与当前值，未达成态为朱红。 */
+  it("todayProgressShowsDoneOverGoalRatio_ac4", async () => {
+    practiceApi.getToday.mockResolvedValue(TODAY);
+    renderPage();
+
+    const bar = await screen.findByRole("progressbar", { name: "今日进度" });
+    expect(bar).toHaveAttribute("aria-valuemax", "3");
+    expect(bar).toHaveAttribute("aria-valuenow", "1");
+    const fill = bar.firstElementChild as HTMLElement;
+    expect(fill.style.width).toBe("33.3%");
+    expect(fill).toHaveClass("bg-vermilion");
+    expect(fill).not.toHaveClass("bg-moss");
+  });
+
+  /** [AC-4] 达成态可辨：已练达标后满宽换苔绿（与练习页「已修复」同语义色）。 */
+  it("todayProgressAchievedTurnsMoss_ac4", async () => {
+    practiceApi.getToday.mockResolvedValue(TODAY_CLEARED);
+    renderPage();
+
+    const bar = await screen.findByRole("progressbar", { name: "今日进度" });
+    expect(bar).toHaveAttribute("aria-valuenow", "3");
+    const fill = bar.firstElementChild as HTMLElement;
+    expect(fill.style.width).toBe("100%");
+    expect(fill).toHaveClass("bg-moss");
+  });
+
+  /** [AC-4] 自由练习超出目标不溢出：数值钳到目标、宽度满格；数据源仍是同一 Today 形状
+   * （服务端与本地引擎适配层产出同构，进度条不感知来源差异）。 */
+  it("todayProgressClampsWhenOverGoal_ac4", async () => {
+    practiceApi.getToday.mockResolvedValue({ ...TODAY, doneCount: 5 });
+    renderPage();
+
+    const bar = await screen.findByRole("progressbar", { name: "今日进度" });
+    expect(bar).toHaveAttribute("aria-valuenow", "3");
+    expect((bar.firstElementChild as HTMLElement).style.width).toBe("100%");
+  });
+});

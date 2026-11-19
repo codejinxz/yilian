@@ -1,4 +1,4 @@
-import { QueryClientProvider } from "@tanstack/react-query";
+import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -45,14 +45,19 @@ vi.mock("@/lib/api/content", () => contentApi);
 /** 路由 search 的可变桩：缺省空（新题流），回看用例注入 attemptId。 */
 const routerState = vi.hoisted(() => ({ search: {} as Record<string, unknown> }));
 
-/** 最小 router 桩：练习页测试不感知真实路由，search 取 routerState（逐用例可注入）；href 仅为过 a11y 检查。 */
+/** 最小 router 桩：练习页测试不感知真实路由，search 取 routerState（逐用例可注入）；href 仅为过 a11y 检查。
+ * navigate 把 search 写回可变桩，让下拉切换/提交回跳的 URL 同步在桩内闭合（真实路由由 TanStack 完成）。 */
 vi.mock("@tanstack/react-router", () => ({
   Link: (props: { to?: string; search?: unknown; className?: string; children?: ReactNode }) => (
     <a href="#stub" className={props.className}>
       {props.children}
     </a>
   ),
-  useNavigate: () => async () => {},
+  useNavigate: () => async (opts?: { search?: Record<string, unknown> }) => {
+    if (opts && typeof opts === "object" && opts.search) {
+      routerState.search = opts.search;
+    }
+  },
   useSearch: () => routerState.search,
 }));
 
@@ -99,13 +104,63 @@ const TODAY: Today = {
   streakDays: 3,
 };
 
+/** 错题池桩句：语块文案与普通桩句不相交，切池后题干变化可直接观察。 */
+const ERRORS_SENTENCE: PracticeSentence = {
+  ...SENTENCE,
+  id: "01JSEN00000000000000000003",
+  sentenceVersionId: "01JVER00000000000000000003",
+  zh: "你应该注意细节。",
+  ref: "You should pay attention to details.",
+  level: "CET4",
+  chunks: [
+    { index: 0, zh: "你应该", answers: ["should"], tag: null, note: null },
+    { index: 1, zh: "注意", answers: ["attention"], tag: null, note: null },
+    { index: 2, zh: "细节", answers: ["details"], tag: null, note: null },
+  ],
+  blank: [1],
+  tags: ["动词搭配"],
+};
+
+/** 错题模式提交桩：本句全对、无需改对，「下一句」立即可用。 */
+const ERRORS_SUBMIT_OK: AttemptResponse = {
+  attemptId: "3f0e8e50-6b1d-4e0f-9d3a-5f2c1b9e0003",
+  sentenceId: ERRORS_SENTENCE.id,
+  sentenceVersionId: ERRORS_SENTENCE.sentenceVersionId,
+  mode: "CLOZE",
+  kind: "FIRST",
+  score: 100,
+  maxScore: 100,
+  result: {
+    schemaVersion: 1,
+    score: 100,
+    maxScore: 100,
+    hitCount: 1,
+    totalCount: 1,
+    annotations: [],
+    summary: "全部命中",
+  },
+  grading: {
+    id: "01HGRADING0000000000000003",
+    sequence: 1,
+    grader: "LOCAL",
+    normalizerVersion: "norm-1",
+    rubricVersion: "rubric-1",
+    createdAt: "2026-11-06T04:00:00Z",
+  },
+  review: null,
+  reference: { ref: ERRORS_SENTENCE.ref, note: null },
+  nextAction: { retryRequired: false, canReveal: true },
+  replayed: false,
+};
+
 /**
  * 挂载练习页（页面自身用 react-query，包 QueryClient 即可）。
+ * @param client 可注入的 QueryClient；缓存键级断言的用例传入同一实例以检查缓存内容。
  * @returns RTL 句柄
  */
-function renderPage() {
+function renderPage(client?: QueryClient) {
   return render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={client ?? createQueryClient()}>
       <PracticePage />
     </QueryClientProvider>,
   );
@@ -384,5 +439,147 @@ describe("PracticePage 模型复核（API §6.13）", () => {
     // 原判分保留，无复核注记。
     expect(screen.getByText("61")).toBeTruthy();
     expect(screen.queryByText(/复核不影响复习计划/)).toBeNull();
+  });
+});
+
+describe("PracticePage 错题集下拉与取题", () => {
+  beforeAll(() => {
+    // jsdom 未实现 scrollIntoView；useFocusScroll 在输入聚焦后 250ms 会调用它。
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    routerState.search = {};
+    useSessionStore.setState({ status: "anonymous" });
+    practiceApi.getToday.mockResolvedValue(TODAY);
+    // 错题/普通两池回不同桩句：切池后题干变化可直接观察，不依赖缓存内部状态。
+    practiceApi.getNextPractice.mockImplementation((params: { errors?: boolean }) =>
+      Promise.resolve({
+        sentence: params.errors ? ERRORS_SENTENCE : SENTENCE,
+        review: null,
+        selection: params.errors ? ("DUE" as const) : ("NEW" as const),
+      }),
+    );
+    practiceApi.getAttempt.mockResolvedValue(null);
+    practiceApi.submitAttempt.mockReset();
+    contentApi.getBanks.mockResolvedValue({
+      items: [BANK],
+      page: 1,
+      size: 100,
+      total: 1,
+      totalPages: 1,
+      hasNext: false,
+    } satisfies PageResponse<BankView>);
+    contentApi.getBankSentences.mockResolvedValue({
+      version: 1,
+      items: [SENTENCE],
+      nextSinceVersion: 0,
+      hasMore: false,
+    });
+  });
+
+  /** [AC-1] 下拉首项「错题集」：选中即进入错题模式——URL search 同步 errors=true 并清空
+   * bankId；再选普通题库时 errors 清除、按 bankId 取题（URL search 是唯一真源）。 */
+  it("bankDropdownErrorsOptionSyncsSearchAndPools_ac1", async () => {
+    const client = createQueryClient();
+    const view = renderPage(client);
+    await screen.findByText("环境保护");
+
+    const select = screen.getByRole("combobox", { name: "选择题库" });
+    expect(within(select).getAllByRole("option")[0]).toHaveTextContent("错题集");
+    expect(select).toHaveValue("7");
+
+    // 选「错题集」：search 写入 errors=true 且无 bankId；下拉与取题请求随 search 切池。
+    await userEvent.setup().selectOptions(select, "errors");
+    expect(routerState.search).toEqual({ errors: true });
+    await screen.findByText("注意");
+    expect(screen.getByRole("combobox", { name: "选择题库" })).toHaveValue("errors");
+    expect(practiceApi.getNextPractice.mock.calls.at(-1)?.[0]).toEqual({
+      mode: "CLOZE",
+      errors: true,
+    });
+
+    // 再选普通题库：errors 清除、按 bankId 取题；30s staleTime 内普通库键仍有缓存，不重复请求。
+    const fetchCountInErrors = practiceApi.getNextPractice.mock.calls.length;
+    await userEvent.setup().selectOptions(screen.getByRole("combobox", { name: "选择题库" }), "7");
+    expect(routerState.search).toEqual({ bankId: "7" });
+    await screen.findByText("环境保护");
+    expect(screen.getByRole("combobox", { name: "选择题库" })).toHaveValue("7");
+    expect(practiceApi.getNextPractice).toHaveBeenCalledTimes(fetchCountInErrors);
+    expect(practiceApi.getNextPractice.mock.calls.at(-1)?.[0]).toEqual({
+      mode: "CLOZE",
+      errors: true,
+    });
+    view.unmount();
+  });
+
+  /** [AC-2] 错题模式取题/回跳/换句恒带 errors=true：首取不带 bankId（错题池不按库收窄），
+   * 提交回跳保留 errors，「下一句」请求带 errors 与刚练句的排除列表。 */
+  it("errorsModeCarriesErrorsAcrossFetchSubmitAndAdvance_ac2", async () => {
+    routerState.search = { errors: true };
+    practiceApi.submitAttempt.mockResolvedValue(ERRORS_SUBMIT_OK);
+    practiceApi.getAttempt.mockResolvedValue(ERRORS_SUBMIT_OK);
+    renderPage();
+
+    // 首次取题：errors=true 且无 bankId。
+    await screen.findByText("注意");
+    expect(practiceApi.getNextPractice.mock.calls[0]?.[0]).toEqual({ mode: "CLOZE", errors: true });
+
+    // 作答并提交：回跳 search 带 attemptId 与 errors=true，刷新/回跳后仍在错题池。
+    await userEvent.setup().type(screen.getByLabelText("第 1 空第 1 词：注意"), "attention");
+    await userEvent.setup().click(screen.getByRole("button", { name: /提交/ }));
+    expect(await screen.findByText("100")).toBeTruthy();
+    expect(routerState.search).toEqual({ attemptId: ERRORS_SUBMIT_OK.attemptId, errors: true });
+
+    // 「下一句」：取题请求仍带 errors=true，并把刚练过的句排除。
+    await userEvent.setup().click(await screen.findByRole("button", { name: /下一句/ }));
+    await waitFor(() =>
+      expect(practiceApi.getNextPractice.mock.calls.at(-1)?.[0]).toEqual({
+        mode: "CLOZE",
+        errors: true,
+        excludeIds: [ERRORS_SENTENCE.id],
+      }),
+    );
+  });
+
+  /** [AC-2] 错题清完的空态：保留「错题清完了」标题与出路，不落入普通空态文案。 */
+  it("errorsModeKeepsClearedEmptyState_ac2", async () => {
+    routerState.search = { errors: true };
+    practiceApi.getNextPractice.mockResolvedValue(null);
+    renderPage();
+
+    expect(await screen.findByText("错题清完了")).toBeTruthy();
+    expect(screen.getByText(/最近做错的句子都已修复或被排除/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "去复习队列" })).toBeTruthy();
+  });
+
+  /** [AC-3] 取题 query key 携带 errors 维度：errors 收进参数对象（键尾变通标记位消灭），
+   * 错题键与普通键不重合，缓存各持一份。 */
+  it("nextQueryKeyCarriesErrorsDimension_ac3", async () => {
+    const client = createQueryClient();
+    const view = renderPage(client);
+    await screen.findByText("环境保护");
+
+    await userEvent
+      .setup()
+      .selectOptions(screen.getByRole("combobox", { name: "选择题库" }), "errors");
+    await screen.findByText("注意");
+
+    const nextKeys = client
+      .getQueryCache()
+      .getAll()
+      .map((query) => query.queryKey)
+      .filter((key) => key[0] === "practice" && key[1] === "next");
+    expect(nextKeys).toContainEqual(["practice", "next", { mode: "CLOZE", errors: true }]);
+    const overlapped = nextKeys.some((key) => {
+      const params = key[2];
+      return (
+        typeof params === "object" && params !== null && "errors" in params && "bankId" in params
+      );
+    });
+    expect(overlapped).toBe(false);
+    view.unmount();
   });
 });
