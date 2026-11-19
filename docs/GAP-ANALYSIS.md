@@ -1,7 +1,7 @@
 # 待办与优先级
 
 ## 当前状态
-- **042 批(W1-1)完成:P1-06 错题集进练习页下拉 + B-10 今日进度(2026-11-20,主人批准 W1 排期;计划 [docs/plans/042-practice-wrongbank-dropdown-today-progress.md](plans/042-practice-wrongbank-dropdown-today-progress.md);纯前端批,零后端改动)**:①**错题集进下拉**:练习页题库下拉置顶「错题集」选项,选中即进入错题模式——URL search 同步 errors=true 并清空 bankId,选普通题库清除 errors 按 bankId 取题,search 是唯一真源、页面状态从 search 派生(复用既有 validateSearch 契约,router 零改动);无题库但处于错题模式时下拉保留(退出路径);下拉切换与未修复错题的门禁复用「改对才过」拦截;②**取题缓存键治理**:errors 维度收进 queryKeys.nextPractice 参数对象(key 由参数整体派生),键尾 "errors" 变通标记位与 TODO 消灭,错题/同参数普通取题各持一份缓存互不覆盖;③**今日进度条**:纯展示,只用 TodayView 既有 doneCount/goal(不新增字段/端点),progressbar 语义带 aria-valuemax/valuenow,达成态(goal>0 且已练达标)满宽换苔绿与练习页「已修复」同语义色,自由练习超出目标钳位不溢出;服务端与本地引擎适配层产出 Today 同形,进度条不感知来源差异。新增前端用例 7 个:PracticePage [AC-1]/[AC-2]×2/[AC-3] 四个、TodayPage [AC-4] 三个。质量门禁实测:前端 `vitest run` **230/230**(基线 223,+7)+ `build`(tsc --noEmit + vite)成功 + `biome check` 0 错误/44 存量 warning 持平 + `check:comments` 128 文件 0 违规;AC-6 浏览器冒烟未随本批执行,冒烟记录(docs/analysis/browser-smoke-042)由监督者实机冒烟后回填。
+- **042 批(W1-1)完成:P1-06 错题集进练习页下拉 + B-10 今日进度(2026-11-20,主人批准 W1 排期;计划 [docs/plans/042-practice-wrongbank-dropdown-today-progress.md](plans/042-practice-wrongbank-dropdown-today-progress.md);纯前端批,零后端改动)**:①**错题集进下拉**:练习页题库下拉置顶「错题集」选项,选中即进入错题模式——URL search 同步 errors=true 并清空 bankId,选普通题库清除 errors 按 bankId 取题,search 是唯一真源、页面状态从 search 派生(复用既有 validateSearch 契约,router 零改动);无题库但处于错题模式时下拉保留(退出路径);下拉切换与未修复错题的门禁复用「改对才过」拦截;②**取题缓存键治理**:errors 维度收进 queryKeys.nextPractice 参数对象(key 由参数整体派生),键尾 "errors" 变通标记位与 TODO 消灭,错题/同参数普通取题各持一份缓存互不覆盖;③**今日进度条**:纯展示,只用 TodayView 既有 doneCount/goal(不新增字段/端点),progressbar 语义带 aria-valuemax/valuenow,达成态(goal>0 且已练达标)满宽换苔绿与练习页「已修复」同语义色,自由练习超出目标钳位不溢出;服务端与本地引擎适配层产出 Today 同形,进度条不感知来源差异。新增前端用例 7 个:PracticePage [AC-1]/[AC-2]×2/[AC-3] 四个、TodayPage [AC-4] 三个。质量门禁实测:前端 `vitest run` **230/230**(基线 223,+7)+ `build`(tsc --noEmit + vite)成功 + `biome check` 0 错误/44 存量 warning 持平 + `check:comments` 128 文件 0 违规;AC-6 浏览器冒烟收口:场景 A-E 全 PASS(登录→错题集下拉→错题模式闭环→退出错题→进度联动达成态,含 staleTime 30s 协议处理)+preview(4173)抽查 /login /today 渲染 0 致命错;黑盒第 1 轮 294/304(10 FAIL 全部归因验证码误读级联,同 captchaId 误读快照留档)→第 2 轮 **304/304 全过**,业务零缺陷;8080 属主 PID=85204,记录 docs/analysis/browser-smoke-042/。观察项(不修):URL search 字符串参数呈 JSON 引号编码(bankId=%221%22),系 TanStack Router 默认 stringifySearch 全局既有行为(router.tsx 未自定义),非本批引入。
 
 
 - **040 031 合规终审占位落地 + AGENTS 授权落地 + admin 口令对齐完成（2026-11-19，主人指示：031 合规占位联系方式 12345678901 + AGENTS 「批准一次」授权两处 + 口令漂移裁决=配置向实际对齐；计划 [docs/plans/040-compliance-finalize-agents-align.md](plans/040-compliance-finalize-agents-align.md)；纯文档/gitignored 配置批，无代码改动）**：①**合规三件占位落地**（[privacy-policy](compliance/privacy-policy.md)/[user-agreement](compliance/user-agreement.md)/[age-and-minor](compliance/age-and-minor.md)；[data-cross-border-statement](compliance/data-cross-border-statement.md) 整件不动=服务商归属未裁决）——头部状态「起草稿 v0.1 · 待运营者终审」→「v1.0 · 运营者已终审（2026-11-19）；联系方式为占位符，正式发布前替换」，首段免责句同步（终审已通过，占位项替换前不对外发布），联系方式占位落地＝「运营者主体：译练运营者（个人开发者）；联系方式：12345678901（占位，正式发布前替换）」（privacy-policy 1.2/7.4、user-agreement 1.2/3.2、age-and-minor 5.3），附录占位清单同步改「占位」；「待运营者确认」类保持不动（服务商归属/管辖地/赔偿上限），grep「由运营者在发布时填写」「待运营者终审」仅余上述不动项；②**AGENTS.md 授权落地**（保护路径，主人「批准一次」，改前 git diff 基线为空、改后恰两处）：§3.2 节末补注释纪律句（只述 what/why，禁过程性引用=批次号/评审轮次条目号/指示来源/gitignored 文档引用/阶段词，由 Checkstyle（Java）与 scripts/check-comments.mjs（TS/TSX/迁移 SQL）在 CI 强制）+ §3 Flyway 条目补「编辑已应用迁移的注释会变更 Flyway checksum：已有库先执行 repair（docs/BACKUP-RESTORE.md §5）再重启」；③**admin 口令对齐**（配置向实际对齐）：server/config/application-local.yml（gitignored，免提交）bootstrap-admin.password→`123456`+注释注明「与既有 local 库实际凭据一致（037 演练登记的配置-库漂移已对齐）；prod 拒绝弱口令语义不变」，其余段零改动；[docs/BOOTSTRAP.md](BOOTSTRAP.md) §3 补一行「既有 local 库继续使用时，实际口令以 server/config/application-local.yml 为准；两者不一致属配置-库漂移，以配置文件对齐为准」；④GAP 031 行补「终审完成（占位联系方式，正式发布前替换）」。质量门禁实测：后端 `YILIAN_TEST_DB_NAME=yilian_test_040 mvnw test` **1016 run / 0 Failures / 0 Errors / 0 Skipped**（基线 1016 持平）+ `fmt:check` 通过；前端 `vitest run` **223/223**（基线持平）+ `build` 成功 + `check:comments` 0 违规。
@@ -111,6 +111,24 @@
 
 
 
+## 外部静态排查登记(2026-11-20,第三方报告经独立核查后入册)
+
+> 核查方式:只读核查 agent 逐条取证(A1..A10 全部带 file:line 实读锚,证据见会话汇报);第三方报告「仓库内最新可确认收口批次为 036」的前提**不成立**——docs/plans 与 docs/pr 整目录 gitignored(clone 不可见)+API.md §11 未为 037+ 增行,而本文件(GAP)为跟踪文件、已记录至 042 批。第三方报告原文未入库,本节为独立核实后的登记。
+
+| 项 | 结论 | 一句话 | 去向 |
+|---|---|---|---|
+| EXT-A1 | 证实 | README 里程碑表停 028、已知限制仍写「2FA 未启用」,与 API.md §4.10(implemented)矛盾(README.md:172,179) | 文档同步小批(P2):里程碑表补至现势+改写该行 |
+| EXT-A2 | 证实 | CHANGELOG.md 停 0.2.0(2026-10-31),029 之后未覆盖(CHANGELOG.md:5) | 与 W5 裁决项「CHANGELOG 三选一」合并处理,不单独动 |
+| EXT-A3 | 证实 | ACCEPTANCE.md「7 个存量 Error」与「待实现」表述过期(导入已随 0.2.0 收口;ACCEPTANCE.md:27-49,75) | 文档同步小批(P2) |
+| EXT-A4 | 证实 | API.md §5.4–§5.8 五个标题仍 planned,与 §3 总表/§10.1/ImportBatchController 实态不一致(API.md:885,923,956,1007,1017) | 文档同步小批(P2):五标题改 implemented |
+| EXT-A5 | 证实 | 匿名化调度积压时全量加载:findAnonymizationDue 派生查询无 LIMIT,BATCH_LIMIT=200 仅在内存循环 break(AccountAnonymizationJob.java:38,89-95;JpaAppUserDao.java:88-91);现实积压规模小,不属紧急 | 账号域代码待办(P2):Dao 加 Pageable/Top 上限+Job Javadoc「分轮消化」措辞修正,建议与文档同步小批同批消化 |
+| EXT-A10 | 证实 | ACCEPTANCE.md 引 `docker compose up -d mysql redis` 但仓内无 compose 文件(ACCEPTANCE.md:51;该行自带本机替代写法,影响有限) | 文档同步小批(P2):改写本机服务说明或补 compose(需主人裁决二选一) |
+| EXT-A6 | 已登记 | 游客/登录态三处行为偏差(errors=1 对 REVEAL 行、DUE 召回 bankId、降载 20/5 vs 8/5)均为 API.md 明文「有意行为,服务端契约优先」(API.md:1059-1062,1437;PracticeServiceImpl.java:108,111 注释自认) | 无动作 |
+| EXT-A7 | 已登记 | SecurityConfig 无 IP 白名单/强制 2FA 门禁=公网部署前项(GAP-ANALYSIS.md:124「强制开关不做,文档 SOP 承接」+DATA-MODEL R-11) | 无动作 |
+| EXT-A9 | 已登记 | 邮箱登录接口级测试缺失(API.md §10.5 首条在案;AuthFlowIntegrationTest 全部 username 用例) | 无动作,随 §10.5 收口 |
+| EXT-A8 | 证伪 | 「无 ErrorBoundary 会白屏」不成立:router.tsx:54 RouteError 挂接三条顶层路由,CatchBoundary 兜底渲染为可重试错误页 | 无动作 |
+
+**EXT 消化批建议**:W1 收口后插入一个 fix 小批(文档同步 EXT-A1/A3/A4/A10+代码 EXT-A5,涉及 README/ACCEPTANCE/API.md/匿名化 Job 四面;EXT-A2 随 W5 裁决),排期待主人确认或无人值守模式下按本登记执行。
 ## P0：上线前必须补
 
 ### 账号与安全
