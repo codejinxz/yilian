@@ -86,6 +86,28 @@ public class AdminAuditEventServiceImpl implements AdminAuditEventService {
                         auditText(request.reason(), MAX_TEXT_LENGTH)));
     }
 
+    @Override
+    @Transactional
+    public long recordViewAttemptRaw(
+            Long actorId, String actorName, String actorRole, String attemptId, String reason) {
+        HttpServletRequest httpRequest = currentRequest();
+        return adminAuditEventDao.insert(
+                new AdminAuditEventRow(
+                        StringUtils.defaultIfBlank(MDC.get("traceId"), IdUtils.newCompactId()),
+                        actorId,
+                        StringUtils.truncate(StringUtils.defaultIfBlank(actorName, "unknown"), 64),
+                        StringUtils.truncate(StringUtils.defaultIfBlank(actorRole, "SYSTEM"), 16),
+                        StringUtils.truncate(WebUtils.clientIp(httpRequest), 45),
+                        httpRequest == null ? null : httpRequest.getMethod(),
+                        httpRequest == null
+                                ? null
+                                : StringUtils.truncate(httpRequest.getRequestURI(), 512),
+                        AdminAuditEventService.ACTION_VIEW_ATTEMPT_RAW,
+                        auditText(AdminAuditEventService.TARGET_TYPE_ATTEMPT, 32),
+                        auditText(attemptId, 64),
+                        auditText(reason, MAX_TEXT_LENGTH)));
+    }
+
     /**
      * 文本归一：去空白、空白归 null、按列宽截断（与 JdbcOperationLogRecorder.auditText 同语义）。
      *

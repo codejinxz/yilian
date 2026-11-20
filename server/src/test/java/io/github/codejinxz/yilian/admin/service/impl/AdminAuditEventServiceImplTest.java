@@ -132,4 +132,18 @@ class AdminAuditEventServiceImplTest {
         assertThat(row.getValue().reason()).isEqualTo("用户申请导出");
         assertThat(row.getValue().traceId()).isNotBlank();
     }
+
+    /** 查看答题原文（API §8.7）的专用审计入口：动作/对象类型固定、targetId=attemptId、 原因透传，且不经演示白名单。 */
+    @Test
+    void recordViewAttemptRawWritesFixedActionRow() {
+        service.recordViewAttemptRaw(1L, "admin", "ADMIN", "attempt-uuid", "评分申诉");
+
+        ArgumentCaptor<AdminAuditEventRow> row = ArgumentCaptor.forClass(AdminAuditEventRow.class);
+        verify(adminAuditEventDao).insert(row.capture());
+        assertThat(row.getValue().action()).isEqualTo("VIEW_ATTEMPT_RAW");
+        assertThat(row.getValue().targetType()).isEqualTo("ATTEMPT");
+        assertThat(row.getValue().targetId()).isEqualTo("attempt-uuid");
+        assertThat(row.getValue().reason()).isEqualTo("评分申诉");
+        assertThat(row.getValue().actorId()).isEqualTo(1L);
+    }
 }

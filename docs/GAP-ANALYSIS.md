@@ -1,6 +1,7 @@
 # 待办与优先级
 
 ## 当前状态
+- **049 批(W2-1)启动:P1-03 管理端查看答题原文端点(API §8.7)+审计载体(2026-11-21,W2 首批;计划 [docs/plans/049-admin-attempt-raw-endpoint.md](plans/049-admin-attempt-raw-endpoint.md);fix(server),契约逐字落地,零迁移)**:reason 必填+VIEW_ATTEMPT_RAW 审计+原文/最新判分装配;接口级测试含鉴权/信封/错误码/审计断言。2026-11-21 收口:落地 practice 域 AdminAttemptRawController/Service/Impl+DTO/VO,审计经 AdminAuditEventService.recordViewAttemptRaw 专用入口(admin_audit_log,action=VIEW_ATTEMPT_RAW/targetType=ATTEMPT),审计先行落库拿 auditId 随响应返回;40403 不落审计行(未发生查看,事务回滚语义下与先行落库终态一致);前端零代码改动(客户端/schema/必填原因交互已按契约就位,mock 为全局开关,§10.3 行同步);接口级测试 AdminAttemptRawControllerTest 5 例+AdminAttemptRawServiceImplTest 6 例+AdminAuditEventServiceImplTest 增 1 例,mvnw test 1031/0(基线 1019 只增不减,YILIAN_TEST_DB_NAME=yilian_test_049),fmt:check 通过(534 文件 0 不合规);API.md v2.6(§3/§8.7/§10.1/§10.3)。
 - **048 批(W1-7)完成:P1-07 UI 打磨·全局/管理侧五项(G9/D9/D11/S6/D3,2026-11-21,m-plan P1-07 拆两批之后半;计划 [docs/plans/048-p1-07-admin-global-polish.md](plans/048-p1-07-admin-global-polish.md);纯前端)**:①G9 题库抽屉句子行补「管理」直达(复用题目页行内编辑弹窗 SentenceEditModal 导出,回收站行不给入口与题目页口径一致);②D9 邀请码片改按钮:本次会话生成的码完整展示+点击复制+已用/未用标注,历史前缀码按契约如实提示「完整码仅在生成时展示一次」(服务端只存哈希,不伪造复制);③D11 退出顶栏即时恢复游客态——根因=queryClient.clear 后已挂载 me 观察者滞留旧值,AppShell 改以会话 store anonymous 状态为用户资料开关;④S6 分页组件级条件渲染(totalPages≤1 且无 next 整条隐藏,7 个用点统一生效);⑤D3 复测确认错误路径已齐,补网络层失败/非 Error throw 两条用例(alert 必有、面板不消失、问句保留)。新增前端用例 9 个([AC-1..5],banks-page/users-invites 两个测试文件新建)。质量门禁实测:vitest **257/257**(基线 248,+9)+build/tsc+biome(0 错 44 警持平)+check:comments(132 文件)0 违规。AC-7 浏览器冒烟收口:六场景全 PASS(抽屉 13 行两分支全覆盖+编辑保存持久化/新码完整 12 位+复制三方一致+42 旧码如实提示/退出 400ms 内游客态免刷新/复习页 7 条无分页条+管理端 172 页保留/ask abort 面板不消失 role=alert),preview 4173 三页 pageerror=0;8080 重启后属主 PID=125824;数据漂移如实登记(黑盒库一句标记文本未回写+新增 1 未用邀请码,见 friction-048,下次黑盒运行前检查);记录 docs/analysis/browser-smoke-048/。
 - **047 批(W1-6)完成:P1-07 UI 打磨·用户侧五项(G10/D13/D15/S5/S8,2026-11-21,m-plan P1-07 拆两批之前半;计划 [docs/plans/047-p1-07-user-side-polish.md](plans/047-p1-07-user-side-polish.md);纯前端)**:①G10 下拉短名(option 取 `· ` 前短名,与今日页 chips 口径一致);②D13 首字母按钮判分后禁用+置灰(消死按钮);③D15 复习「开始」按来源模式进题+未到期 LEARNING 先 toast「提前复习」约 1s 再跳(计时器卸载即取消;整句来源不强制变填空为既有行为,本批核实);④S5 答疑暂时性失败收起后入口旁朱红「暂不可用」角标(永久不可用仍整体隐藏,换句即清);⑤S8 统计「错误集中在」条宽按相对最大值缩放(既有)+右侧数字带百分比。实现对照更正:D15 前半(mode 透传)与 S8 条宽缩放系历史已修,本批补剩余半项。新增前端用例 8 个([AC-1..5],StatsPage.test 新建)。质量门禁实测:vitest **248/248**(基线 240,+8)+build/tsc+biome(0 错 44 警持平)+check:comments(130 文件)0 违规。AC-7 浏览器冒烟收口:五项逐条 PASS(下拉 33 option 无「 · 」/首字母 disabled+opacity 0.4+not-allowed/未到期 toast 逐字命中+953ms 跳转/角标出现与换句清除/统计 5 行 N·M% 与条宽逐行吻合),MASTERED「重练无 toast」分支无数据如实标注未覆盖;preview 4173 三页 pageerror=0;8080 复用未重启(属主 PID=105288);记录 docs/analysis/browser-smoke-047/。
 - **046 批(W1-5)完成:文档同步(EXT-A1/A3/A4/A10)+匿名化 LIMIT 下推(EXT-A5)(2026-11-21,第二轮外部排查 §3.3 整改;计划 [docs/plans/046-docs-sync-anonymization-limit.md](plans/046-docs-sync-anonymization-limit.md);fix(server,docs),零契约零迁移)**:①EXT-A5——`findAnonymizationDue` 派生查询加 Pageable(LIMIT 下推 SQL),Job 传 `PageRequest.of(0,200)` 与 BATCH_LIMIT 同源,移除内存 break,超限日志改按取数达到上限判据,Javadoc 一致化为「单轮上限,余量随下次调度分轮消化」;新增集成用例(积压 205→单轮消化 200、余 5 留库);②EXT-A1——README 里程碑表补 029–046 十八行,已知限制 2FA 行如实(TOTP 已随 032 实现,公网部署前置语义保留),M3 行剔除「prompt 写路径未建」过期表述;③EXT-A3——ACCEPTANCE.md DoD 测试行与 §5 存量 Error 段按导入切片收口后现状改写,数据库依赖行改本机服务说明(裁决:改写而非新增 compose 文件,本行即登记);④EXT-A4——API.md §5.4–§5.8 五标题 planned→implemented,与 §3/§10.1 对齐。质量门禁实测:后端 `YILIAN_TEST_DB_NAME=yilian_test_046 mvnw test` **1019 run / 0 Failures / 0 Errors / 0 Skipped**(基线 1018+新增 1)+ `fmt:check` 通过 + Checkstyle 0 违规;前端 vitest **240/240**(基线持平)+ build(tsc+vite)成功 + biome check 0 错误/44 存量 warning 持平 + check:comments 0 违规。EXT-A2(CHANGELOG)仍挂 W5 裁决。
@@ -152,6 +153,20 @@
 | P-08 | localNoonIso 夹具在 ReviewPage.test 与 engine.test 逐字重复(043 批内),日界口径调整会漂移 | P3 |
 | P-09 | 「全绿」类结论依赖 evidence/冒烟产物,均在本机 gitignored 证据链(设计使然,登记备忘) | 备注 |
 
+
+## 046-048 双 skill 轮巡余量(2026-11-21,10 条 NON-BLOCKER/BLOCKER 0)
+
+> test-engineer 半场子代理完成(分片读协议+只读机证 vitest 257/257 实跑);code-reviewer 半场派工仍 0/8,监督者亲审(三批 diff 逐 hunk 已做,跨批一致性无缺口)。余量处置=随 049+ 后端批与前端就近批补齐。
+
+| 项 | 一句话 | 级别 |
+|---|---|---|
+| Q-01 | G10 短名逻辑 TodayPage/PracticePage 两处内联复制,未共享 helper(口径漂移面) | P3 |
+| Q-02 | S6 分页隐藏仅 ReviewPage 一个消费方有用例,其余 6 个用点靠组件级兜底 | P3 |
+| Q-03 | 「提前复习先 toast 再跳」用例依赖真实 1s 定时器(仅 timeout 3000 兜底),宜改 fake timers 防 flaky | P3 |
+| Q-04 | AC 标签跨批同号异义(047/048 的 [AC-1..5] 双义,检索歧义;同 P-05 类) | P3 |
+| Q-05 | banks-page/users-invites 两个新测试文件带 UTF-8 BOM(22 个既有测试无 BOM,卫生问题) | P3 |
+| Q-06 | 047 换句清角标/048 重开清角标两分支仅冒烟覆盖,无自动化用例 | P3 |
+| Q-07 | AC-7 冒烟证据在 gitignored docs/analysis,审查包内不可复核(设计使然,登记备忘) | 备注 |
 ## P0：上线前必须补
 
 ### 账号与安全

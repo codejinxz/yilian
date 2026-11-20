@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 |---|---|
-| 版本 | v2.4（对齐文末变更记录最新行，批次头部版本号随变更记录推进） |
-| 日期 | 2026-11-19 |
+| 版本 | v2.6（对齐文末变更记录最新行，批次头部版本号随变更记录推进） |
+| 日期 | 2026-11-21 |
 | 字段来源 | `docs/DATA-MODEL.md` v0.1（唯一字段来源） |
 | 上游约束 | `AGENTS.md`、`docs/PRD.md` §4/§5/§8/§11/§12、`docs/NAMING.md` |
 | 下游 | `docs/openapi.yaml`（仅导出已实现端点）、`web/src/lib/api.ts` |
@@ -335,7 +335,7 @@
 | admin | `/api/admin/generation/import` | POST | ADMIN | M2 | implemented |
 | admin | `/api/admin/audit-events` | POST | ADMIN | M2 | implemented |
 | admin | `/api/admin/appeals`、`/api/admin/appeals/{id}/decision` | GET/POST | ADMIN | M2 | implemented（025，§8.16） |
-| admin | `/api/admin/attempts/{attemptId}/raw` | POST | ADMIN | M2 | planned |
+| admin | `/api/admin/attempts/{attemptId}/raw` | POST | ADMIN | M2 | implemented（049，§8.7） |
 | admin | `/api/admin/banks` | GET/POST | ADMIN | M1 | implemented |
 | admin | `/api/admin/banks/{bankId}` | GET/PATCH/DELETE | ADMIN | M1 | implemented |
 | admin | `/api/admin/banks/{bankId}/sentences` | GET | ADMIN | M1 | implemented |
@@ -1827,7 +1827,7 @@ D7 参数（契约全量，2026-11-03 M2.1 服务端补齐；与前端本地引�
 
 字段回溯：`error_log.*`。
 
-### 8.7 `POST /api/admin/attempts/{attemptId}/raw`（planned，M2）
+### 8.7 `POST /api/admin/attempts/{attemptId}/raw`（implemented，049）
 
 用途：管理员查看答题原文；必须选原因并写审计；不批量导出。
 
@@ -2361,6 +2361,7 @@ Prompt 版本治理（DATA-MODEL §5.19 写半边）：prompt_versions 注册表
 | Admin | `GET/POST /api/admin/banks`、`GET/PATCH/DELETE /api/admin/banks/{bankId}`、`GET /api/admin/banks/{bankId}/sentences`、`GET /api/admin/sentences`、`POST /api/admin/sentences/bulk-status`、`POST /api/admin/sentences/bulk-move`、`PATCH /api/admin/sentences/{sentenceId}/status`、`PATCH /api/admin/sentences/{sentenceId}`（011-b） | 题库检索/新建/详情/部分更新/软删（状态流转 RECYCLED，恢复清 `deleted_at`）、题库内与跨题库题目检索（跨题库缺省隐藏回收站）、批量状态/移动（单事务；不存在的 id 与无变化 id 跳过、计数如实返回；每题递增银行修订号；移动预检指纹冲突 40000）、单题状态流转（幂等不推进）、行内编辑（zh/level/tags/note 走新版本行并回填指纹/content_hash，bankId/status 走元字段；编辑先于移动，预检用新指纹） | `AdminBankControllerTest`、`AdminSentenceControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse/SentenceView 形状、reason/ids/zh 校验 40000、缺体 40001、40401/40402、审计上下文断言）；批量与列表/编辑语义另由 `ContentAdminServiceImplTest`（每题递增版本、悲观锁按题库 id 升序、跳过语义、恢复清软删、版本字段新版本行、非法枚举 40000/分页 40004）覆盖 |
 | Admin | `GET /api/admin/audit-logs`、`GET /api/admin/error-logs`、`GET /api/admin/error-logs/{id}`、`POST /api/admin/generation/import`、`POST /api/admin/audit-events`（012） | 操作日志/异常日志检索（分区表强制时间兜底：from/to 缺省近 30 天；size 上限 100 越界归 100；keyword LIKE 转义纯 contains；异常列表剥离 stackTrace、详情含堆栈缺失 40400）、出题导入（复用 content 导入接缝，指纹去重 40904 整批回滚，行校验与文件导入同口径、拼接比对按前端 normLoose 宽松归一，不建 upload 批次）、审计事件（动作白名单防污染，返回字符串 id） | `AdminAuditLogControllerTest`、`AdminErrorLogControllerTest`、`AdminGenerationControllerTest`、`AdminAuditEventControllerTest`（切片：匿名 401/非管理员 403、信封与 PageResponse/批次视图形状、stackTrace 剥离与详情、审计上下文/字符串 id 断言）；服务层分支另由 `AdminLogServiceImplTest`（时间兜底/转义/size 归一/40000/40400）、`AdminGenerationServiceImplTest`（行校验 fail-fast/接缝透传/40904 上抛）、`AdminAuditEventServiceImplTest`（白名单/行形状）覆盖；题库「空串清空说明」契约由 `ContentAdminServiceImplTest` 补测（012 AC-5） |
 | Admin/Practice | `POST /api/admin/fsrs/optimize`、`GET /api/admin/fsrs/parameters`、`POST /api/admin/fsrs/parameters/{id}/enable`（014/M2.1） | FSRS 参数版本管理：SGD 优化读指定用户 review_logs 产 GLOBAL CANDIDATE（样本 <50 40000 拒绝、metrics 携训练摘要）、版本列表、启用状态机（仅 CANDIDATE；旧 ACTIVE bulk UPDATE 即时退役防 uk 撞键；审计 FSRS_OPTIMIZE/FSRS_ENABLE）；启用后调度消费新权重（§6.1 四分支参数换源，原型种子逐值不变） | `AdminFsrsControllerTest`（切片：匿名 401/非管理员 403、40000/40001/41500、信封与视图形状、审计注解口径）；`FsrsAdminIntegrationTest`（真实 MySQL：真实日志训练产 CANDIDATE、样本不足不落行、启用状态机/40000/40400、启用后失败排程 stability=w[0]/difficulty=w[4] 且 weights_version_id 绑新版本）；`AdminFsrsControllerTest` 补 optimize 限流注解契约（ACCOUNT 5/60s）；优化器数学另由 `FsrsOptimizerTest`（FSRS-6 闭式/BCE 手算对拍、合成数据收敛）覆盖 |
+| Admin/Practice | `POST /api/admin/attempts/{attemptId}/raw`（049，§8.7） | 查看答题原文：reason 必填（缺 40000）、attempt 不存在 40403、审计先行落库拿 auditId（action=VIEW_ATTEMPT_RAW、targetType=ATTEMPT、reason 落库），返回 attemptId/userId/sentenceId/answer 原文 JSON/最新 grading/auditId；不返回密码/token、不批量 | `AdminAttemptRawControllerTest`（切片：匿名 401、非管理员 403、信封与字段形状、缺原因 40000、缺请求体 40001、40403）；审计行形状与重复查看各落一条：`AdminAttemptRawServiceImplTest`+`AdminAuditEventServiceImplTest` |
 | 运维 | `/actuator/health` | 非业务 | `AuthFlowIntegrationTest`（healthIsPublicAndUp） |
 
 ### 10.2 过渡实现（不纳入冻结契约）
@@ -2373,13 +2374,13 @@ Prompt 版本治理（DATA-MODEL §5.19 写半边）：prompt_versions 注册表
 
 | 组 | 覆盖端点 |
 |---|---|
-| Admin（§8） | `attempts/{id}/raw`、模型/运维演示页签与出题页「用当前模型生成」演示样本（011-a 后概览/用户管理/邀请码、011-b 后题库管理与题目列表/批量/单题状态/行内编辑、012 后审计/异常检索与出题导入/audit-events 为真实接口；mock 的审计行已随真实契约去掉 targetLabel，出题导入 audit-events 动作走服务端白名单） |
+| Admin（§8） | 模型/运维演示页签与出题页「用当前模型生成」演示样本（011-a 后概览/用户管理/邀请码、011-b 后题库管理与题目列表/批量/单题状态/行内编辑、012 后审计/异常检索与出题导入/audit-events、049 后查看原文 attempts/{id}/raw 为真实接口；mock 的审计行已随真实契约去掉 targetLabel，出题导入 audit-events 动作走服务端白名单） |
 
 说明：练习数据链路在真实模式下按登录态分流——**游客**由前端本地引擎承担（IndexedDB，RESEARCH 2026-10-24 增补），`lib/api.ts` 的 `LOCAL_ROUTE_GROUPS`（`mode:"guest"`）只对未登录访客本地应答、游客全链路零网络写请求；**登录用户**的 practice/analytics 请求直达服务端（波次四切换，冷启动竞态由 auth-state 探针 + Query 失效兜底）。mock 模式（`VITE_USE_MOCK=true`）仍优先于一切。
 
 ### 10.4 未开发（契约在案）
 
-- Admin 剩余写接口（§8.7 `attempts/{id}/raw` 查看原文、§8 模型配置；审计/异常检索与出题导入/audit-events 已随 012 落地，用户管理与概览/邀请码已随 011-a 落地，题库管理与题目检索/批量/单题状态/行内编辑已随 011-b 落地）。模型/运维页签保留演示态（012 观察项，随模型域切片真实化）。
+- Admin 剩余写接口（§8 模型配置；§8.7 查看原文已随 049 落地，审计/异常检索与出题导入/audit-events 已随 012 落地，用户管理与概览/邀请码已随 011-a 落地，题库管理与题目检索/批量/单题状态/行内编辑已随 011-b 落地）。模型/运维页签保留演示态（012 观察项，随模型域切片真实化）。
 - 深度批改（M3）。
 - 017 观察项（V11 收口）：`llm_usage` 用量表已随 V11 建表并落库（DATA-MODEL §5.18，结构化日志+落库双写，内部表无端点）；`llm_providers`/`prompt_versions` 全量模型配置域（M3，当前经 provider 目录（§8.15，app_settings 单键）+ YILIAN_LLM_KEY_* 环境变量过渡）。
 
@@ -2425,6 +2426,8 @@ Prompt 版本治理（DATA-MODEL §5.19 写半边）：prompt_versions 注册表
 | 2026-11-18 | v2.3 | 035 strict JSON 输出契约双执行点（GAP 029 DEF-01 方向①）：§6.13/§6.4 补「输出契约双执行点（035）」口径——系统提示（V13 种子语义不动）声明 + 用户消息末尾「输出格式要求」指令块强制（字段清单与解析端一一对应、只输出 JSON 对象本身）；受控实验+黄金集基线实证现网网关不生效 top-level system 字段（只写在系统提示的契约模型收不到、回复自由文本、解析必败），契约经用户消息 wire 级可达，尊重 system 的直连部署双重强调无害；指令块为 builder 代码侧静态文本不进 `prompt_versions`（无迁移，DATA-MODEL §5.19 注）；接口形状/错误码/限流零变化 | 实现工程师 |
 | 2026-11-19 | v2.4 | 036 自助删号（30 天冷静期匿名化）+ 服务端数据导出（GAP pending-20261117 P0-05）：新增 §4.11 `GET /api/me/export`（本人账号块+练习域四切片整包 JSON；**响应体为导出 JSON 本身而非统一信封**——文件下载语义的唯一显式例外，Content-Disposition 附件；凭据投影不进文件；不做管理员单用户导出=P1-05）与 §4.12 `POST /api/auth/delete-account`（密码确认 + 2FA 开启者双确认 → 软删（与 §8.2c 同口径，deleted_by=本人）+ 清 TOTP 注册 + 吊销全部会话；回执 deletedAtUtc/anonymizeAtUtc=+30 天（配置键 `yilian.account.anonymize-grace-days` 与匿名化日调度同源）；已删重复调用 40900「账号已删除」幂等口径裁决；无自助撤销预披露）；V17 `users.anonymized_at`（DATA-MODEL §5.1）；§10.1 矩阵三行（export/delete-account/匿名化 Job）；§10 头部日期 2026-11-18→2026-11-19 | 实现工程师 |
 | 2026-11-19 | v2.5 | §3 端点总表补漏：fsrs/llm/prompts 三组 implemented 行回填（端点清单与 §8.13/§8.14/§8.15/§8.17/§8.18 对齐），analytics 两行 planned→implemented（§7.1/§7.2 已随存量落地）；§4.12 删号口径补记管理员删除同清 2FA 材料（§8.2c 行为随批次更新，与自助删号一致） | 实现工程师 |
+
+| 2026-11-21 | v2.6 | 049 管理端查看答题原文端点落地（GAP P1-03）：§8.7 planned→implemented（POST /api/admin/attempts/{attemptId}/raw：reason 必填缺 40000、attempt 不存在 40403、审计先行落库拿 auditId（action=VIEW_ATTEMPT_RAW、targetType=ATTEMPT），返回 attemptId/userId/sentenceId/answer 原文 JSON/最新 grading/auditId；不返回密码/token、不批量、无 MyBatis/JPA 新映射）；§3 总表、§10.1 矩阵、§10.3 mock 行同步；前端客户端/原因交互此前已按契约就位，本批零前端代码改动 | 实现工程师 |
 
 ---
 
