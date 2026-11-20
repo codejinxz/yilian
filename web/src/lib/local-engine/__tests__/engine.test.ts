@@ -4,6 +4,7 @@
  * 今日/统计聚合与「不认同」排除。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { retrySlotPrefill } from "@/features/practice/grading";
 import { localDateString } from "@/lib/format";
 import type { AttemptRequest, PracticeSentence } from "@/lib/schemas/practice";
 import {
@@ -685,5 +686,23 @@ describe("本地引擎：导出与清空", () => {
     expect(await getCachedSentences()).toEqual([]);
     expect(await getWrongQuestions()).toEqual([]);
     expect(loadPlacementState()).toBeNull();
+  });
+});
+
+describe("本地引擎：错题重打的词框预填", () => {
+  /** [AC-4] 游客本地批注链路与预填同形：判对回填参考、判错留空；批注缺失时降级全空。 */
+  it("retryPrefillMapsLocalAnnotationsLikeServer_ac4", async () => {
+    await seedBank();
+    const response = await submitLocalAttempt(
+      buildAttempt("s1", { 1: "more and more", 2: "nope" }),
+    );
+    expect(response.nextAction.retryRequired).toBe(true);
+    const sentence = SENTENCES.find((item) => item.id === "s1") as PracticeSentence;
+    const prefill = retrySlotPrefill(sentence.blank, response.result.annotations);
+    expect(prefill.slots).toEqual({ 1: "more and more", 2: "" });
+    expect(prefill.firstWrongChunkIndex).toBe(2);
+    const degraded = retrySlotPrefill(sentence.blank, []);
+    expect(degraded.slots).toEqual({ 1: "", 2: "" });
+    expect(degraded.firstWrongChunkIndex).toBe(1);
   });
 });

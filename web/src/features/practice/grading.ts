@@ -384,3 +384,39 @@ export function freeModeChips(
     hit: chunk.answers.some((answer) => hasPhrase(text, answer)),
   }));
 }
+
+export interface RetrySlotPrefill {
+  /** 每个挖空槽位的预填文本：判对的槽为参考值，判错或无批注的槽为空串。 */
+  slots: Record<number, string>;
+  /** 首个未判对的挖空语块下标；全部已判对时为 null。 */
+  firstWrongChunkIndex: number | null;
+}
+/**
+ * 由父判分的逐槽批注推导重打预填：判对的槽回填批注参考值，判错或缺批注的槽留空——
+ * 留空比代填参考更保守，也保住「改对才过」的练习量；批注整体缺失时全部留空（降级）。
+ * @param blank 挖空语块下标，顺序即题面编号顺序
+ * @param annotations 父判分批注，槽位批注的 key 约定为 slot:{chunkIndex}
+ * @returns 预填表与首个错空下标
+ */
+export function retrySlotPrefill(
+  blank: readonly number[],
+  annotations: readonly GradingAnnotation[],
+): RetrySlotPrefill {
+  const byChunk = new Map(
+    annotations
+      .filter((item) => item.key.startsWith("slot:"))
+      .map((item) => [item.chunkIndex, item] as const),
+  );
+  const slots: Record<number, string> = {};
+  let firstWrongChunkIndex: number | null = null;
+  for (const chunkIndex of blank) {
+    const annotation = byChunk.get(chunkIndex);
+    if (annotation?.correct) {
+      slots[chunkIndex] = annotation.expected[0] ?? "";
+    } else {
+      slots[chunkIndex] = "";
+      firstWrongChunkIndex ??= chunkIndex;
+    }
+  }
+  return { slots, firstWrongChunkIndex };
+}

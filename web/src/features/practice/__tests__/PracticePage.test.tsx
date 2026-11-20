@@ -9,7 +9,13 @@ import { ApiError } from "@/lib/api-error";
 import { createQueryClient } from "@/lib/query";
 import type { PageResponse } from "@/lib/schemas/common";
 import type { BankView } from "@/lib/schemas/content";
-import type { AttemptResponse, ModelReview, PracticeSentence, Today } from "@/lib/schemas/practice";
+import type {
+  AttemptRequest,
+  AttemptResponse,
+  ModelReview,
+  PracticeSentence,
+  Today,
+} from "@/lib/schemas/practice";
 
 /**
  * PracticePage 的答疑入口会话记忆：只覆盖「问一问」入口的显隐口径，
@@ -581,5 +587,268 @@ describe("PracticePage 错题集下拉与取题", () => {
     });
     expect(overlapped).toBe(false);
     view.unmount();
+  });
+});
+
+/** 双空句夹具：首空判对（多词）、次空判错（单词），词框路径重打只需键入判错的空。 */
+const RETRY_SENTENCE: PracticeSentence = {
+  ...SENTENCE,
+  id: "01JSEN00000000000000000009",
+  sentenceVersionId: "01JVER00000000000000000009",
+  zh: "他越来越重视这件事。",
+  ref: "He pays more and more attention to this.",
+  chunks: [
+    { index: 0, zh: "他越来越重视", answers: ["He pays"], tag: null, note: null },
+    { index: 1, zh: "越来越多", answers: ["more and more"], tag: null, note: null },
+    { index: 2, zh: "重视", answers: ["attention"], tag: null, note: null },
+    { index: 3, zh: "这件事", answers: ["to this"], tag: null, note: null },
+  ],
+  blank: [1, 2],
+};
+
+/** 双空判分桩：首空判对、次空判错，retryRequired=true 驱动「改对才过」块。 */
+const RETRY_ATTEMPT: AttemptResponse = {
+  attemptId: "3f0e8e50-6b1d-4e0f-9d3a-5f2c1b9e0009",
+  sentenceId: RETRY_SENTENCE.id,
+  sentenceVersionId: RETRY_SENTENCE.sentenceVersionId,
+  mode: "CLOZE",
+  kind: "FIRST",
+  score: 75,
+  maxScore: 100,
+  result: {
+    schemaVersion: 1,
+    score: 75,
+    maxScore: 100,
+    hitCount: 3,
+    totalCount: 4,
+    annotations: [
+      {
+        key: "slot:1",
+        chunkIndex: 1,
+        tag: "副词结构",
+        expected: ["more and more"],
+        received: "more and more",
+        correct: true,
+        message: null,
+        minimalFix: null,
+      },
+      {
+        key: "slot:2",
+        chunkIndex: 2,
+        tag: "搭配",
+        expected: ["attention"],
+        received: "attension",
+        correct: false,
+        message: "拼写不正确",
+        minimalFix: "attention",
+      },
+    ],
+    summary: "还差 1 处",
+  },
+  grading: { ...SERVER_ATTEMPT.grading },
+  review: null,
+  reference: { ref: RETRY_SENTENCE.ref, note: null },
+  nextAction: { retryRequired: true, canReveal: true },
+  replayed: false,
+};
+
+/** 重打核对成功桩：RETRY 判 100、无需再改对。 */
+const RETRY_RETRY_OK: AttemptResponse = {
+  ...RETRY_ATTEMPT,
+  attemptId: "9e1b2c3d-0000-4000-8000-000000000001",
+  kind: "RETRY",
+  score: 100,
+  result: {
+    ...RETRY_ATTEMPT.result,
+    score: 100,
+    hitCount: 4,
+    annotations: [],
+    summary: "全部命中",
+  },
+  nextAction: { retryRequired: false, canReveal: true },
+};
+
+describe("PracticePage 只重做出错的空", () => {
+  beforeAll(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    routerState.search = {};
+    useSessionStore.setState({ status: "anonymous" });
+    practiceApi.getToday.mockResolvedValue(TODAY);
+    practiceApi.getNextPractice.mockResolvedValue({
+      sentence: RETRY_SENTENCE,
+      review: null,
+      selection: "NEW",
+    });
+    practiceApi.getAttempt.mockResolvedValue(RETRY_ATTEMPT);
+    practiceApi.submitAttempt.mockResolvedValue(RETRY_ATTEMPT);
+    contentApi.getBanks.mockResolvedValue({
+      items: [BANK],
+      page: 1,
+      size: 100,
+      total: 1,
+      totalPages: 1,
+      hasNext: false,
+    } satisfies PageResponse<BankView>);
+    contentApi.getBankSentences.mockResolvedValue({
+      version: 1,
+      items: [RETRY_SENTENCE],
+      nextSinceVersion: 0,
+      hasMore: false,
+    });
+  });
+
+  /** [AC-1] 会话内部分答错→重打：判对的空预填参考、判错的空留空并聚焦首错空；核对按全槽上送。 */
+  it("retypePrefillsCorrectSlotsAndFocusesFirstWrong_ac1", async () => {
+    renderPage();
+    await screen.findByText("他越来越重视这件事。");
+    const user = userEvent.setup();
+    // 首空按词框逐词作答（Enter 跳下一词框），次空写错后提交。
+    await user.type(screen.getByLabelText("第 1 空第 1 词：越来越多"), "more");
+    await user.keyboard("{Enter}");
+    await user.type(screen.getByLabelText("第 1 空第 2 词：越来越多"), "and");
+    await user.keyboard("{Enter}");
+    await user.type(screen.getByLabelText("第 1 空第 3 词：越来越多"), "more");
+    await user.type(screen.getByLabelText("第 2 空第 1 词：重视"), "attension");
+    await user.click(screen.getByRole("button", { name: /提交/ }));
+    expect(await screen.findByText("75")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "重打出错的空" }));
+
+    expect((screen.getByLabelText("第 1 空第 1 词：越来越多") as HTMLInputElement).value).toBe(
+      "more",
+    );
+    expect((screen.getByLabelText("第 1 空第 3 词：越来越多") as HTMLInputElement).value).toBe(
+      "more",
+    );
+    expect((screen.getByLabelText("第 2 空第 1 词：重视") as HTMLInputElement).value).toBe("");
+    // 焦点落在首个错空的第一个词框。
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText("第 2 空第 1 词：重视")),
+    );
+
+    practiceApi.submitAttempt.mockClear();
+    practiceApi.submitAttempt.mockResolvedValue(RETRY_RETRY_OK);
+    await user.type(screen.getByLabelText("第 2 空第 1 词：重视"), "attention");
+    await user.click(screen.getByRole("button", { name: "核对" }));
+    expect(await screen.findByText("已修复")).toBeTruthy();
+
+    const retryCall = practiceApi.submitAttempt.mock.calls.at(-1)?.[0] as AttemptRequest;
+    expect(retryCall.kind).toBe("RETRY");
+    expect(retryCall.retryOfId).toBe(RETRY_ATTEMPT.attemptId);
+    expect(retryCall.answer.mode).toBe("CLOZE");
+    expect(retryCall.answer.slots).toEqual([
+      { chunkIndex: 1, value: "more and more" },
+      { chunkIndex: 2, value: "attention" },
+    ]);
+  });
+
+  /** [AC-2] 错题深链（errors=1 + lastAttemptId）回看重打：经 GET /attempts/{id} 取父批注预填。 */
+  it("errorsDeepLinkPrefillsFromFetchedAttempt_ac2", async () => {
+    routerState.search = { attemptId: RETRY_ATTEMPT.attemptId, errors: true };
+    sessionStorage.setItem(
+      `yilian.practice.sentence.${RETRY_SENTENCE.id}`,
+      JSON.stringify(RETRY_SENTENCE),
+    );
+    practiceApi.getAttempt.mockResolvedValue(RETRY_ATTEMPT);
+    renderPage();
+    await screen.findByText("75");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "重打出错的空" }));
+    expect((screen.getByLabelText("第 1 空第 1 词：越来越多") as HTMLInputElement).value).toBe(
+      "more",
+    );
+    expect((screen.getByLabelText("第 2 空第 1 词：重视") as HTMLInputElement).value).toBe("");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText("第 2 空第 1 词：重视")),
+    );
+    expect(practiceApi.getAttempt).toHaveBeenCalledWith(RETRY_ATTEMPT.attemptId, expect.anything());
+  });
+
+  /** [AC-2] 父 attempt 缺逐槽批注时优雅降级：词框全空、聚焦首空，不崩溃。 */
+  it("retypeDegradesToAllEmptyWhenAnnotationsMissing_ac2", async () => {
+    routerState.search = { attemptId: RETRY_ATTEMPT.attemptId, errors: true };
+    sessionStorage.setItem(
+      `yilian.practice.sentence.${RETRY_SENTENCE.id}`,
+      JSON.stringify(RETRY_SENTENCE),
+    );
+    practiceApi.getAttempt.mockResolvedValue({
+      ...RETRY_ATTEMPT,
+      result: { ...RETRY_ATTEMPT.result, annotations: [] },
+    });
+    renderPage();
+    await screen.findByText("75");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "重打出错的空" }));
+    expect((screen.getByLabelText("第 1 空第 1 词：越来越多") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("第 2 空第 1 词：重视") as HTMLInputElement).value).toBe("");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText("第 1 空第 1 词：越来越多")),
+    );
+  });
+
+  /** [AC-3] 整句重打流程不变：整句差异被拦截，一致才按整句文本上送且不带 slots。 */
+  it("freeRetypeFlowStaysWholeSentenceValidation_ac3", async () => {
+    const freeAttempt: AttemptResponse = {
+      ...SERVER_ATTEMPT,
+      attemptId: "3f0e8e50-6b1d-4e0f-9d3a-5f2c1b9e0008",
+      mode: "FREE",
+      score: 40,
+      result: {
+        schemaVersion: 1,
+        score: 40,
+        maxScore: 100,
+        hitCount: 1,
+        totalCount: 3,
+        annotations: [
+          {
+            key: "free:0",
+            chunkIndex: 0,
+            tag: "句意",
+            expected: [],
+            received: "He pays more and more attention on this.",
+            correct: false,
+            message: "介词搭配不正确",
+            minimalFix: null,
+          },
+        ],
+        summary: "还有差异",
+      },
+      nextAction: { retryRequired: true, canReveal: true },
+    };
+    routerState.search = { attemptId: freeAttempt.attemptId };
+    sessionStorage.setItem(`yilian.practice.sentence.${SENTENCE.id}`, JSON.stringify(SENTENCE));
+    practiceApi.getAttempt.mockResolvedValue(freeAttempt);
+    practiceApi.submitAttempt.mockResolvedValue({
+      ...freeAttempt,
+      attemptId: "9e1b2c3d-0000-4000-8000-000000000002",
+      kind: "RETRY",
+      score: 100,
+      result: { ...freeAttempt.result, score: 100, annotations: [], summary: "完全一致" },
+      nextAction: { retryRequired: false, canReveal: true },
+    });
+    renderPage();
+    await screen.findByText("40");
+    const user = userEvent.setup();
+    const retypeBox = screen.getByLabelText("重打参考译文");
+    await user.type(retypeBox, "He said something different.");
+    await user.click(screen.getByRole("button", { name: "核对" }));
+    expect(await screen.findByText(/还有差异，再对照一遍/)).toBeTruthy();
+    expect(practiceApi.submitAttempt).not.toHaveBeenCalled();
+
+    await user.clear(retypeBox);
+    await user.type(retypeBox, SENTENCE.ref);
+    await user.click(screen.getByRole("button", { name: "核对" }));
+    expect(await screen.findByText("已修复")).toBeTruthy();
+    const retryCall = practiceApi.submitAttempt.mock.calls.at(-1)?.[0] as AttemptRequest;
+    expect(retryCall.kind).toBe("RETRY");
+    expect(retryCall.retryOfId).toBe(freeAttempt.attemptId);
+    expect(retryCall.answer.mode).toBe("FREE");
+    expect(retryCall.answer.text).toBe(SENTENCE.ref);
+    expect(retryCall.answer.slots).toBeUndefined();
   });
 });

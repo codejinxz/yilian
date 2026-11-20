@@ -21,6 +21,7 @@ import {
   gradeCloze,
   gradeFree,
   normalizeAnswer,
+  retrySlotPrefill,
   retypedMatchesReference,
 } from "@/features/practice/grading";
 import { enqueueAttempt, useOfflineQueueCount } from "@/features/practice/offline-queue";
@@ -477,6 +478,11 @@ export function PracticePage() {
   /** 本会话内改对已确认（RETRY 成功）：豁免原 attempt 的 retryRequired，换句/重答即重置。 */
   const [retryFixed, setRetryFixed] = useState(false);
   /**
+   * CLOZE 重打的词框编辑态：记录进入编辑时绑定的判分对象 id，换判分对象即自动退出；
+   * 只在内存生效，随换句/改对成功清除。
+   */
+  const [retryEditingFor, setRetryEditingFor] = useState<string | null>(null);
+  /**
    * 判分对位双视图：「按我的输入」是现状视图（默认），「按参考对位」以规范答案词序重排
    * 逐词命中态。多词块被固定词框强拆后红绿错位、看不清错在哪个词，
    * 参考对位视图给第二条可读路径；纯本地状态，不进任何持久层。
@@ -584,6 +590,8 @@ export function PracticePage() {
   });
 
   const attempt = attemptQuery.data ?? optimistic;
+  // 词框编辑态按判分对象绑定：attempt 换人（下一句/回看/看答案回跳）即自动失活。
+  const retryEditing = retryEditingFor !== null && retryEditingFor === attempt?.attemptId;
   // 快照优先：提交成功后 optimistic 清空与 attemptId 就位之间，nextQuery 会短暂
   // re-enable；staleTime 30s 过后该缓存触发后台 refetch，若让 nextQuery.data 优先，
   // 取回的「下一句」会覆盖刚提交的题干，造成串句与 RETRY 重判污染。
@@ -630,6 +638,7 @@ export function PracticePage() {
     setRetryError(null);
     setReview(null);
     setRetryFixed(false);
+    setRetryEditingFor(null);
     setIpaVisible(false);
     setSlotView("mine");
     setRecordedFlash(false);
@@ -698,6 +707,7 @@ export function PracticePage() {
         // 块内显示苔绿「已修复」；「下一句」由 retryFixed 豁免放行。乐观态不清——
         // 乐观-FIRST 边缘下它就是原判分视图。刷新后回到原 attempt 仍是待改对态：
         // 判分 append-only，改对记录已在库、原判分不覆盖，此为可接受行为。
+        setRetryEditingFor(null);
         setRetryFixed(true);
         toast("已修复，可以下一句了");
       } else {
@@ -927,6 +937,19 @@ export function PracticePage() {
   }
 
   /**
+   * 进入 CLOZE 重打的词框编辑态：按父批注预填（判对→参考值，判错→留空）并清掉整句重打痕迹。
+   * 批注不可用（看答案/异常判分）时预填表全空，等价把全部空重练一遍。
+   */
+  function startClozeRetry() {
+    if (!attempt || !retryPrefill) {
+      return;
+    }
+    setAnswers((current) => ({ ...current, ...retryPrefill.slots }));
+    setRetryText("");
+    setRetryError(null);
+    setRetryEditingFor(attempt.attemptId);
+  }
+  /**
    * 提交改对/看答案；这两种动作都走同一 attempt 接口，仅 kind 不同。
    * REVEAL 不依赖既有 attempt——新题上直接「看答案」是主路径，本地引擎与 mock
    * 都只校验 answer.revealed 标记（retryOfId 本就传 null）；RETRY 必须挂回原提交，
@@ -944,22 +967,26 @@ export function PracticePage() {
         if (!attempt) {
           return;
         }
-        if (!retypedMatchesReference(attempt.reference.ref, retryText)) {
-          setRetryError("还有差异，再对照一遍。大小写、标点与多余空格可以忽略，但用词要一致。");
-          return;
+        if (attempt.mode === "CLOZE") {
+          // 词框路径：提交前本地按全槽校验，未全对不放行（改对才过）；服务端仍按全槽重判。
+          const local = localResult();
+          if (!local || local.score === null || local.score < 100) {
+            setRetryError("还有空没改对，先补上再点核对。");
+            return;
+          }
+          setRetryError(null);
+        } else {
+          if (!retypedMatchesReference(attempt.reference.ref, retryText)) {
+            setRetryError("还有差异，再对照一遍。大小写、标点与多余空格可以忽略，但用词要一致。");
+            return;
+          }
+          setRetryError(null);
         }
-        setRetryError(null);
-        const slots =
+        // CLOZE 不再整段覆盖参考值：词框编辑态写入的 answers 即提交值，全槽照常上送。
+        request =
           attempt.mode === "CLOZE"
-            ? sentence.blank.map((chunkIndex) => {
-                const chunk = sentence.chunks.find((item) => item.index === chunkIndex);
-                return { chunkIndex, value: chunk?.answers[0] ?? "" };
-              })
-            : undefined;
-        request = buildRequest("RETRY", attempt.attemptId, {
-          ...(slots ? { slots } : {}),
-          ...(attempt.mode === "FREE" ? { text: retryText } : {}),
-        });
+            ? buildRequest("RETRY", attempt.attemptId)
+            : buildRequest("RETRY", attempt.attemptId, { text: retryText });
         result = localResult() ?? attempt.result;
       } else {
         setRetryError(null);
@@ -1216,7 +1243,7 @@ export function PracticePage() {
   // 提交后的批改视图数据源：以 attempt 批注为准（刷新恢复后答案状态为空也能还原笔迹）；
   // 逐词命中/错误标记由骨架渲染时按批注现算，这里只还原各挖空的笔迹文本。
   const submittedSlots = useMemo(() => {
-    if (!attempt || !displaySentence || displayMode !== "CLOZE") {
+    if (retryEditing || !attempt || !displaySentence || displayMode !== "CLOZE") {
       return null;
     }
     const byChunk = new Map(
@@ -1235,7 +1262,28 @@ export function PracticePage() {
       }
     }
     return slots;
+  }, [retryEditing, attempt, displaySentence, displayMode]);
+
+  // CLOZE 重打预填：判对的空回填父批注参考值，判错/缺批注的空留空（降级即全空）；
+  // FREE 或无 attempt 时为 null，重打仍走整句重打路径。
+  const retryPrefill = useMemo(() => {
+    if (!attempt || !displaySentence || displayMode !== "CLOZE") {
+      return null;
+    }
+    return retrySlotPrefill(displaySentence.blank, attempt.result.annotations);
   }, [attempt, displaySentence, displayMode]);
+
+  // 进入词框编辑态后把焦点落到首个错空的第一个词框；全部判对时无错空可聚焦。
+  useEffect(() => {
+    if (!retryEditing) {
+      return;
+    }
+    const target = retryPrefill?.firstWrongChunkIndex;
+    if (target === null || target === undefined) {
+      return;
+    }
+    skeletonRef.current?.querySelector<HTMLInputElement>(`input[data-blank="${target}"]`)?.focus();
+  }, [retryEditing, retryPrefill]);
 
   const submittedFree = useMemo(() => {
     if (!attempt || displayMode !== "FREE") {
@@ -1760,6 +1808,7 @@ export function PracticePage() {
                                       }
                                       readOnly={Boolean(submittedSlots)}
                                       aria-label={`第 ${blankIndex + 1} 空第 ${k + 1} 词：${chunk.zh}`}
+                                      data-blank={chunk.index}
                                       autoComplete="off"
                                       autoCapitalize="none"
                                       spellCheck={false}
@@ -2034,44 +2083,63 @@ export function PracticePage() {
               {attempt.nextAction.retryRequired ? (
                 <section className="mt-[26px] border-t border-rule pt-[22px]">
                   <p className="label">改对才过</p>
-                  <p className="mt-2 mb-0 text-xs leading-[1.7] text-ink-muted">
-                    把参考译文重打一遍，确认自己真的会了。错题明天还会出现。
-                  </p>
-                  <input
-                    value={retryText}
-                    onChange={(event) => {
-                      setRetryText(event.target.value);
-                      setRetryError(null);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.nativeEvent.isComposing || event.keyCode === 229) {
-                        return;
-                      }
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        submitFollowUp("RETRY");
-                      }
-                    }}
-                    placeholder="重打参考译文…"
-                    autoComplete="off"
-                    spellCheck={false}
-                    aria-label="重打参考译文"
-                    className="mt-3.5 w-full border-b border-rule bg-transparent py-[9px] font-serif text-[17px] text-ink outline-none focus:border-vermilion"
-                  />
+                  {attempt.mode === "CLOZE" ? (
+                    <p className="mt-2 mb-0 text-xs leading-[1.7] text-ink-muted">
+                      {retryEditing
+                        ? "出错的空已留白，写对的空已按参考填好；补上后点「核对」。"
+                        : "把出错的空重新填对，确认自己真的会了。错题明天还会出现。"}
+                    </p>
+                  ) : (
+                    <p className="mt-2 mb-0 text-xs leading-[1.7] text-ink-muted">
+                      把参考译文重打一遍，确认自己真的会了。错题明天还会出现。
+                    </p>
+                  )}
+                  {attempt.mode === "CLOZE" && !retryEditing ? (
+                    <div className="mt-3.5">
+                      <button type="button" onClick={startClozeRetry} className="btn ghost">
+                        重打出错的空
+                      </button>
+                    </div>
+                  ) : null}
+                  {attempt.mode === "FREE" ? (
+                    <input
+                      value={retryText}
+                      onChange={(event) => {
+                        setRetryText(event.target.value);
+                        setRetryError(null);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.nativeEvent.isComposing || event.keyCode === 229) {
+                          return;
+                        }
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          submitFollowUp("RETRY");
+                        }
+                      }}
+                      placeholder="重打参考译文…"
+                      autoComplete="off"
+                      spellCheck={false}
+                      aria-label="重打参考译文"
+                      className="mt-3.5 w-full border-b border-rule bg-transparent py-[9px] font-serif text-[17px] text-ink outline-none focus:border-vermilion"
+                    />
+                  ) : null}
                   {retryError ? (
                     <p role="alert" className="mt-2 text-sm text-vermilion-deep">
                       {retryError}
                     </p>
                   ) : null}
                   <div className="keyboard-safe mt-3.5 flex flex-wrap items-center gap-3.5">
-                    <button
-                      type="button"
-                      disabled={submitMutation.isPending || offlineNotice !== null}
-                      onClick={() => submitFollowUp("RETRY")}
-                      className="btn ghost"
-                    >
-                      核对
-                    </button>
+                    {attempt.mode === "FREE" || retryEditing ? (
+                      <button
+                        type="button"
+                        disabled={submitMutation.isPending || offlineNotice !== null}
+                        onClick={() => submitFollowUp("RETRY")}
+                        className="btn ghost"
+                      >
+                        核对
+                      </button>
+                    ) : null}
                     {retryFixed ? (
                       // 原型 checkRetry：修对后在按钮行显示苔绿「已修复」，块与输入不隐藏。
                       <span className="hintline text-moss">已修复</span>
