@@ -254,6 +254,23 @@ describe("PracticePage 答疑入口显隐（三态 + 会话记忆）", () => {
     expect(screen.queryByRole("button", { name: "问一问" })).toBeNull();
     expect(screen.queryByRole("region", { name: "题目答疑" })).toBeNull();
   });
+
+  /** [AC-4] 暂时性失败后收起面板:「问一问」入口旁保留「暂不可用」角标——
+   * 失败状态不随面板收起一起消失(永久不可用 40304/40400 仍整体隐藏入口,不在此列)。 */
+  it("keepsUnavailableBadgeAfterPanelCollapse_ac4", async () => {
+    practiceApi.askTutor.mockRejectedValue(new Error("网络中断"));
+    renderPage();
+
+    await askInPanel("为什么用 importance？");
+    const panel = within(await screen.findByRole("region", { name: "题目答疑" }));
+    expect(await panel.findByRole("alert")).toBeTruthy();
+
+    // 收起面板:入口与「暂不可用」角标同时可见。
+    await userEvent.setup().click(panel.getByRole("button", { name: "收起" }));
+    expect(screen.queryByRole("region", { name: "题目答疑" })).toBeNull();
+    expect(screen.getByRole("button", { name: "问一问" })).toBeTruthy();
+    expect(screen.getByText("暂不可用")).toBeTruthy();
+  });
 });
 
 /** 服务端已判分 attempt 桩：grading.id 为服务端 ULID、首判 61 分、一条错误批注。 */
@@ -484,6 +501,28 @@ describe("PracticePage 错题集下拉与取题", () => {
       nextSinceVersion: 0,
       hasMore: false,
     });
+  });
+
+  /** [AC-1] 下拉 option 与今日页 chips 同口径：文案取「 · 」前短名——会话条 236px 里
+   * 放不下完整长名，且两处入口的题库叫法必须一致。 */
+  it("bankDropdownOptionShowsShortName_ac1", async () => {
+    contentApi.getBanks.mockResolvedValue({
+      items: [{ ...BANK, name: "官方题库 · CET6 冲刺篇" }],
+      page: 1,
+      size: 100,
+      total: 1,
+      totalPages: 1,
+      hasNext: false,
+    } satisfies PageResponse<BankView>);
+    const view = renderPage();
+    await screen.findByText("环境保护");
+
+    const select = screen.getByRole("combobox", { name: "选择题库" });
+    const option = within(select).getByRole("option", { name: "官方题库" });
+    expect(option).toBeTruthy();
+    // 完整长名不进 option 文案。
+    expect(option.textContent).not.toContain("CET6");
+    view.unmount();
   });
 
   /** [AC-1] 下拉首项「错题集」：选中即进入错题模式——URL search 同步 errors=true 并清空
@@ -850,5 +889,60 @@ describe("PracticePage 只重做出错的空", () => {
     expect(retryCall.answer.mode).toBe("FREE");
     expect(retryCall.answer.text).toBe(SENTENCE.ref);
     expect(retryCall.answer.slots).toBeUndefined();
+  });
+});
+
+describe("PracticePage 判分后操作锁定", () => {
+  beforeAll(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    routerState.search = {};
+    useSessionStore.setState({ status: "anonymous" });
+    practiceApi.getToday.mockResolvedValue(TODAY);
+    practiceApi.getNextPractice.mockResolvedValue({
+      sentence: SENTENCE,
+      review: null,
+      selection: "NEW",
+    });
+    practiceApi.getAttempt.mockResolvedValue(null);
+    contentApi.getBanks.mockResolvedValue({
+      items: [BANK],
+      page: 1,
+      size: 100,
+      total: 1,
+      totalPages: 1,
+      hasNext: false,
+    } satisfies PageResponse<BankView>);
+    contentApi.getBankSentences.mockResolvedValue({
+      version: 1,
+      items: [SENTENCE],
+      nextSinceVersion: 0,
+      hasMore: false,
+    });
+  });
+  /** [AC-2] 判分后「首字母」随题目锁定禁用置灰:不再出现可点但无反馈的死按钮;
+   * 判分前提示仍可用,两级状态互不干扰。 */
+  it("disablesHintButtonOnceGraded_ac2", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("环境保护");
+    expect((screen.getByRole("button", { name: "首字母" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    await user.click(screen.getByRole("button", { name: "首字母" }));
+    expect(screen.getByText(/首字母：/)).toBeTruthy();
+    practiceApi.submitAttempt.mockResolvedValue(SERVER_ATTEMPT);
+    await user.type(screen.getByLabelText("第 1 空第 1 词：环境保护"), "importance on");
+    await user.click(screen.getByRole("button", { name: /提交/ }));
+    expect(await screen.findByText("61")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "首字母" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    await user.click(screen.getByRole("button", { name: "首字母" }));
+    expect(screen.queryByText(/词数：/)).toBeNull();
   });
 });

@@ -340,24 +340,26 @@ export function StatsPage() {
             ) : (
               <div className="flex flex-col gap-4">
                 {view.errorTags.map((item) => {
-                  // 已按次数降序，第一项就是最大值，条宽相对它取百分比（同原型取整口径）。
+                  // 已按次数降序，第一项就是最大值；条宽与右侧百分比都相对它取比例，
+                  // 数量相同（如各 2）时不再同数满宽、被放大成「错误很多且均等」。
                   const topMax = view.errorTags[0]?.count ?? 1;
+                  const share = Math.round((item.count / Math.max(topMax, 1)) * 100);
                   return (
                     <div
                       key={item.tag}
-                      className="grid grid-cols-[72px_1fr_36px] items-center gap-4 text-xs text-ink-muted"
+                      className="grid grid-cols-[72px_1fr_72px] items-center gap-4 text-xs text-ink-muted"
                     >
                       <span className="truncate">{item.tag}</span>
                       <span className="relative h-[5px] bg-rule">
                         <span
                           className="absolute inset-y-0 left-0 bg-vermilion/70"
                           style={{
-                            width: `${Math.round((item.count / Math.max(topMax, 1)) * 100)}%`,
+                            width: `${share}%`,
                           }}
                         />
                       </span>
                       <span className="text-right font-mono text-[10px] text-ink-faint">
-                        {item.count}
+                        {item.count} · {share}%
                       </span>
                     </div>
                   );

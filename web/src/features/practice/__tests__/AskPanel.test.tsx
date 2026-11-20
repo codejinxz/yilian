@@ -18,15 +18,25 @@ vi.mock("@/lib/api/practice", () => ({
 }));
 
 /** 挂载 AskPanel；AskPanel 用 useMutation，需要 QueryClient 包裹。 */
-function renderPanel(overrides?: { onUnavailable?: () => void; onClose?: () => void }) {
+function renderPanel(overrides?: {
+  onUnavailable?: () => void;
+  onClose?: () => void;
+  onTransientUnavailable?: () => void;
+}) {
   const onUnavailable = overrides?.onUnavailable ?? vi.fn();
   const onClose = overrides?.onClose ?? vi.fn();
+  const onTransientUnavailable = overrides?.onTransientUnavailable ?? vi.fn();
   render(
     <QueryClientProvider client={createQueryClient()}>
-      <AskPanel sentenceId="01HSENTENCE" onClose={onClose} onUnavailable={onUnavailable} />
+      <AskPanel
+        sentenceId="01HSENTENCE"
+        onClose={onClose}
+        onUnavailable={onUnavailable}
+        onTransientUnavailable={onTransientUnavailable}
+      />
     </QueryClientProvider>,
   );
-  return { onUnavailable, onClose };
+  return { onUnavailable, onClose, onTransientUnavailable };
 }
 
 /** 输入问题并提交。 */
@@ -163,6 +173,20 @@ describe("AskPanel", () => {
     expect(screen.getByRole("alert").textContent).toContain("答疑暂时不可用");
     // 问句保留（「问」徽标 + 问句气泡），便于修改重问；入口未隐藏。
     expect(screen.getAllByText("问").length).toBeGreaterThanOrEqual(1);
+    expect(onUnavailable).not.toHaveBeenCalled();
+  });
+
+  /** [AC-4] 暂时性失败经 onTransientUnavailable 通知父级挂「暂不可用」角标：
+   * 面板收起后不可用状态仍可见，不是只活在已展开的面板里。 */
+  it("notifiesParentOnTransientErrorForEntryBadge_ac4", async () => {
+    askTutorMock.mockRejectedValue(new Error("网络中断"));
+    const { onUnavailable, onTransientUnavailable } = renderPanel();
+
+    await ask("问");
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(onTransientUnavailable).toHaveBeenCalledTimes(1);
+    // 与 40304/40400 的永久不可用区分：面板不收起，入口保留。
     expect(onUnavailable).not.toHaveBeenCalled();
   });
 

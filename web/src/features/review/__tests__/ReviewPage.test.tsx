@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ReviewPage } from "@/features/review/ReviewPage";
 import { createQueryClient } from "@/lib/query";
@@ -48,13 +48,12 @@ const engineApi = vi.hoisted(() => ({
 
 vi.mock("@/lib/local-engine", () => engineApi);
 
-/** 最小 router 桩：复习页只用 Link 与 useSearch（search 缺省按「全部」档）。 */
+/** 导航桩:「开始」入口是 button+navigate(AC-3),记录调用供断言带入的 search。 */
+const routerNav = vi.hoisted(() => ({ navigate: vi.fn() }));
+
+/** 最小 router 桩：复习页只用 useNavigate 与 useSearch（search 缺省按「全部」档）。 */
 vi.mock("@tanstack/react-router", () => ({
-  Link: (props: { to?: string; search?: unknown; className?: string; children?: ReactNode }) => (
-    <a href="#stub" className={props.className}>
-      {props.children}
-    </a>
-  ),
+  useNavigate: () => routerNav.navigate,
   useSearch: () => ({}),
 }));
 
@@ -326,5 +325,82 @@ describe("ReviewPage 7 日到期日历", () => {
     renderPage(client);
     await screen.findByRole("region", { name: "未来 7 天到期" });
     expect(practiceApi.getReviews.mock.calls.length).toBe(callsAfterFirst);
+  });
+});
+
+describe("ReviewPage 复习开始(D15 来源模式 + 提前复习提示)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /** [AC-3] 已到期条目:点「开始」立即按来源卡模式进练习,整句(FREE)卡不被强制变填空。 */
+  it("startsDueFreeCardWithSourceMode_ac3", async () => {
+    stubLoggedInUser();
+    practiceApi.getReviews.mockResolvedValue({
+      items: [{ ...reviewCard("c1", "整句错的卡", "2026-11-06T00:00:00Z"), mode: "FREE" }],
+      page: 1,
+      size: 20,
+      total: 1,
+      totalPages: 1,
+      hasNext: false,
+    });
+    renderPage();
+    await screen.findByText("整句错的卡");
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "开始" }));
+
+    expect(routerNav.navigate).toHaveBeenCalledTimes(1);
+    expect(routerNav.navigate.mock.calls[0]?.[0]).toEqual({
+      to: "/practice",
+      search: { sentenceId: "c1", mode: "FREE" },
+    });
+    expect(screen.queryByText(/提前复习/)).toBeNull();
+  });
+  /** [AC-3] 未到期条目:点「开始」先 toast「提前复习」再延迟进题,与 FSRS 语义一致。 */
+  it("showsEarlyReviewToastBeforeNavigating_ac3", async () => {
+    stubLoggedInUser();
+    practiceApi.getReviews.mockResolvedValue({
+      items: [reviewCard("c2", "明天的卡", localNoonIso(1))],
+      page: 1,
+      size: 20,
+      total: 1,
+      totalPages: 1,
+      hasNext: false,
+    });
+    renderPage();
+    await screen.findByText("明天的卡");
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "开始" }));
+
+    expect(screen.getByText("提前复习：这条还没到最佳时间，练了也会再排")).toBeTruthy();
+    expect(routerNav.navigate).not.toHaveBeenCalled();
+    await waitFor(() => expect(routerNav.navigate).toHaveBeenCalledTimes(1), { timeout: 3000 });
+    expect(routerNav.navigate.mock.calls[0]?.[0]).toEqual({
+      to: "/practice",
+      search: { sentenceId: "c2", mode: "CLOZE" },
+    });
+  });
+  /** [AC-3] 已掌握条目按钮是「重练」:不属调度语义,直接进练习,不弹提前复习。 */
+  it("masteredCardRetrainsImmediatelyWithoutToast_ac3", async () => {
+    stubLoggedInUser();
+    practiceApi.getReviews.mockResolvedValue({
+      items: [{ ...reviewCard("c3", "已掌握卡", localNoonIso(1)), state: "MASTERED" }],
+      page: 1,
+      size: 20,
+      total: 1,
+      totalPages: 1,
+      hasNext: false,
+    });
+    renderPage();
+    await screen.findByText("已掌握卡");
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "重练" }));
+
+    expect(routerNav.navigate).toHaveBeenCalledTimes(1);
+    expect(routerNav.navigate.mock.calls[0]?.[0]).toEqual({
+      to: "/practice",
+      search: { sentenceId: "c3", mode: "CLOZE" },
+    });
+    expect(screen.queryByText(/提前复习/)).toBeNull();
   });
 });

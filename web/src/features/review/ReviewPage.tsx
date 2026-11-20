@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useSearch } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { ErrorState, LoadingBlock } from "@/components/feedback";
 import { Pagination } from "@/components/pagination";
@@ -31,6 +31,9 @@ type RouteFilter = Exclude<Filter, "all">;
 const DAY_MS = 86_400_000;
 /** 客户端分页默认每页条数：真实模式的 useState 初值与 mock 的服务端 size 参数共用。 */
 const PAGE_SIZE = 20;
+
+/** 「提前复习」提示后延迟跳转的时长：让提示可被扫一眼再进题，离开页面即取消。 */
+const EARLY_REVIEW_NAV_DELAY_MS = 1000;
 
 /** 周几短标签：第 3 桶起按桶位日期的周几展示。 */
 const WEEKDAY_LABELS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
@@ -291,6 +294,41 @@ export function ReviewPage() {
     }
     toastTimer.current = window.setTimeout(() => setToastVisible(false), 1800);
   };
+
+  const navigate = useNavigate();
+  /** 「提前复习」提示后的延迟跳转计时器；卸载时取消，避免用户已改道仍被拉去练习。 */
+  const earlyNavTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (earlyNavTimer.current !== null) {
+        window.clearTimeout(earlyNavTimer.current);
+      }
+    },
+    [],
+  );
+
+  /**
+   * 从复习列表进练习：来源卡是整句就按整句进（复习不强制变填空），填空同理。
+   * 未到期的学习中条目先 toast「提前复习」再进题——与 FSRS 语义一致，练了也会按排程再排；
+   * 已掌握条目是「重练」，不属调度语义，直接进。
+   * @param row 复习行
+   */
+  function startReview(row: ReviewRowVM) {
+    const search = { sentenceId: row.sentenceId, mode: row.mode };
+    if (row.state === "LEARNING" && new Date(row.dueAt).getTime() > Date.now()) {
+      showToast("提前复习：这条还没到最佳时间，练了也会再排");
+      if (earlyNavTimer.current !== null) {
+        window.clearTimeout(earlyNavTimer.current);
+      }
+      earlyNavTimer.current = window.setTimeout(() => {
+        earlyNavTimer.current = null;
+        void navigate({ to: "/practice", search });
+      }, EARLY_REVIEW_NAV_DELAY_MS);
+      return;
+    }
+    void navigate({ to: "/practice", search });
+  }
 
   /** 游客：引擎复习队列全量（按 dueAt 升序，行带中文句），客户端过滤与分页。 */
   const engineQueueQuery = useQuery({
@@ -614,13 +652,13 @@ export function ReviewPage() {
                   </span>
 
                   <div className="flex items-center gap-3 max-[760px]:col-start-2">
-                    <Link
-                      to="/practice"
-                      search={{ sentenceId: row.sentenceId, mode: row.mode }}
+                    <button
+                      type="button"
+                      onClick={() => startReview(row)}
                       className="whitespace-nowrap text-xs tracking-[0.05em] text-ink-muted transition-colors duration-200 hover:text-vermilion"
                     >
                       {row.state === "MASTERED" ? "重练" : "开始"}
-                    </Link>
+                    </button>
                   </div>
                 </li>
               );

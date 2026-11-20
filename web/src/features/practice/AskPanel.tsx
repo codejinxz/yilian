@@ -72,15 +72,18 @@ interface AskMessage {
  * @param props.sentenceId 当前句 id
  * @param props.onClose 收起面板
  * @param props.onUnavailable 服务端判定答疑不可用（40304/40400），父级应隐藏入口
+ * @param props.onTransientUnavailable 暂时性失败（网络/5xx 等），父级在入口旁挂「暂不可用」角标
  */
 export function AskPanel({
   sentenceId,
   onClose,
   onUnavailable,
+  onTransientUnavailable,
 }: {
   sentenceId: string;
   onClose: () => void;
   onUnavailable: () => void;
+  onTransientUnavailable: () => void;
 }) {
   const [messages, setMessages] = useState<AskMessage[]>([]);
   const [input, setInput] = useState("");
@@ -133,7 +136,11 @@ export function AskPanel({
         }, UNAVAILABLE_DELAY_MS);
         return;
       }
-      setErrorText(error instanceof Error ? error.message : "答疑暂时不可用，请稍后再试");
+      const message = error instanceof Error ? error.message : "答疑暂时不可用，请稍后再试";
+      setErrorText(message);
+      // 失败状态不能只留在已展开的面板里（面板一收起文案就随卸载消失）：
+      // 通知父级在「问一问」入口旁挂角标，收起后不可用状态仍然可见。
+      onTransientUnavailable();
     },
   });
 

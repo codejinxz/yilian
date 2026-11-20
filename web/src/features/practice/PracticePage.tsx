@@ -499,6 +499,8 @@ export function PracticePage() {
    * 注释），重进练习页不再重现入口。不加探针端点——代价是未开放实例上首次提问才收起入口。
    */
   const [askAvailable, setAskAvailable] = useState(() => !isAskUnavailableMarked());
+  /** 答疑暂时性失败（网络/5xx）的入口角标：面板收起后不可用状态仍可见，换句即清。 */
+  const [askTransientUnavailable, setAskTransientUnavailable] = useState(false);
   const startedAtRef = useRef(Date.now());
   const toastTimerRef = useRef<number | null>(null);
   const recordedTimerRef = useRef<number | null>(null);
@@ -675,9 +677,12 @@ export function PracticePage() {
   }, [answers, freeText, sentenceId, attempt]);
 
   // 记录当前句 id 供卸载清理使用；离开练习页清掉草稿，符合「离开/提交清除」的约定。
+  // 换句同时清「暂不可用」角标：上一句的失败状态不跨句携带（AskPanel 也按句重挂）。
   useEffect(() => {
     activeSentenceIdRef.current = sentenceId ?? null;
+    setAskTransientUnavailable(false);
   }, [sentenceId]);
+
   useEffect(() => {
     return () => {
       const active = activeSentenceIdRef.current;
@@ -1569,7 +1574,7 @@ export function PracticePage() {
                 <option value={ERRORS_BANK_OPTION}>错题集</option>
                 {publishedBanks.map((bank) => (
                   <option key={bank.id} value={bank.id}>
-                    {bank.name}
+                    {bank.name.split(" · ")[0]}
                   </option>
                 ))}
               </select>
@@ -1861,7 +1866,7 @@ export function PracticePage() {
 
                   <div className="keyboard-safe mt-9 flex flex-wrap items-center gap-3.5">
                     {/* 判分后整行保留（与原型 finish 的 DOM 稳定处理一致）：提交禁用、
-                        首字母可点、看答案空转——避免结果出现时操作行整行消失导致跳版。 */}
+                        首字母随题目锁定一并禁用置灰、看答案空转——避免结果出现时操作行整行消失导致跳版。 */}
                     <button
                       type="button"
                       onClick={() => handleSubmit()}
@@ -1873,7 +1878,7 @@ export function PracticePage() {
                     <button
                       type="button"
                       onClick={cycleHint}
-                      disabled={hintLevel >= 3}
+                      disabled={Boolean(attempt) || hintLevel >= 3}
                       className="btn ghost"
                     >
                       首字母
@@ -2322,11 +2327,29 @@ export function PracticePage() {
                     setAskAvailable(false);
                     setAskOpen(false);
                   }}
+                  onTransientUnavailable={() => setAskTransientUnavailable(true)}
                 />
               ) : (
-                <button type="button" className="linkish text-xs" onClick={() => setAskOpen(true)}>
-                  问一问
-                </button>
+                <span className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="linkish text-xs"
+                    onClick={() => {
+                      setAskTransientUnavailable(false);
+                      setAskOpen(true);
+                    }}
+                  >
+                    问一问
+                  </button>
+                  {askTransientUnavailable ? (
+                    <span
+                      className="font-mono text-[10px] tracking-[0.08em] text-vermilion"
+                      title="答疑暂时不可用，稍后可再试"
+                    >
+                      暂不可用
+                    </span>
+                  ) : null}
+                </span>
               )}
             </div>
           ) : null}
