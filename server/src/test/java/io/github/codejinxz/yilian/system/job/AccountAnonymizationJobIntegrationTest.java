@@ -158,6 +158,32 @@ class AccountAnonymizationJobIntegrationTest {
                         now.minus(30, ChronoUnit.DAYS).plusSeconds(5));
     }
 
+    /** 单轮上限：积压超过上限时只消化前 BATCH_LIMIT 个，余量留库随下次调度分轮消化。 */
+    @Test
+    @DisplayName("单轮上限下推取数，余量分轮消化")
+    void batchLimitCapsSingleRoundAndDefersRest() {
+        int backlog = AccountAnonymizationJob.BATCH_LIMIT + 5;
+        for (int i = 0; i < backlog; i++) {
+            insertDeletedUser("backlog-learner-" + i, SQL_DELETED_31D_AGO, false);
+        }
+
+        int processed = job.anonymizeDueUsers();
+
+        assertThat(processed).isEqualTo(AccountAnonymizationJob.BATCH_LIMIT);
+        // 已匿名行的用户名已替换为占位符，按 anonymized_at 计数（setUp 已清理其余账号，计数确定）。
+        Integer anonymizedCount =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM users WHERE anonymized_at IS NOT NULL",
+                        Integer.class);
+        assertThat(anonymizedCount).isEqualTo(AccountAnonymizationJob.BATCH_LIMIT);
+        Integer restCount =
+                jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM users WHERE username LIKE 'backlog-learner-%'"
+                                + " AND anonymized_at IS NULL",
+                        Integer.class);
+        assertThat(restCount).isEqualTo(backlog - AccountAnonymizationJob.BATCH_LIMIT);
+    }
+
     // ------------------------------------------------------------------ helpers
 
     /**

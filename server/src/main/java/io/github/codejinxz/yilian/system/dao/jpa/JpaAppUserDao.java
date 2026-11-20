@@ -85,8 +85,8 @@ public class JpaAppUserDao implements AppUserDao {
     }
 
     @Override
-    public List<AppUser> findAnonymizationDue(Instant cutoff) {
+    public List<AppUser> findAnonymizationDue(Instant cutoff, Pageable pageable) {
         return repository.findByDeletedAtLessThanEqualAndAnonymizedAtIsNullOrderByDeletedAtAsc(
-                cutoff);
+                cutoff, pageable);
     }
 }

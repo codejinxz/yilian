@@ -101,8 +101,11 @@ public interface AppUserDao {
     /**
      * 待匿名化的软删账号：软删时刻早于等于截止且尚未匿名化。
      *
+     * <p>单轮取数条数经 Pageable 下推 SQL；余量由调度任务分轮消化。
+     *
      * @param cutoff 匿名化截止时刻（UTC）
+     * @param pageable 单轮取数上限
      * @return 待匿名化账号列表，deleted_at 升序
      */
-    List<AppUser> findAnonymizationDue(Instant cutoff);
+    List<AppUser> findAnonymizationDue(Instant cutoff, Pageable pageable);
 }

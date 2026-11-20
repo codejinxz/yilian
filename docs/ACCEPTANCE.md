@@ -46,9 +46,9 @@ pnpm --dir web dev
 - [ ] 登录 → 拉题 → 填空 → 判分有集成测试
 - [x] `pnpm --dir web build` 通过（2026-10-24 实测）
 - [x] `pnpm --dir web biome check .` 通过（2026-10-24 实测；32 条 warning 级遗留，集中在 src/mocks，不阻塞）
-- [ ] `./mvnw test` 全绿（2026-10-24 实测：224 run / 0 Failures / 7 Errors / 0 Skipped；7 个 Error 为 upload→imports 半成品存量，见 §5）
+- [x] `./mvnw test` 全绿（2026-11-21 实测：1019 run / 0 Failures / 0 Errors / 0 Skipped；历史 7 个 Error 已随导入切片收口消除，见 §5）
 - [x] `mvn fmt:check` 通过（2026-10-24 实测；google-java-format aosp 全量格式化后 0 不合规）
-- [ ] `docker compose up -d mysql redis`（或本机 MySQL/Redis）后 local profile 启动
+- [ ] 本机 MySQL/Redis 服务启动后 local profile 启动（仓库不提供 compose 文件，依赖以本机服务方式运行）
 - [ ] Flyway 建表成功；bootstrap 管理员可登录
 - [ ] 同一 `attemptId` 重复提交只记一次
 - [ ] `docs/openapi.yaml` 已导出，与 API.md/DATA-MODEL.md 一致
@@ -72,7 +72,7 @@ pnpm --dir web dev
 - M3：整句深度批改、LLM 复核/申诉裁决、统计聚合、模型/Prompt/用量后台。
 - M2.1：FSRS 参数优化器；M2 只用默认/已启用权重。
 - 过渡：当前 `upload` 上传/轮询接口将替换为 preview→commit；旧接口不纳入 OpenAPI。
-- 存量：upload→imports preview→commit 重构进行到一半——V6 迁移已 DROP 旧 `import_batch` 并重建为 `import_batches`（DATA-MODEL §5.6/§5.7），但 `upload/entity/ImportBatch.java` 仍 `@Table(name="import_batch")`，Hibernate `ddl-auto=validate` 启动失败，`AuthFlowIntegrationTest` 上下文无法加载，即 `./mvnw test` 当前 7 个 Error 的唯一根因；imports 切片完成后自然消除，非本轮引入。
+- 存量：upload→imports preview→commit 重构已随导入切片收口，实体映射与 `import_batches` 表一致；历史 7 个 Error 已消除，`./mvnw test` 为全绿基线（2026-11-21：1019/0）。
 - `attempts` 90 天保留与 append-only 冲突，V1 先不清理（见 DATA-MODEL D-011）。
 
 ## 6. 变更记录
@@ -81,3 +81,4 @@ pnpm --dir web dev
 |---|---|
 | 2026-10-24 | 初稿：启动、PRD §12、DoD、手工项 |
 | 2026-10-24 | 收口：前端路由全量注册与壳层布局、测试修复至前端全绿（21/21）、后端 0 Failures（7 存量 Error）、双端评审通过、google-java-format 全量格式化 |
+| 2026-11-21 | 过期项刷新：DoD 测试行与 §5 存量 Error 段按导入切片收口后现状改写；数据库依赖引用改本机服务说明（裁决：改写而非新增 compose 文件，已登记 GAP） |

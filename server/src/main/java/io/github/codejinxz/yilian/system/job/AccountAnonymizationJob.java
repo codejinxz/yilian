@@ -7,6 +7,7 @@ import io.github.codejinxz.yilian.system.service.UserAccountService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -34,7 +35,7 @@ public class AccountAnonymizationJob {
 
     private static final Logger log = LoggerFactory.getLogger(AccountAnonymizationJob.class);
 
-    /** 单轮匿名化账号上限：常态个位数，异常积压时分轮消化，不拖死调度线程。 */
+    /** 单轮匿名化账号上限：常态个位数，异常积压时分轮消化，不拖死调度线程；取数即按此截断。 */
     static final int BATCH_LIMIT = 200;
 
     private final AppUserDao appUserDao;
@@ -80,20 +81,19 @@ public class AccountAnonymizationJob {
     }
 
     /**
-     * 每日调度入口：扫描到期账号并逐用户匿名化；单用户失败只记日志，下次调度重试。
+     * 每日调度入口：按单轮上限取数并逐用户匿名化；单用户失败只记日志，下次调度重试。
+     *
+     * <p>本轮不取的余量随下次调度分轮消化，单轮规模由 BATCH_LIMIT 经 Pageable 下推 SQL。
      *
      * @return 本次实际匿名化的账号数
      */
     @Scheduled(cron = "${yilian.account.anonymization-cron:0 40 3 * * *}")
     public int anonymizeDueUsers() {
-        List<AppUser> due = appUserDao.findAnonymizationDue(anonymizationCutoff());
+        List<AppUser> due =
+                appUserDao.findAnonymizationDue(
+                        anonymizationCutoff(), PageRequest.of(0, BATCH_LIMIT));
         int processed = 0;
         for (AppUser user : due) {
-            if (processed >= BATCH_LIMIT) {
-                log.info(
-                        "account anonymization batch limit {} reached, rest next run", BATCH_LIMIT);
-                break;
-            }
             try {
                 Instant now = clock.instant();
                 if (userAccountService.anonymizeUser(user.getId(), now)) {
@@ -111,6 +111,9 @@ public class AccountAnonymizationJob {
             } catch (RuntimeException exception) {
                 log.error("failed to anonymize account {}", user.getId(), exception);
             }
+        }
+        if (due.size() >= BATCH_LIMIT) {
+            log.info("account anonymization batch limit {} reached, rest next run", BATCH_LIMIT);
         }
         if (processed > 0) {
             log.info(

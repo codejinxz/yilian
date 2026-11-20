@@ -882,7 +882,7 @@ targetType=user)`，reason 固定文案「用户自助删号」。
 | `status` | `sentences.status` | 缺省视图不含 RECYCLED |
 | `reviewState/reviewDueAt` | `reviews.state/due_at`（按当前用户） | 未练过/匿名时为 null |
 
-### 5.4 `POST /api/admin/uploads/preview`（planned，M1）
+### 5.4 `POST /api/admin/uploads/preview`（implemented，M1）
 
 用途：上传 JSON/CSV，逐行校验并生成可提交/可回滚的预览批次；**不写题目**。
 
@@ -920,7 +920,7 @@ targetType=user)`，reason 固定文案「用户自助删号」。
 
 字段回溯：`import_batches.*`、`import_batch_rows.*`；`file` 写 `storage_key`；`bankId` 写 `bank_id`。
 
-### 5.5 `POST /api/admin/uploads/{batchId}/commit`（planned，M1）
+### 5.5 `POST /api/admin/uploads/{batchId}/commit`（implemented，M1）
 
 用途：把预览通过的批次提交入库；单事务，失败整批回滚。
 
@@ -953,7 +953,7 @@ targetType=user)`，reason 固定文案「用户自助删号」。
 
 字段回溯：`import_batches.*`、`sentences.*`、`sentence_versions.*`、`import_batch_rows.sentence_id/sentence_version_id`。
 
-### 5.6 `GET /api/admin/uploads/{batchId}`（planned，M1）
+### 5.6 `GET /api/admin/uploads/{batchId}`（implemented，M1）
 
 用途：批次详情 + 行级错误分页。
 
@@ -1004,7 +1004,7 @@ targetType=user)`，reason 固定文案「用户自助删号」。
 
 字段回溯：`import_batches.*`、`import_batch_rows.*`；`rows` 分页派生。
 
-### 5.7 `GET /api/admin/uploads`（planned，M1）
+### 5.7 `GET /api/admin/uploads`（implemented，M1）
 
 用途：批次列表；按题库/状态/时间筛选。
 
@@ -1014,7 +1014,7 @@ targetType=user)`，reason 固定文案「用户自助删号」。
 
 字段回溯：`import_batches.*`。
 
-### 5.8 `POST /api/admin/uploads/{batchId}/rollback`（planned，M1）
+### 5.8 `POST /api/admin/uploads/{batchId}/rollback`（implemented，M1）
 
 用途：回滚已提交批次；题目进回收站并 bump 版本，不硬删、不级联删 attempt。
 

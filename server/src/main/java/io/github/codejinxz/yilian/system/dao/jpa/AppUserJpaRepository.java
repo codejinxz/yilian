@@ -82,13 +82,15 @@ public interface AppUserJpaRepository extends JpaRepository<AppUser, Long> {
     /**
      * 待匿名化的软删账号：软删时刻早于截止且尚未匿名化，deleted_at 升序。
      *
-     * <p>复用 idx_users_deleted_at 索引（V5）；已删账号量级极小，扫描代价可忽略。
+     * <p>复用 idx_users_deleted_at 索引（V5）；已删账号量级极小，扫描代价可忽略。 Pageable 条数由 Spring Data 下推为 SQL
+     * LIMIT，积压时不整量装载。
      *
      * @param cutoff 匿名化截止时刻（deleted_at &lt;= cutoff 的账号到期）
+     * @param pageable 单轮取数上限
      * @return 待匿名化账号列表
      */
     List<AppUser> findByDeletedAtLessThanEqualAndAnonymizedAtIsNullOrderByDeletedAtAsc(
-            Instant cutoff);
+            Instant cutoff, Pageable pageable);
 
     /**
      * 管理端用户检索。
