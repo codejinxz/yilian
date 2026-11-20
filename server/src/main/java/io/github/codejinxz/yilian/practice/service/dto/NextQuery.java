@@ -7,8 +7,8 @@ import java.util.Set;
 /**
  * 取下一题的查询参数（API §6.1 D7 四参数 + 既有 bankId）。
  *
- * <p>归一化规则与本地引擎 handleLocalRequest / mock 逐值一致：非法或空白参数静默归一（不返回 400）， excludeIds 与旧的单题
- * excludeSentenceId 合并去重后统一按集合匹配。
+ * <p>归一化规则与本地引擎 handleLocalRequest 逐值一致：非法或空白参数静默归一（不返回 400）， excludeIds 与单题参数 excludeSentenceId
+ * 合并去重后统一按集合匹配。
  *
  * @param bankId 题库过滤，可空（DUE 召回不按题库过滤为既有服务端行为）
  * @param sentenceId 指定句重练，可空；命中且可练时优先返回该句

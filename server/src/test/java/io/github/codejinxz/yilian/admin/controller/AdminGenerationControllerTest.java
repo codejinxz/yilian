@@ -140,7 +140,7 @@ class AdminGenerationControllerTest {
                         });
     }
 
-    /** [AC-3] 缺省审计原因：reason 缺省时上下文落「AI 生成导入」（与 mock 契约一致）。 */
+    /** [AC-3] 缺省审计原因：reason 缺省时上下文落「AI 生成导入」。 */
     @Test
     void importWithoutReasonFallsBackToDefaultAuditReason_ac3() throws Exception {
         when(adminGenerationService.importGenerated(1L, "5", requestItems()))

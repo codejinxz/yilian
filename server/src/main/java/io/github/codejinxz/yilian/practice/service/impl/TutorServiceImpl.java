@@ -616,7 +616,7 @@ public class TutorServiceImpl implements TutorService {
     }
 
     /**
-     * 系统提示：从 PromptRegistry 取 ask 场景的 ACTIVE 版本（V13 注册表；带 L1 缓存）， 缺行/读取失败回退同文兜底常量——prompt 登记是治理增强，
+     * 系统提示：从 PromptRegistry 取 ask 场景的 ACTIVE 版本（V13 注册表；带 L1 缓存）， 缺行/读取失败回退同文兜底常量——prompt 登记属管理面治理，
      * 不能反过来成为答疑链路的单点。
      *
      * @return 系统提示文本

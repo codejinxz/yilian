@@ -54,7 +54,7 @@ interface BankFormInput {
  * 导入由 UploadPage 折叠为页内区块（ImportSection），上传/轮询/行错误/resume 数据流不变。
  * 官方题库不可停用、不可删除；难度配置为前端演示态，刷新后恢复默认。
  *
- * 回收站语义（与 mock 契约一致）：mock 的 GET /admin/banks 缺省不过滤状态——已回收题库
+ * 回收站语义：列表缺省不过滤状态——已回收题库
  * 仍出现在列表里，因此行内加「已回收」标注而不是前端隐藏；要单独看回收库时显式传 status=RECYCLED。
  */
 export function BanksPage() {
@@ -362,7 +362,7 @@ export function BanksPage() {
 
 /**
  * 新建/编辑题库的表单；编辑态由 initial 预填（key 换行重置内部状态）。
- * 校验与 mock/后端一致：名称必填 1–128、说明可空 ≤500。说明不再把空串归一为 null——
+ * 校验口径：名称必填 1–128、说明可空 ≤500。说明不把空串归一为 null——
  * PATCH 语义是「null=不改、空串=清空」，归一会让清空说明的操作静默失效。
  */
 function BankForm({

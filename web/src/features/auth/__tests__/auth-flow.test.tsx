@@ -450,7 +450,7 @@ describe("auth flow", () => {
   it("AC-11: cold-start session restore marks the zustand session authenticated so gated UI stays consistent", async () => {
     // 刷新后经 refresh cookie 恢复会话：me 查询写入缓存即视为「已确认登录」，
     // Zustand 登录态同步置位——练习页「让模型复核」等按 sessionStatus 门控的 UI
-    // 在恢复路径下此前停留在 unknown，已登录用户看不到复核入口。
+    // 恢复路径不停留在 unknown，已登录用户才能看到复核入口。
     markPlaced();
     useSessionStore.getState().setAnonymous();
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {

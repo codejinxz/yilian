@@ -9,13 +9,11 @@ import { ApiError } from "@/lib/api-error";
 import { createQueryClient } from "@/lib/query";
 
 /**
- * 批改方式开关「只存不生效」的如实标注。
+ * 批改方式开关「只存不生效」的演示语义。
  *
  * 本组用例锁定的事实：gradingMode 仅由 SettingsPage 读写（渲染选中态 +
  * toast），判分链路（练习页本地判分、提交接口、服务端 Grader）没有任何读取点；它是给
- * 深度批改预留的本地偏好，服务端也无对应的「本地/服务端判分切换」能力。修到生效需要
- * 新建服务端深度批改（独立切片），移除则破坏原型对齐并失去后续接入位——按「如实标注为演示」
- * 处理：行内「演示预留」说明 + 选项描述改为将来时 + toast 说明当前仍按本地判分执行。
+ * 深度批改预留的本地偏好，服务端也无对应的「本地/服务端判分切换」能力。开关按演示语义处理：行内「演示预留」说明 + 选项描述改为将来时 + toast 说明当前仍按本地判分执行。
  */
 
 const api = vi.hoisted(() => ({
@@ -90,7 +88,7 @@ describe("SettingsPage 批改方式如实标注（AC-9）", () => {
   it("gradingModeSwitchStoresWithoutAffectingGrading_ac9", async () => {
     renderPage();
 
-    // 如实标注出现，且不再有「暂按自动执行」这类暗示选项间有差异的旧注。
+    // 「演示预留」说明出现，且「暂按自动执行」这类暗示选项间有差异的旧注不存在。
     expect(await screen.findByText(/演示预留：当前版本全部为本地判分/)).toBeInTheDocument();
     expect(screen.queryByText(/暂按「自动」执行/)).toBeNull();
 

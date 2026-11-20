@@ -72,7 +72,7 @@ export function AppShell() {
   // 有新版本待用户确认生效时为 true；状态由 pwa.ts 的 SW 事件驱动。
   const [updateReady, setUpdateReady] = useState(false);
   // 登录后自动迁移本机记录的结果提示；guest-upgrade 模块派发事件，壳层统一展示
-  // （迁移发生在登录页跳转瞬间，页面内 toast 挂不住，曾出现「迁移成功无任何反馈」）。
+  // （迁移发生在登录页跳转瞬间，页面内 toast 挂不住，反馈由壳层统一给出）。
   const [upgradeMessage, setUpgradeMessage] = useState<string | null>(null);
   const upgradeTimerRef = useRef<number | null>(null);
 

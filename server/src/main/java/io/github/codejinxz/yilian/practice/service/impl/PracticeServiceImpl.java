@@ -372,7 +372,7 @@ public class PracticeServiceImpl implements PracticeService {
                         .orElseThrow(() -> new BusinessException(ApiCode.ATTEMPT_NOT_FOUND));
         // 回看统一口径：库可见或练习史豁免（本人已有卡），否则 40300——
         // attempt 归属校验只保证「是本人提交」，不保证「当前仍可读该句内容」；无卡且库已转私的
-        // 提交回看不再回显参考译文与解析。submitAttempt 的幂等重放不走本判定：重放返回的是
+        // 提交回看不回显参考译文与解析。submitAttempt 的幂等重放不走本判定：重放返回的是
         // 提交时已交付过的判分结果，不构成新的内容访问。
         SentenceDetail detail =
                 contentQueryService.findSentence(attempt.getSentenceId()).orElse(null);
@@ -730,7 +730,7 @@ public class PracticeServiceImpl implements PracticeService {
      * NULL。占位写失败也不外抛（申诉已在库，管理端可无 AI 意见终审）。
      *
      * <p>回执 verdict 对齐存储真相——decision 列落的是 UNAVAILABLE JSON，回执也发
-     * verdict="UNAVAILABLE"，让「初裁不可用」回执态真实可达（申诉回执四态分化的既定口径成立， 前端对应分支不再是对真实服务的死代码）； decided_by=null
+     * verdict="UNAVAILABLE"，让「初裁不可用」回执态真实可达（申诉回执四态分化的既定口径成立， 前端对应分支承接真实服务态而非死代码）； decided_by=null
      * 仍是无 AI 意见的判据。
      *
      * @param appealId 申诉行 id
@@ -1738,8 +1738,7 @@ public class PracticeServiceImpl implements PracticeService {
      * <p>错题列表（wrongQuestions）与 errors=1 取题（next）共用同一口径，避免「今日页错题 chip
      * 推的题不在错题列表里」的割裂。行级语义：最近一次提交的**首判**未全对（REVEAL 的 null 分也算 未全对）——读 sequence=1
      * 行是因为模型复核只追加判分行不改错题队列，复核分不参与错题进出池； 批注全被「不认同」且无其他错误的题隐藏（includeDisputed=false 时），看答案无批注的行同样
-     * 不进池（与既有错题列表行为一致，这里与本地引擎/mock 的唯一偏差，已在 API §6.1 登记）。 顺序沿用 {@code findLearning} 的 dueAt 升序，同
-     * dueAt 保持稳定序。
+     * 不进池（与既有错题列表行为一致；本地引擎不做这层过滤，属服务端增强）。 顺序沿用 {@code findLearning} 的 dueAt 升序，同 dueAt 保持稳定序。
      *
      * <p>练习史豁免：池候选即本人复习卡，可访问性按构造成立——库转私不断 错题重练；回收句由 practiceable 过滤排除（tombstone 不进池），豁免不适用。
      *

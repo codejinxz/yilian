@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "admin/generation", description = "管理端出题导入")
 public class AdminGenerationController {
 
-    /** 缺省审计原因，与 mock 契约一致（前端固定发同值）。 */
+    /** 缺省审计原因；前端固定发同值，服务端兜底保持同一口径。 */
     static final String DEFAULT_REASON = "AI 生成导入";
 
     private final AdminGenerationService adminGenerationService;

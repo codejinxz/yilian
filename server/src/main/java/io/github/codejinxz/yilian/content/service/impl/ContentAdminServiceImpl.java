@@ -45,7 +45,7 @@ import java.util.stream.Collectors;
  *
  * <p>写路径全部复用既有 JPA 实体（sentence_banks/sentences/sentence_versions），银行级修订号按「每题递增」推进， 增量游标 {@code
  * version > sinceVersion} 永不重版本分组；批量操作单事务、 悲观锁按题库 id 升序获取，避免两个并发批量的 ABBA 死锁。 行内编辑的
- * zh/level/tags/note 落在不可变内容快照上——新增版本行并回填指纹，而不是原地改历史行。
+ * zh/level/tags/note 落在不可变内容快照上，变更以新增版本行并回填指纹实现。
  */
 @Service
 public class ContentAdminServiceImpl implements ContentAdminService {
@@ -67,7 +67,7 @@ public class ContentAdminServiceImpl implements ContentAdminService {
 
     private static final int MAX_DESCRIPTION_LENGTH = 500;
 
-    /** 编辑字段长度上限，与 sentence_versions 列定义及前端 mock 校验对齐。 */
+    /** 编辑字段长度上限，与 sentence_versions 列定义对齐。 */
     private static final int MAX_ZH_LENGTH = 255;
 
     private static final int MIN_ZH_LENGTH = 4;
@@ -339,7 +339,7 @@ public class ContentAdminServiceImpl implements ContentAdminService {
             sentenceDao.save(sentence);
         }
         // 源题库各推进一次修订号：客户端按 bank.version 变化感知内容迁出。
-        // 已知限制：移动不在源题库产生 tombstone，增量客户端按版本落差全量重拉（与 mock 行为一致）。
+        // 移动不在源题库产生 tombstone，增量客户端按版本落差全量重拉。
         for (Long sourceId : sourceBankIds) {
             SentenceBank source = lockedBanks.get(sourceId);
             source.advanceVersion(source.getVersion() + 1, actorId, now);
@@ -466,7 +466,7 @@ public class ContentAdminServiceImpl implements ContentAdminService {
     }
 
     /**
-     * 落实版本字段编辑：新增不可变版本行、回填指纹与 content_hash、推进题库修订号并指向新快照。
+     * 版本字段编辑通过新增不可变版本行实现：回填指纹与 content_hash、推进题库修订号并指向新快照。
      *
      * <p>题库锁由调用方按统一锁序提前获取（见 {@link #adminUpdateSentenceDetail}），本方法只消费锁定的实体。
      *
@@ -591,14 +591,14 @@ public class ContentAdminServiceImpl implements ContentAdminService {
         targetBank.advanceVersion(nextVersion, actorId, now);
         sentence.moveToBank(targetBankId, nextVersion, actorId);
         sentenceDao.save(sentence);
-        // 源题库推进一次修订号；移动不在源库产生 tombstone（已知限制，与批量移动一致）。
+        // 源题库推进一次修订号；移动不在源库产生 tombstone。
         SentenceBank source = lockedBanks.get(sourceBankId);
         source.advanceVersion(source.getVersion() + 1, actorId, now);
         lockedBanks.values().forEach(bankDao::save);
     }
 
     /**
-     * 取题目，不存在回 40402（题目不存在，与 mock/错误码语义一致）。
+     * 取题目，不存在回 40402（题目不存在）。
      *
      * @param sentenceId 题目 ULID
      * @return 题目实体
@@ -640,7 +640,7 @@ public class ContentAdminServiceImpl implements ContentAdminService {
     }
 
     /**
-     * 构造题目当前视图：按 sentences 行 + 当前快照组装（管理端不做 tombstone 裁剪）。
+     * 题目当前视图合并 sentences 行与当前快照：管理端不做 tombstone 裁剪，回收站题目同样可查看。
      *
      * @param sentence 题目实体
      * @return 题目视图
@@ -754,7 +754,7 @@ public class ContentAdminServiceImpl implements ContentAdminService {
     }
 
     /**
-     * 组装题目分页：查询 Dao 直出行，再解析 JSON 列构造视图。
+     * 题目分页一次 Dao 查询取齐行，视图在行转换时解析 JSON 列，避免逐题回查快照。
      *
      * @param bankId 题库过滤，可为 null
      * @param keyword 关键字，可为 null
@@ -783,7 +783,7 @@ public class ContentAdminServiceImpl implements ContentAdminService {
     }
 
     /**
-     * 由查询行构造题目视图：管理端不做 tombstone 裁剪，回收站行也带完整快照供恢复预览。
+     * 题目视图由查询行整体组装，管理端不做 tombstone 裁剪：回收站行带完整快照供恢复预览。
      *
      * @param row 查询行
      * @return 题目视图
@@ -824,7 +824,7 @@ public class ContentAdminServiceImpl implements ContentAdminService {
     }
 
     /**
-     * 构造题库视图，题数按「已发布且未删」统计。
+     * 题库视图的题数只计「已发布且未删」行：回收站与未发布内容不计入展示数。
      *
      * @param bank 题库实体
      * @return 视图

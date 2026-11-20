@@ -11,7 +11,7 @@ import java.lang.annotation.Target;
  *
  * <p>以数据库唯一约束为准，应用层只把重复插入翻译成友好业务码；不在内存或 Redis 里 维护「已处理」状态，避免重启或多实例造成漏判。唯一约束包含归属者、作用域与键，
  * 归属者由切面从登录用户或客户端 IP 解析，不同用户使用同一个业务键也不会互相占位。{@code key} 是 SpEL 表达式， 直接引用方法参数，例如 {@code
- * "#request.attemptId()"}；后续 {@code attempts} 表落地后，答题提交处可直接复用 attemptId，不需要改本组件。
+ * "#request.attemptId()"}；答题提交处可直接复用 attemptId 作业务键，不需要改本组件。
  *
  * <p>键值不写日志；请求体只计算 SHA-256 摘要存入 {@code request_hash}，不保存原文。
  */

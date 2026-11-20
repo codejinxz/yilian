@@ -97,8 +97,8 @@ export type Review = z.infer<typeof reviewSchema>;
 
 /**
  * 提交/详情响应的内嵌复习卡（API §6.2/§6.3）：契约只有排程投影，不带 sentenceId/mode；
- * 字段按可选放行，因为本地引擎的离线响应复用完整队列卡形状（此前必填导致
- * 服务端 200 响应 parse 失败，页面误报「提交未确认」而数据实际已入库+排程）。
+ * 字段按可选放行——服务端投影缺 sentenceId/mode，本地引擎的离线响应复用完整队列卡形状，
+ * 必填会让服务端 200 响应 parse 失败，页面误报「提交未确认」而数据实际已入库+排程）。
  */
 export const attemptReviewSchema = reviewSchema.extend({
   sentenceId: z.string().min(1).optional(),

@@ -43,8 +43,8 @@ public class PromptRegistryImpl implements PromptRegistry {
     }
 
     /**
-     * 清空 prompt 缓存（写后失效入口）。预留 API：当前 prompt_versions 无应用内写路径（版本流转走手工 SQL，见 GAP
-     * 登记），管理端写路径落地后由其调用；现在调用无害，缺行由调用方常量兜底。
+     * 清空 prompt 缓存（写后失效入口）。预留 API：prompt_versions 版本流转走手工 SQL，应用内暂无写路径，本方法供
+     * 管理端写路径调用；现在调用无害，缺行由调用方常量兜底。
      */
     @Override
     public void evictAll() {

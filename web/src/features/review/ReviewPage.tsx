@@ -160,7 +160,7 @@ function bucketLabel(index: number, bucket: DueBucket): string {
 
 /**
  * 7 日到期日历区段：今天..+6 天七个日界桶的到期计数，今日桶以描边与朱红数字可辨。
- * 数据未就绪或读取失败时按桶位渲染占位，不给假数字；统计被单页截断时如实标注上限。
+ * 数据未就绪或读取失败时按桶位渲染占位，不给假数字；统计被单页截断时注明统计上限。
  * @param props calendar 日历视图（null 表示尚未取得数据）
  * @param props pending 数据是否仍在读取
  * @param props errored 数据读取是否失败
@@ -420,7 +420,7 @@ export function ReviewPage() {
   const calendarPending =
     sessionRestoring || (guest ? engineQueueQuery.isPending : calendarQuery.isPending);
   const calendarErrored = guest ? engineQueueQuery.isError : calendarQuery.isError;
-  // 游客引擎全量分桶无截断；契约侧被单页截断时如实标注统计上限，不假装全量。
+  // 游客引擎全量分桶无截断；契约侧被单页截断时注明统计上限，不假装全量。
   const calendarLimitHint =
     guest || !calendarQuery.data?.hasNext
       ? null

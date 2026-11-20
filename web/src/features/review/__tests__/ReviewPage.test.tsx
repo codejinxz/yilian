@@ -295,7 +295,7 @@ describe("ReviewPage 7 日到期日历", () => {
     expect(screen.queryByText(/只统计最近取回的/)).toBeNull();
   });
 
-  /** [AC-2] 到期超过单页：只按已取页聚合，如实标注统计上限，不假装全量。 */
+  /** [AC-2] 到期超过单页：只按已取页聚合，注明统计上限，不假装全量。 */
   it("到期超过单页时按已取页统计并如实标注上限", async () => {
     stubLoggedInUser();
     const items = Array.from({ length: 20 }, (_, index) =>

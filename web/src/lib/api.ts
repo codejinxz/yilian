@@ -563,7 +563,7 @@ function isLocalRouteEnabled(path: string): boolean {
 }
 
 /**
- * 本地模式分页切片；页码越界回落最后一页，与 mock/服务端 PageResponse 语义一致。
+ * 本地模式分页切片；页码越界回落最后一页，与 PageResponse 契约语义一致。
  * @param items 全量条目
  * @param page 页码（从 1 开始）
  * @param size 每页条数
@@ -589,7 +589,7 @@ function localPaginate<T>(
 }
 
 /**
- * 解析分页参数；越界或非数字与 mock 一致返回 40004。
+ * 解析分页参数；越界或非数字返回 40004。
  * @param params 查询参数
  * @returns page/size
  */
@@ -797,7 +797,7 @@ async function handleLocalRequest<T>(path: string, init: RequestInit): Promise<T
       if (tag && !row.sentence.tags.includes(tag)) {
         return false;
       }
-      // 与 mock 一致：整条错题的批注都被「不认同」时默认隐藏，显式 includeDisputed 才返回。
+      // 整条错题的批注都被「不认同」时默认隐藏，显式 includeDisputed 才返回。
       if (
         !includeDisputed &&
         row.annotations.length > 0 &&

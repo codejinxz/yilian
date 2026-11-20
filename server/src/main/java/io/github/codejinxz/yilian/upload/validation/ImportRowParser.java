@@ -18,9 +18,9 @@ import java.util.Map;
  * 导入行解析器：把整份文件文本拆成逐行。
  *
  * <ul>
- *   <li>JSON：顶层是数组，或对象带 {@code items} 数组（对齐 mock 契约）；不是 JSON Lines；
+ *   <li>JSON：顶层是数组，或对象带 {@code items} 数组；不是 JSON Lines；
  *   <li>CSV：首行表头 + RFC4180 子集解析（双引号包裹、{@code ""} 转义、引号内逗号/换行按字面量保留）， 数据行列数必须与表头一致；{@code
- *       chunks/blank/tags} 三列按 JSON 解析， 解析失败保留原文本交由业务校验器报错（对齐 mock parseCsvRows）。
+ *       chunks/blank/tags} 三列按 JSON 解析， 解析失败保留原文本交由业务校验器报错。
  * </ul>
  *
  * <p>解析只做形状；字段级业务校验由 {@link ImportBusinessValidator} 负责。

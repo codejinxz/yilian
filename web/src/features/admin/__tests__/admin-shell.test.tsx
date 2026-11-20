@@ -74,7 +74,7 @@ const OVERVIEW = {
 } as const;
 
 /**
- * 题库页签桩数据：第一行可编辑、第二行已回收——回收库按 mock 契约在缺省列表出现，
+ * 题库页签桩数据：第一行可编辑、第二行已回收——回收库在缺省列表出现，
  * 行内必须有「已回收」标注而不是被隐藏。
  */
 const BANKS_PAGE = {
@@ -332,7 +332,7 @@ describe("admin shell", () => {
 
     const { router } = renderApp("/admin?tab=banks");
 
-    // C 裁决：mock 的 GET /admin/banks 缺省不过滤状态——回收库仍在缺省列表出现，行内标注「已回收」。
+    // GET /admin/banks 缺省不过滤状态——回收库仍在缺省列表出现，行内标注「已回收」。
     expect(await screen.findByText("回收站里的库")).toBeInTheDocument();
     expect(screen.getByText("已回收")).toBeInTheDocument();
 

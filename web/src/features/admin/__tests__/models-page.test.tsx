@@ -1418,7 +1418,7 @@ describe("ModelsPage 本月用量与预算护栏", () => {
 
     const user = userEvent.setup();
     const budgetInput = await screen.findByLabelText("月度预算（元）");
-    // 超上限值前端不拦（只拦非正数），PUT 照发，由服务端 40000 拒绝——演示态 mock 同款校验镜像。
+    // 超上限值前端不拦（只拦非正数），PUT 照发，由服务端 40000 拒绝——演示态校验与服务端镜像。
     await user.type(budgetInput, "1000000001");
     await user.click(screen.getByRole("button", { name: "保存预算与定价" }));
 

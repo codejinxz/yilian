@@ -26,10 +26,10 @@ import java.util.List;
  * 日志检索实现：解析与兜底集中在服务层，Dao 只收已转义的关键字与非空时间窗口。
  *
  * <p>分区表纪律：from/to 缺省按「近 30 天」收口，保证 XML WHERE 恒含 created_at 范围；size 上限 100（越界归 100），页码/size 非法回
- * 40004。keyword 做 LIKE 通配 转义（%、_、反斜杠），使检索语义与 mock 的纯「contains」一致，不暴露 SQL 通配符。
+ * 40004。keyword 做 LIKE 通配 转义（%、_、反斜杠）：检索保持纯「contains」语义，不暴露 SQL 通配符。
  *
  * <p>from/to 是**管理员本地日期**（前端日期选择器按浏览器本地日发送；服务端若按 UTC 日界换算， 本地凌晨的记录会被「今天」筛选漏掉）：服务端按配置的日界时区（默认
- * Asia/Shanghai，单产品默认，见 {@code yilian.admin.day-zone}）换算成 UTC 时刻窗口；口径已文档化到 API §8.5/§8.6。
+ * Asia/Shanghai，单产品默认，见 {@code yilian.admin.day-zone}）换算成 UTC 时刻窗口。
  */
 @Service
 public class AdminLogServiceImpl implements AdminLogService {
@@ -140,7 +140,7 @@ public class AdminLogServiceImpl implements AdminLogService {
     public AdminErrorLogDetailView errorLogDetail(long id) {
         AdminErrorLogDetailView detail = adminErrorLogQueryDao.findById(id);
         if (detail == null) {
-            // 契约对齐 mock 与 API §8.6：异常详情缺失回通用 40400（40402 是「题目不存在」专属码，语义不符）。
+            // 异常详情缺失回通用 40400：40402 是「题目不存在」专属码，语义不符。
             throw new BusinessException(ApiCode.NOT_FOUND);
         }
         return detail;

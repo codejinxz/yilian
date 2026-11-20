@@ -394,8 +394,7 @@ export function createAppRouter(options: { queryClient: QueryClient; history?: R
     if (confirmed && !hadConfirmedUser) {
       hadConfirmedUser = true;
       // 会话恢复（刷新后经 refresh cookie 拿回登录态）同样要置位 Zustand 登录态：
-      // 此前只有登录/注册页会 setAuthenticated，刷新恢复路径停留在 unknown，
-      // 练习页按 sessionStatus 门控的「让模型复核」入口对已登录用户误隐藏。
+      // 练习页按 sessionStatus 门控的「让模型复核」入口依赖登录态，unknown 会误隐藏。
       // 登录页的置位与此幂等；登出时 clearSession 会置回 anonymous。
       useSessionStore.getState().setAuthenticated();
       window.setTimeout(() => {

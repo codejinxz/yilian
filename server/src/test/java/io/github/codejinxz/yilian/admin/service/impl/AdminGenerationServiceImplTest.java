@@ -92,7 +92,7 @@ class AdminGenerationServiceImplTest {
         assertThat(response.errorSummary()).isNull();
     }
 
-    /** [AC-3] 空 items 回 40000「没有可导入的句子」（与 mock 契约同文案）；不触达接缝。 */
+    /** [AC-3] 空 items 回 40000「没有可导入的句子」）；不触达接缝。 */
     @Test
     void importGeneratedRejectsEmptyItemsWith40000_ac3() {
         assertThatThrownBy(() -> service.importGenerated(1L, "5", List.of()))

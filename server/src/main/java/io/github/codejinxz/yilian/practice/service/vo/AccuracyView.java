@@ -6,7 +6,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * 正确率统计（API §7.1 + W3 扩展 daily14/recent）。
+ * 正确率统计（API §7.1 + daily14/recent 扩展）。
  *
  * @param from 统计起始（用户本地日期）
  * @param to 统计截止（用户本地日期）

@@ -23,8 +23,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 管理端 Prompt 版本治理端点（/api/admin/prompts，API §8.18）：版本行检索、登记新版本与 激活换轨——prompt_versions
- * 注册表写半边的应用内入口（此前版本流转走手工 SQL，已登记 GAP）。
+ * 管理端 Prompt 版本治理端点（/api/admin/prompts）：版本行检索、登记新版本与 激活换轨——prompt_versions 注册表写路径的应用内入口。
  *
  * <p>模块归属裁决：prompt_versions 实体/Dao 在 practice 域，治理端点沿用管理端申诉终审先例 （{@code AdminAppealController} 在
  * practice/controller）——controller 只依赖 practice 的 service 接口， 不让 admin 域摸 practice 的

@@ -122,8 +122,7 @@ export function AskPanel({
       }
       if (error instanceof ApiError && (error.code === 40304 || error.code === 40400)) {
         // 未开放/未配置：先讲清原因、问句与输入原样保留（submit 失败不清
-        // input，问句气泡已在 messages 里），停留约 1.5s 再通知父级收起——此前直接
-        // onUnavailable() 静默卸载，用户问题跟着消失、重进页面再问再消失，循环困惑。
+        // input，问句气泡已在 messages 里）；停留约 1.5s 再收起，让用户读得见原因，避免静默卸载把刚输入的问题一并吞掉。
         setErrorText(UNAVAILABLE_MESSAGES[error.code] ?? "答疑暂不可用");
         if (unavailableTimerRef.current !== null) {
           window.clearTimeout(unavailableTimerRef.current);

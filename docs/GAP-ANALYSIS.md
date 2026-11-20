@@ -1,6 +1,7 @@
 # 待办与优先级
 
 ## 当前状态
+- **045 批(W1-4)完成:注释纪律二扫+lint 词表扩写(2026-11-21,第二轮外部静态排查 §3.1/§4 整改;计划 [docs/plans/045-comment-sweep-3-lint-words.md](plans/045-comment-sweep-3-lint-words.md);纯注释+lint 词表,零行为变化)**:隐性过程性表述(与 mock 对照/历史演进/阶段词/风险披露旁白/GAP·API §/docs 登记式引用)存量语义改写 58 处、46 文件(Java 主源 25 处/测试 5 处,前端 28 处),保留设计理由与反例推演类 why 注释;scripts/check-comments.mjs 与 Checkstyle 词表同步扩写 4 组同源模式(mock 对照/风险披露旁白/登记式引用扩写/阶段词,「容器就绪后」「MockMvc」等生命周期与测试框架事实靠模式收窄排除),双侧实跑 0 违规、对既有干净注释零误伤。质量门禁实测:后端 mvnw test **1018/1018**(基线持平)+ fmt:check 527 文件 0 不合规 + Checkstyle 扩表后 0 违规;前端 vitest **240/240**(基线持平)+ build(tsc+vite)成功 + biome check 0 错误/44 存量 warning 持平 + check:comments 129 文件 0 违规。
 - **044 批(W1-3)完成:B-08 错题「只重做出错的空」(2026-11-20,W1 排期内;计划 [docs/plans/044-retry-wrong-slots-only.md](plans/044-retry-wrong-slots-only.md);**计划核实后降级为纯前端**,零后端改动)**:①会话内 CLOZE 重打改词框编辑路径——「改对才过」块新增「重打出错的空」入口,进入后骨架词框恢复可写:判对的空按父批注 expected 预填参考值、判错的空留空并聚焦首个错空,核对前本地全槽校验未全对不放行,提交仍按全槽上送(服务端/本地判分口径不变);②FREE 重打流不动(整句重打框与 retypedMatchesReference 校验仅保留 FREE,为有意行为变化);③错题池深链 errors=1+lastAttemptId 经既有 GET /attempts/{id} 取父批注预填,父 attempt 批注缺失/读取失败优雅降级全空不崩溃;④预填落纯函数 grading.retrySlotPrefill(页面与本地引擎同形复用);「改对才过」拦截与「看答案记为学习中」语义一律未动。新增前端用例 5 个:PracticePage [AC-1]×1/[AC-2]×2/[AC-3]×1、engine [AC-4]×1。质量门禁实测:前端 vitest **240/240**(基线 235,+5)+ build(tsc+vite)成功 + biome check 0 错误/44 存量 warning 持平 + check:comments 129 文件 0 违规。AC-6 浏览器冒烟收口:制造部分错(2 空判 25)→「重打出错的空」→判对空预填参考(苔绿)+错空留白且焦点落错空→只补错空「核对」→ RETRY 请求带 retryOfId+全槽 2/2 与参考一致→判 100「已修复」;未改对拦截提示且 0 网络请求;FREE 整句重打回归过;preview(4173)/login 与 /practice 渲染 0 致命错;8080 重启后属主 PID=105288;记录 docs/analysis/browser-smoke-044/。偏差登记:练习页取题契约(NextPractice)不含 lastAttemptId,错题池列表→练习预填的直连留待后续契约评估(现由 errors=1+attemptId 深链与会话内批注两路径覆盖)。
 - **043 批(W1-2)完成:B-09 复习 7 日到期日历(2026-11-20,W1 排期内;计划 [docs/plans/043-review-7day-due-calendar.md](plans/043-review-7day-due-calendar.md);纯前端批,零后端改动)**:日历为既有 /reviews 分页数据之上的客户端聚合(用户 IANA 时区日界),零新增端点;超单页如实标注统计上限。已落地:共享分桶工具 lib/due-calendar.ts(日界口径与今日页/统计页同一 localDateString)、引擎 getReviewQueue 快照补 dueCalendar 字段、复习页新增日历区段(今日列 aria-current 可辨,契约侧超单页提示「只统计最近取回的 20 句」,加载/失败按占位降级不落假数字)。新增前端用例 5 个:engine [AC-3]×1、ReviewPage [AC-1]×2(含全局 30s staleTime 重挂载不重复请求的缓存口径)/[AC-2]×2。质量门禁实测:前端 vitest **235/235**(基线 230,+5)+ build(tsc+vite)成功 + biome check 0 错误/44 存量 warning 持平 + check:comments 129 文件 0 违规;AC-5 浏览器冒烟收口:登录一次读码过→「未来 7 天到期」7 桶完整、今日桶 aria-current=date+朱红描边与计数双证;今日桶计数与「到期」页签/汇总一致(3=3=3,降载未激活);截断提示因账号到期数≤20 无数据、如实标注未覆盖;preview(4173)/login 与 /review 渲染 0 致命错(5 条资源级 console error 均已归因:refresh 401 预期+外网字体回退);8080 复用未重启(属主 PID=85204);记录 docs/analysis/browser-smoke-043/。
 - **042 批(W1-1)完成:P1-06 错题集进练习页下拉 + B-10 今日进度(2026-11-20,主人批准 W1 排期;计划 [docs/plans/042-practice-wrongbank-dropdown-today-progress.md](plans/042-practice-wrongbank-dropdown-today-progress.md);纯前端批,零后端改动)**:①**错题集进下拉**:练习页题库下拉置顶「错题集」选项,选中即进入错题模式——URL search 同步 errors=true 并清空 bankId,选普通题库清除 errors 按 bankId 取题,search 是唯一真源、页面状态从 search 派生(复用既有 validateSearch 契约,router 零改动);无题库但处于错题模式时下拉保留(退出路径);下拉切换与未修复错题的门禁复用「改对才过」拦截;②**取题缓存键治理**:errors 维度收进 queryKeys.nextPractice 参数对象(key 由参数整体派生),键尾 "errors" 变通标记位与 TODO 消灭,错题/同参数普通取题各持一份缓存互不覆盖;③**今日进度条**:纯展示,只用 TodayView 既有 doneCount/goal(不新增字段/端点),progressbar 语义带 aria-valuemax/valuenow,达成态(goal>0 且已练达标)满宽换苔绿与练习页「已修复」同语义色,自由练习超出目标钳位不溢出;服务端与本地引擎适配层产出 Today 同形,进度条不感知来源差异。新增前端用例 7 个:PracticePage [AC-1]/[AC-2]×2/[AC-3] 四个、TodayPage [AC-4] 三个。质量门禁实测:前端 `vitest run` **230/230**(基线 223,+7)+ `build`(tsc --noEmit + vite)成功 + `biome check` 0 错误/44 存量 warning 持平 + `check:comments` 128 文件 0 违规;AC-6 浏览器冒烟收口:场景 A-E 全 PASS(登录→错题集下拉→错题模式闭环→退出错题→进度联动达成态,含 staleTime 30s 协议处理)+preview(4173)抽查 /login /today 渲染 0 致命错;黑盒第 1 轮 294/304(10 FAIL 全部归因验证码误读级联,同 captchaId 误读快照留档)→第 2 轮 **304/304 全过**,业务零缺陷;8080 属主 PID=85204,记录 docs/analysis/browser-smoke-042/。观察项(不修):URL search 字符串参数呈 JSON 引号编码(bankId=%221%22),系 TanStack Router 默认 stringifySearch 全局既有行为(router.tsx 未自定义),非本批引入。
@@ -131,6 +132,23 @@
 | EXT-A8 | 证伪 | 「无 ErrorBoundary 会白屏」不成立:router.tsx:54 RouteError 挂接三条顶层路由,CatchBoundary 兜底渲染为可重试错误页 | 无动作 |
 
 **EXT 消化批建议**:W1 收口后插入一个 fix 小批(文档同步 EXT-A1/A3/A4/A10+代码 EXT-A5,涉及 README/ACCEPTANCE/API.md/匿名化 Job 四面;EXT-A2 随 W5 裁决),排期待主人确认或无人值守模式下按本登记执行。
+
+## 042-044 双 skill 轮巡余量(2026-11-21,12 条 NON-BLOCKER/BLOCKER 0)
+
+> test-engineer 半场由子代理完成(分片读取协议首次对审查类生效);code-reviewer 半场派工 0/7 仍亡,按 §12.3 先例由监督者亲审(BLOCKER 0:三批跨批一致性核对——URL search 单一真源/queryKeys 工厂/编辑态绑定 attemptId 三处同口径,无对称缺口)。以下为轮巡余量,处置=随 047/048 前端批与测试基建批就近补齐,不单独开批。
+
+| 项 | 一句话 | 级别 |
+|---|---|---|
+| P-01 | getAttempt「读取失败」降级分支无用例(现仅覆盖批注缺失分支,044) | P3 |
+| P-02 | 三批 URL 编解码回环无测试(search 只在已解析对象层断言;bankId=%221%22 观察项正落此盲区) | P3 |
+| P-03 | switchBank 的 retryRequired 拦截反向路径(待改对时切池被拦)无用例,只有正向 | P3 |
+| P-04 | attempt 查询的跨批缓存断言缺失(nextPractice/reviews 两腿已有,三点缺一角) | P3 |
+| P-05 | AC 编号跨批双义:042 与 044 的 [AC-1..3] 同文件同 ID 不同语义,按 ID 检索覆盖矩阵会漂移(后续批 AC 命名加批内前缀区分) | P3 |
+| P-06 | CLOZE 重打「未全对拦截」分支仅冒烟覆盖,单元层为 0 | P3 |
+| P-07 | AC-4 引擎持久化链路(会话外取父批注)无端到端用例,降级仅在纯函数层验证 | P3 |
+| P-08 | localNoonIso 夹具在 ReviewPage.test 与 engine.test 逐字重复(043 批内),日界口径调整会漂移 | P3 |
+| P-09 | 「全绿」类结论依赖 evidence/冒烟产物,均在本机 gitignored 证据链(设计使然,登记备忘) | 备注 |
+
 ## P0：上线前必须补
 
 ### 账号与安全

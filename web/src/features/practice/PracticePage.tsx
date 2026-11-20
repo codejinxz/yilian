@@ -723,11 +723,11 @@ export function PracticePage() {
       void queryClient.invalidateQueries({ queryKey: ["practice", "reviews"] });
     },
     onError: (error, submission) => {
-      // 根因与 submitAttempt、isTransportError 注释同源：这里曾把一切
-      // status===0 都当「离线」。三类失败混在一起：真断网、超时/响应丢失（服务端可能
+      // 根因与 submitAttempt、isTransportError 注释同源：status===0 并非等价「离线」。
+      // 三类失败混在一起：真断网、超时/响应丢失（服务端可能
       // 已判分成功）、2xx 后 body 校验失败（服务端必已成功）。后者走离线队列必然产生
       // 同载荷重放（AppShell 见队非空且在线会立即补交，服务端 replayed=true 去重），
-      // 即「离线横幅 + 重复提交」的假降级。现在只有 transport 类失败才降级；
+      // 即「离线横幅 + 重复提交」的假降级。只有 transport 类失败才降级；
       // response 类失败保留在页内错误区，重试按钮重放同一载荷即可自愈（幂等键去重）。
       if (isTransportError(error)) {
         enqueueAttempt(submission.request);
@@ -951,8 +951,8 @@ export function PracticePage() {
   }
   /**
    * 提交改对/看答案；这两种动作都走同一 attempt 接口，仅 kind 不同。
-   * REVEAL 不依赖既有 attempt——新题上直接「看答案」是主路径，本地引擎与 mock
-   * 都只校验 answer.revealed 标记（retryOfId 本就传 null）；RETRY 必须挂回原提交，
+   * REVEAL 不依赖既有 attempt——新题上直接「看答案」是主路径，只校验
+   * answer.revealed 标记（retryOfId 本就传 null）；RETRY 必须挂回原提交，
    * attempt 缺失时拒绝。
    * @param kind RETRY 或 REVEAL
    */

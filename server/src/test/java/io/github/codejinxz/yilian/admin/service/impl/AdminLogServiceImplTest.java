@@ -224,7 +224,7 @@ class AdminLogServiceImplTest {
                         eq(20));
     }
 
-    /** [AC-2] 详情：存在返回视图，缺失回 40400（与 mock/API §8.6 的通用 NOT_FOUND 对齐）。 */
+    /** [AC-2] 详情：存在返回视图，缺失回 40400（对齐 API §8.6 的通用 NOT_FOUND）。 */
     @Test
     void errorLogDetailMapsMissingTo40400_ac2() {
         when(errorLogQueryDao.findById(200L))

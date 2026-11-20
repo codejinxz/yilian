@@ -70,7 +70,7 @@ public class ImportBatchServiceImpl implements ImportBatchService {
 
     private static final Logger log = LoggerFactory.getLogger(ImportBatchServiceImpl.class);
 
-    /** 预览响应里行明细的最大条数（对齐 mock 契约，全部明细走详情分页）。 */
+    /** 预览响应里行明细的最大条数（全量明细走详情分页）。 */
     private static final int PREVIEW_ROW_LIMIT = 100;
 
     /** 错误摘要抽样行数。 */

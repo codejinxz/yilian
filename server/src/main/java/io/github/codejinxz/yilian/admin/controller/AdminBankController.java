@@ -135,7 +135,7 @@ public class AdminBankController {
      *
      * @param bankId 题库 id
      * @param request 删除原因，必填
-     * @return 空数据的成功信封（HTTP 200，与 mock/前端契约一致）
+     * @return 空数据的成功信封（HTTP 200，删除为状态流转，无负载）
      */
     @Operation(summary = "软删题库", description = "状态流转到 RECYCLED，不物理删除题目。")
     @OperationLog(module = "admin", action = "BANK_DELETE", targetType = "bank")

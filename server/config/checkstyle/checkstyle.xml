@@ -13,7 +13,9 @@
 
   注释纪律（AGENTS.md §3.2 的「注释只述 what/why」）：注释不得携带过程性引用
   （批次号 0XX/0XXX、里程碑编号 M[0-9]、评审轮次/条目号、冒烟运行与波次引用、
-  指示来源、gitignored 文档引用、阶段词），只写「这段代码做什么/为什么这样设计」。
+  指示来源、gitignored 文档引用、阶段词、风险披露旁白、mock/前端对照类），
+  只写「这段代码做什么/为什么这样设计」。TS/TSX/迁移 SQL 侧同源词表在
+  scripts/check-comments.mjs，两处禁词表互指口径、新增模式两侧一致。
   规则分两层：
   - RegexpSinglelineJava：作用于原始行，仅放置经核实「字符串字面量中不出现」的
     CJK 词面模式（测试标题字符串不受影响）。
@@ -127,6 +129,41 @@
           name="format"
           value="(?&lt;![0-9.\-_])0[0-9]{3}(?=\s*[\p{IsHan}（(\[])"/>
       <property name="message" value="注释禁止批次号引用（0XXX 形态）：改为语义描述"/>
+    </module>
+
+    <!-- mock 对照类（与 scripts/check-comments.mjs 同源）：与演示层/前端/后端的契约
+         对照属过程性旁白；演示层自身的模式互斥、三源归一、同构应答是设计事实，
+         靠「一致/同款」后缀限定排除；小写 mock 不匹配 MockMvc。 -->
+    <module name="IllegalTokenText">
+      <property name="tokens" value="COMMENT_CONTENT"/>
+      <property
+          name="format"
+          value="mock ?漂移|mock ?同款|(引擎|前端|后端|服务端|错误码) ?/ ?mock|mock ?/ ?(前端|后端|服务端|API|错误码)|与 ?mock\s*[^。\n]{0,20}(一致|同款|同文案|同规则|同版本|同语义|对齐)"/>
+      <property name="message" value="注释禁止 mock/前端对照类过程性表述：直接写设计事实，不写与哪层契约一致"/>
+    </module>
+
+    <!-- 风险披露旁白：行为限制写成设计事实（如「移动不生成 tombstone，客户端按版本落差重拉」）。 -->
+    <module name="IllegalTokenText">
+      <property name="tokens" value="COMMENT_CONTENT"/>
+      <property name="format" value="已知限制|如实标(注|述)|登记(在|于)|已在.{0,12}登记"/>
+      <property name="message" value="注释禁止风险披露旁白（已知限制/如实标注/登记）：改述行为与设计理由"/>
+    </module>
+
+    <!-- gitignored 引用扩写（与 scripts/check-comments.mjs 同源）：GAP 台账/API 章节
+         「已登记」式披露与 docs/ 指针都属指示来源；仓内契约指针
+         （DATA-MODEL §/PRD §/API.md §）仍保留。 -->
+    <module name="IllegalTokenText">
+      <property name="tokens" value="COMMENT_CONTENT"/>
+      <property name="format" value="见 ?GAP|已在 ?API ?§|文档化到 ?API ?§|见 ?docs/"/>
+      <property name="message" value="注释禁止 GAP/API §/docs/ 登记式引用：直接写设计事实"/>
+    </module>
+
+    <!-- 阶段词（与 scripts/check-comments.mjs 同源）：计划口吻；「端点就绪后」限定端点
+         前缀，不误伤 Spring 容器就绪等生命周期事实。 -->
+    <module name="IllegalTokenText">
+      <property name="tokens" value="COMMENT_CONTENT"/>
+      <property name="format" value="后续接入|端点就绪后|先给入口"/>
+      <property name="message" value="注释禁止阶段词（后续接入/端点就绪后/先给入口）：写当前行为与设计事实"/>
     </module>
   </module>
 </module>

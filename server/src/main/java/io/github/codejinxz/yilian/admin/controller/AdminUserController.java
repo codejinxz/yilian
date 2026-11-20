@@ -117,8 +117,8 @@ public class AdminUserController {
     /**
      * 重置用户密码：生成一次性临时口令随响应返回一次，目标用户回到强制改密态并全部下线。
      *
-     * <p>审计用真实动作 {@code RESET_PASSWORD}（此前经 /api/admin/audit-events 演示入口，本端点上线后 从白名单移除），原因随 {@link
-     * OperationLogContext} 落库。明文口令不进日志：切面不读参数与请求体， 响应体也只回给当前管理员。
+     * <p>审计用真实动作 {@code RESET_PASSWORD}，原因随 {@link OperationLogContext} 落库。明文口令不进日志：切面不读参数与请求体，
+     * 响应体也只回给当前管理员。
      *
      * @param userId 目标用户 id
      * @param request 审计原因

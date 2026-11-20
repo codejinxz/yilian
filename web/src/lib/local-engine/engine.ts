@@ -420,7 +420,7 @@ export async function getPlacementSentences(): Promise<PracticeSentence[]> {
  * 拉取下一题：到期卡优先（dueAt 升序取最紧急），否则按题库顺序取未学新题。
  * 学习中但未到期的卡与已归档卡不进入题库顺序，由复习队列按到期时间召回。
  *
- * <p>筛选语义：显式传 tag / mode 时到期召回同样受约束（与 mock 契约及页面模式切换一致）。
+ * <p>筛选语义：显式传 tag / mode 时到期召回同样受约束（与页面模式切换语义一致）。
  * 复习卡是「每句单卡」，card.mode 记录最近一次练习的模式——切换模式练习会改写它，
  * 因此 mode 筛选的含义是「只召回以该模式练过的到期卡」，不是独立的双模式排程维度。
  *
@@ -476,7 +476,7 @@ export async function pickNext(params?: {
 }
 
 /**
- * 计算 mock 同款四档评分（DATA-MODEL §8.2 派生规则），存入复习卡便于后续接入 FSRS。
+ * 计算四档评分（DATA-MODEL §8.2 派生规则），存入复习卡供调度层使用。
  * @param score 判分；REVEAL 为 null
  * @param hintsUsed 提示次数
  * @param durationMs 作答耗时
@@ -523,7 +523,7 @@ function revealGrading(sentence: PracticeSentence): GradingResult {
 }
 
 /**
- * 本地判分：填空走 gradeCloze、整句走 gradeFree、看答案不计分；与 mock 判分完全同规则。
+ * 本地判分：填空走 gradeCloze、整句走 gradeFree、看答案不计分。
  * @param sentence 题目
  * @param input 已校验的 attempt 请求
  * @returns 判分结果
@@ -623,7 +623,7 @@ function scheduleReview(
 }
 
 /**
- * 构造提交响应；字段与 attemptResponseSchema 严格对齐，grading 元数据与 mock 同版本。
+ * 构造提交响应；字段与 attemptResponseSchema 严格对齐，grading 元数据按同一版本口径填充。
  * @param input 已校验的 attempt 请求
  * @param sentence 题目
  * @param result 判分结果
@@ -1042,7 +1042,7 @@ export async function setAnnotationAppeal(attemptId: string, annotationKey: stri
 }
 
 /**
- * 把复习卡重置为 NEW（从头练）；保留答题历史，只重置调度状态，语义与 mock/服务端一致。
+ * 把复习卡重置为 NEW（从头练）；保留答题历史，只重置调度状态。
  * @param reviewId 复习卡 id（`lr-{sentenceId}`）
  * @returns 重置后的卡；卡不存在时为 null
  */
@@ -1117,7 +1117,7 @@ export async function clearLocalData(): Promise<void> {
  *
  * <p>单键语义：复习卡按 sentenceId 一句一卡，card.mode 是「最近一次练习的模式」而非
  * 独立排程维度（换模式练习会改写它）。这与 DATA-MODEL 的 reviews 表和原型的每句一行
- * 一致；mock 层按 (用户, 句子, 模式) 三元组建卡属演示层偏差，#8 切回服务端时以本语义为准。
+ * 一致；mock 层按 (用户, 句子, 模式) 三元组建卡，属演示层自身的建模选择。
  *
  * @param card 本地复习卡
  * @returns API Review 形状（不含 updatedAt）

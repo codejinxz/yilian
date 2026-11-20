@@ -386,7 +386,7 @@ class AdminSentenceControllerTest {
         verifyNoInteractions(contentAdminService);
     }
 
-    /** [AC-6] 单题状态流转题目缺失：Service 抛 40402 → 404 信封透传（题目不存在，与 mock 一致）。 */
+    /** [AC-6] 单题状态流转题目缺失：Service 抛 40402 → 404 信封透传（题目不存在）。 */
     @Test
     void changeStatusMapsMissingSentenceTo40402_ac6() throws Exception {
         when(contentAdminService.adminChangeSentenceStatus(1L, "01GONE", "PUBLISHED", "恢复"))

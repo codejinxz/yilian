@@ -23,7 +23,7 @@ import type {
  * DISPUTE 的「已排除」语义不变。
  *
  * mock 策略与 PracticePage-graded-views 同构：router 最小桩 + API 模块整体替换；回执夹具
- * 以服务端集成测试的真实断言为基准（修正 mock 漂移），mock 只替换传输层、
+ * 以服务端集成测试的真实断言为基准，mock 只替换传输层、
  * 响应形状锁定为真实契约。
  */
 
@@ -241,10 +241,10 @@ describe("PracticePage 申诉透明度", () => {
 
   /**
    * [AC-7] 初裁不可用（UNAVAILABLE 占位）：提示暂不可用，仍等待人工终审。
-   * 夹具与真实服务端契约同形（按集成测试修复 mock 漂移）：verdict="UNAVAILABLE" +
+   * 夹具与真实服务端契约同形：verdict="UNAVAILABLE" +
    * 占位理由 + decidedBy/decidedAt=null，逐字段对照服务端集成测试
    * PracticeAppealAdjudicationIntegrationTest.ac4_unavailableVerdictIsExpressedInReceipt_ac4
-   * 的真实回执断言，不再 mock 真实服务端不存在的响应形状。
+   * 的真实回执断言，夹具不引入真实服务端不存在的响应形状。
    */
   it("showsUnavailableWhenAdjudicationSkipped_ac7: 初裁不可用文案", async () => {
     practiceApi.appealAnnotation.mockResolvedValue(
