@@ -41,7 +41,7 @@ function pagerButtonClass(active: boolean): string {
 
 /**
  * 统一分页器（原型 .pager 形态）：总数靠左、页码与每页条数靠右，管理端与复习页共用。
- * 筛选变化由调用方重置到第 1 页。
+ * 筛选变化由调用方重置到第 1 页；数据不足一页时整条隐藏（死控件只添噪音）。
  * @param props page/size/total/totalPages 来自 PageResponse
  * @param props.onPageChange 页码变化
  * @param props.onSizeChange 每页条数变化（可省略，省略时不显示尺寸选择）
@@ -71,6 +71,11 @@ export function Pagination({
   // 显式 id 关联（useId 防止同页多个分页实例冲突）：原生 select 藏在自定义组件里，
   // 包裹式隐式关联静态分析不可见，显式 htmlFor 让可访问性关联可见且规则可判定。
   const sizeSelectId = useId();
+  // 数据不足一页时整条隐藏：页码、翻页与每页档位都无从操作，留着只添噪音。
+  // hasNext 兜底契约不一致（totalPages=1 但仍有下一页）的场景，不误隐藏。
+  if (resolvedTotalPages <= 1 && !hasNext) {
+    return null;
+  }
 
   return (
     <nav

@@ -404,3 +404,47 @@ describe("ReviewPage 复习开始(D15 来源模式 + 提前复习提示)", () =>
     expect(screen.queryByText(/提前复习/)).toBeNull();
   });
 });
+
+describe("ReviewPage 分页条", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /** [AC-4] 数据不足一页：分页条整条隐藏，页码/翻页/档位死控件不再出现。 */
+  it("hidesPagerWhenRowsFitOnePage_ac4", async () => {
+    stubLoggedInUser();
+    practiceApi.getReviews.mockResolvedValue({
+      items: [reviewCard("c1", "唯一的卡", "2026-11-06T00:00:00Z")],
+      page: 1,
+      size: 20,
+      total: 1,
+      totalPages: 1,
+      hasNext: false,
+    });
+    renderPage();
+    await screen.findByText("唯一的卡");
+
+    expect(screen.queryByRole("navigation", { name: "分页" })).toBeNull();
+  });
+
+  /** [AC-4] 数据超过一页：分页条照常渲染（防误伤回归）。 */
+  it("keepsPagerWhenRowsExceedOnePage_ac4", async () => {
+    stubLoggedInUser();
+    const items = Array.from({ length: 20 }, (_, index) =>
+      reviewCard(`c${index}`, `到期句 ${index}`, "2026-11-06T00:00:00Z"),
+    );
+    practiceApi.getReviews.mockResolvedValue({
+      items,
+      page: 1,
+      size: 20,
+      total: 27,
+      totalPages: 2,
+      hasNext: true,
+    });
+    renderPage();
+    await screen.findByText("到期句 0");
+
+    const pager = screen.getByRole("navigation", { name: "分页" });
+    expect(within(pager).getByText("下一页")).toBeTruthy();
+  });
+});

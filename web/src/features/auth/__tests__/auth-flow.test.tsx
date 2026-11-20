@@ -620,4 +620,65 @@ describe("auth flow", () => {
     expect(screen.getByRole("link", { name: "打开设置" })).toBeInTheDocument();
     expect(getAccessToken()).toBe("access-token");
   });
+
+  it("restoresGuestTopbarImmediatelyAfterLogout_ac3", async () => {
+    markPlaced();
+    let logoutCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/auth/login")) {
+          return jsonResponse(authEnvelope());
+        }
+        if (url.endsWith("/api/auth/logout")) {
+          logoutCalls += 1;
+          return jsonResponse(successEnvelope(null));
+        }
+        // 登出后 refresh 会话已被吊销：me 与 refresh 都回 401，会话无法恢复。
+        if (url.endsWith("/api/auth/me")) {
+          return jsonResponse(
+            logoutCalls > 0 ? errorEnvelope(40100, "请先登录") : successEnvelope(ADMIN),
+            logoutCalls > 0 ? 401 : 200,
+          );
+        }
+        if (url.endsWith("/api/auth/refresh")) {
+          return jsonResponse(errorEnvelope(40100, "请先登录"), 401);
+        }
+        if (url.endsWith("/api/auth/csrf")) {
+          return jsonResponse(
+            successEnvelope({
+              token: "fresh-token",
+              headerName: "X-XSRF-TOKEN",
+              parameterName: "csrf",
+            }),
+          );
+        }
+        const business = businessQueryResponse(url);
+        if (business) {
+          return business;
+        }
+        throw new Error(`unexpected request: ${url}`);
+      }),
+    );
+
+    renderApp("/login");
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("用户名或邮箱"), "admin");
+    await user.type(screen.getByLabelText("密码"), "test-admin-password");
+    await user.click(screen.getByRole("button", { name: "登录" }));
+    expect(await screen.findByRole("link", { name: /开始|继续|热身/ })).toBeInTheDocument();
+    // 登录态顶栏：管理员头像与管理入口在位。
+    expect(screen.getByRole("link", { name: "打开设置" })).toHaveTextContent("a");
+    expect(screen.getByRole("link", { name: "管理" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("link", { name: "打开设置" }));
+    await user.click(await screen.findByRole("button", { name: "退出登录" }));
+    // 顶栏立即恢复游客态：管理入口消失、头像回到「游」，不依赖刷新或重新进入页面。
+    await waitFor(() => {
+      expect(logoutCalls).toBe(1);
+      expect(screen.queryByRole("link", { name: "管理" })).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole("link", { name: "打开设置" })).toHaveTextContent("游");
+  });
 });

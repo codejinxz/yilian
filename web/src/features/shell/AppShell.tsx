@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { useSessionStore } from "@/features/auth/session";
 import { flushQueuedAttempts, useOfflineQueueCount } from "@/features/practice/offline-queue";
 import { useSettingsStore } from "@/features/settings/store";
 import { useKeyboardInset } from "@/hooks/use-keyboard-inset";
@@ -59,7 +60,10 @@ export function AppShell() {
   const pendingAttempts = useOfflineQueueCount();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const me = useQuery(meQueryOptions);
-  const user = me.data;
+  // 会话状态是用户资料的开关：登出/401 清会话（setAnonymous）后顶栏立即回到游客态。
+  // 缓存清除对已挂载的 me 观察者可能滞留旧值，不能只依赖 me.data 的重建时序。
+  const sessionStatus = useSessionStore((state) => state.status);
+  const user = sessionStatus === "anonymous" ? undefined : me.data;
   const isAdmin = user?.role === "ADMIN";
   // 服务端设置只在登录后拉取；游客查询只会拿到 401，白白清空会话缓存。
   // 今日数据始终启用（见组件注释），与今日页共享同一份缓存，不多发请求。

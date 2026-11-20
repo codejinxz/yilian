@@ -13,8 +13,9 @@ import {
   updateAdminBankStatus,
 } from "@/lib/api/admin";
 import { queryKeys } from "@/lib/query";
-import type { BankView } from "@/lib/schemas/content";
+import type { BankView, SentenceView } from "@/lib/schemas/content";
 import { LEVELS, levelLabel, RESERVED_LEVEL_ID } from "./constants";
+import { SentenceEditModal } from "./SentencesPage";
 import {
   AdminField,
   AdminSection,
@@ -339,6 +340,9 @@ export function BanksPage() {
               onConfirm: (reason) => deleteMutation.mutate({ bank: drawerBank, reason }),
             });
           }}
+          requestReason={setReasonRequest}
+          onSentenceSettled={invalidate}
+          toast={toast}
         />
       ) : null}
 
@@ -449,94 +453,134 @@ function BankDrawer({
   onEdit,
   onToggle,
   onDelete,
+  requestReason,
+  onSentenceSettled,
+  toast,
 }: {
   bank: BankView;
   onClose: () => void;
   onEdit: () => void;
   onToggle: (status: "DISABLED" | "PUBLISHED") => void;
   onDelete: () => void;
+  requestReason: (request: ReasonRequest) => void;
+  onSentenceSettled: () => void;
+  toast: (message: string) => void;
 }) {
   const sentencesQuery = useQuery({
     queryKey: queryKeys.admin.bankSentences(bank.id, { page: 1, size: 20 }),
     queryFn: ({ signal }) => getAdminBankSentences(bank.id, { page: 1, size: 20 }, signal),
   });
+  const [managing, setManaging] = useState<SentenceView | null>(null);
+  // 行内编辑弹窗的「所属题库」下拉需要题库目录；与题目页同口径取全量。
+  const banksQuery = useQuery({
+    queryKey: queryKeys.admin.banks({ scope: "filter", size: 100 }),
+    queryFn: ({ signal }) => getAdminBanks({ page: 1, size: 100 }, signal),
+  });
   const records = sentencesQuery.data?.items ?? [];
   const isOfficial = bank.id === "1";
   return (
-    <Drawer
-      open
-      onClose={onClose}
-      kicker={`题库 · ${bank.id}`}
-      title={bank.name}
-      meta={`${bank.sentenceCount} 句 · ${bank.visibility === "PUBLIC" ? "公开" : "私有"}${bank.status === "DISABLED" ? " · 已停用" : ""}${bank.status === "RECYCLED" ? " · 已回收" : ""}`}
-    >
-      <div className="mt-[22px] flex flex-wrap gap-4">
-        <Link
-          to="/practice"
-          search={(previous) => ({ ...previous, bankId: bank.id })}
-          className="linkish"
-        >
-          在这个题库练习
-        </Link>
-        <button type="button" className="linkish" onClick={onEdit}>
-          编辑
-        </button>
-        {isOfficial ? null : (
-          <>
-            <button
-              type="button"
-              className="linkish text-ink-muted border-rule hover:text-vermilion"
-              onClick={() => onToggle(bank.status === "DISABLED" ? "PUBLISHED" : "DISABLED")}
-            >
-              {bank.status === "DISABLED" ? "恢复" : "停用"}
-            </button>
-            <button type="button" className="linkish" onClick={onDelete}>
-              删除
-            </button>
-          </>
-        )}
-      </div>
-      {isOfficial ? (
-        <p className="mt-3 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
-          官方题库不可停用、不可删除。
-        </p>
-      ) : null}
-
-      <p className="section-title mt-[30px]">题目</p>
-      {sentencesQuery.isPending ? (
-        <LoadingBlock label="正在载入题目…" rows={2} />
-      ) : records.length === 0 ? (
-        <p className="py-4 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
-          这个题库还没有句子。
-        </p>
-      ) : (
-        records.map((sentence) => (
-          <div
-            key={sentence.id}
-            className="flex items-baseline justify-between gap-3.5 border-b border-rule py-[11px]"
+    <>
+      <Drawer
+        open
+        onClose={onClose}
+        kicker={`题库 · ${bank.id}`}
+        title={bank.name}
+        meta={`${bank.sentenceCount} 句 · ${bank.visibility === "PUBLIC" ? "公开" : "私有"}${bank.status === "DISABLED" ? " · 已停用" : ""}${bank.status === "RECYCLED" ? " · 已回收" : ""}`}
+      >
+        <div className="mt-[22px] flex flex-wrap gap-4">
+          <Link
+            to="/practice"
+            search={(previous) => ({ ...previous, bankId: bank.id })}
+            className="linkish"
           >
-            <div className="min-w-0">
-              <p className="truncate font-serif text-[13px] text-ink">{sentence.zh}</p>
-              <p className="mt-[5px] font-mono text-[9.5px] tracking-[0.06em] text-ink-faint">
-                {levelLabel(sentence.level)} · {(sentence.tags ?? []).join(" / ")} · 挖{" "}
-                {(sentence.blank ?? []).length} 空
-                {sentence.status === "RECYCLED"
-                  ? " · 已回收"
-                  : sentence.status === "DISABLED"
-                    ? " · 已停用"
-                    : ""}
-              </p>
-            </div>
-            <Link
-              to="/practice"
-              search={(previous) => ({ ...previous, sentenceId: sentence.id })}
-              className="linkish flex-none text-[11px]"
+            在这个题库练习
+          </Link>
+          <button type="button" className="linkish" onClick={onEdit}>
+            编辑
+          </button>
+          {isOfficial ? null : (
+            <>
+              <button
+                type="button"
+                className="linkish text-ink-muted border-rule hover:text-vermilion"
+                onClick={() => onToggle(bank.status === "DISABLED" ? "PUBLISHED" : "DISABLED")}
+              >
+                {bank.status === "DISABLED" ? "恢复" : "停用"}
+              </button>
+              <button type="button" className="linkish" onClick={onDelete}>
+                删除
+              </button>
+            </>
+          )}
+        </div>
+        {isOfficial ? (
+          <p className="mt-3 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
+            官方题库不可停用、不可删除。
+          </p>
+        ) : null}
+
+        <p className="section-title mt-[30px]">题目</p>
+        {sentencesQuery.isPending ? (
+          <LoadingBlock label="正在载入题目…" rows={2} />
+        ) : records.length === 0 ? (
+          <p className="py-4 font-mono text-[11px] tracking-[0.06em] text-ink-faint">
+            这个题库还没有句子。
+          </p>
+        ) : (
+          records.map((sentence) => (
+            <div
+              key={sentence.id}
+              className="flex items-baseline justify-between gap-3.5 border-b border-rule py-[11px]"
             >
-              练习
-            </Link>
-          </div>
-        ))
-      )}
-    </Drawer>
+              <div className="min-w-0">
+                <p className="truncate font-serif text-[13px] text-ink">{sentence.zh}</p>
+                <p className="mt-[5px] font-mono text-[9.5px] tracking-[0.06em] text-ink-faint">
+                  {levelLabel(sentence.level)} · {(sentence.tags ?? []).join(" / ")} · 挖{" "}
+                  {(sentence.blank ?? []).length} 空
+                  {sentence.status === "RECYCLED"
+                    ? " · 已回收"
+                    : sentence.status === "DISABLED"
+                      ? " · 已停用"
+                      : ""}
+                </p>
+              </div>
+              <span className="flex flex-none items-baseline gap-3.5">
+                <Link
+                  to="/practice"
+                  search={(previous) => ({ ...previous, sentenceId: sentence.id })}
+                  className="linkish text-[11px]"
+                >
+                  练习
+                </Link>
+                {/* 回收站句子与题目页口径一致：不给行内编辑入口。 */}
+                {sentence.status === "RECYCLED" ? null : (
+                  <button
+                    type="button"
+                    className="linkish text-[11px]"
+                    onClick={() => setManaging(sentence)}
+                  >
+                    管理
+                  </button>
+                )}
+              </span>
+            </div>
+          ))
+        )}
+      </Drawer>
+      {managing ? (
+        <SentenceEditModal
+          key={managing.id}
+          sentence={{ ...managing, bankId: bank.id }}
+          banks={(banksQuery.data?.items ?? []).map((item) => ({
+            id: item.id,
+            name: item.name,
+          }))}
+          onClose={() => setManaging(null)}
+          onSettled={onSentenceSettled}
+          requestReason={requestReason}
+          toast={toast}
+        />
+      ) : null}
+    </>
   );
 }

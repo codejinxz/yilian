@@ -176,6 +176,41 @@ describe("AskPanel", () => {
     expect(onUnavailable).not.toHaveBeenCalled();
   });
 
+  /** [AC-5] 原始失败场景（连接重置一类网络层失败）：alert 反馈在位、问句保留、
+   * 面板不整体消失、父级收到角标通知。 */
+  it("showsFeedbackOnNetworkReset_ac5", async () => {
+    askTutorMock.mockRejectedValue(
+      new ApiError(0, 99999, "网络连接失败，请检查网络后重试", "transport"),
+    );
+    const { onUnavailable, onTransientUnavailable } = renderPanel();
+
+    await ask("连接被重置的问句");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("网络连接失败");
+    // 面板仍在（可收起、可再问），问句气泡保留，不是无痕消失。
+    expect(screen.getByRole("button", { name: "收起" })).toBeTruthy();
+    expect(screen.getAllByText("连接被重置的问句").length).toBeGreaterThanOrEqual(1);
+    expect(onTransientUnavailable).toHaveBeenCalledTimes(1);
+    expect(onUnavailable).not.toHaveBeenCalled();
+  });
+
+  /** [AC-5] 非 Error 异常（渲染健壮性加固面）：unknown throw 也有兜底文案与角标，
+   * 不静默吞掉。 */
+  it("showsFallbackFeedbackOnUnknownThrow_ac5", async () => {
+    askTutorMock.mockRejectedValue("boom");
+    const { onUnavailable, onTransientUnavailable } = renderPanel();
+
+    await ask("未知异常的问句");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("答疑暂时不可用");
+    expect(screen.getByRole("button", { name: "收起" })).toBeTruthy();
+    expect(screen.getAllByText("未知异常的问句").length).toBeGreaterThanOrEqual(1);
+    expect(onTransientUnavailable).toHaveBeenCalledTimes(1);
+    expect(onUnavailable).not.toHaveBeenCalled();
+  });
+
   /** [AC-4] 暂时性失败经 onTransientUnavailable 通知父级挂「暂不可用」角标：
    * 面板收起后不可用状态仍可见，不是只活在已展开的面板里。 */
   it("notifiesParentOnTransientErrorForEntryBadge_ac4", async () => {

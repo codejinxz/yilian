@@ -112,6 +112,9 @@ export function UsersPage() {
   const [drawerUserId, setDrawerUserId] = useState<string | null>(null);
   const [reasonRequest, setReasonRequest] = useState<ReasonRequest | null>(null);
   const [rawAnswer, setRawAnswer] = useState<RawAnswerView | null>(null);
+  // 明文只随生成响应出现一次：本次会话生成的完整码留在内存里供列表展示与复制；
+  // 历史码与刷新后的码只有前缀，服务端只存哈希，无法回取明文。
+  const [inviteCodes, setInviteCodes] = useState<Record<string, string>>({});
 
   const usersQuery = useQuery({
     queryKey: queryKeys.admin.users({ page, size, keyword, role, status }),
@@ -137,7 +140,7 @@ export function UsersPage() {
     onSuccess: (invite) => {
       void queryClient.invalidateQueries({ queryKey: ["admin", "invites"] });
       void queryClient.invalidateQueries({ queryKey: queryKeys.admin.auditLogs({}) });
-      // 明文只在此刻展示一次，列表里永远只有前缀（服务端只存哈希）。
+      setInviteCodes((previous) => ({ ...previous, [invite.codePrefix]: invite.code }));
       toast.show(`已生成邀请码 ${invite.code}`);
     },
     onError: (error) => toast.show(error instanceof Error ? error.message : "生成失败"),
@@ -148,6 +151,16 @@ export function UsersPage() {
     void queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
     void queryClient.invalidateQueries({ queryKey: ["admin", "overview"] });
     void queryClient.invalidateQueries({ queryKey: queryKeys.admin.auditLogs({}) });
+  }
+
+  /** 复制邀请码明文；clipboard 不可用时如实提示，不伪造复制成功。 */
+  async function copyInviteCode(code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+      toast.show(`已复制邀请码 ${code}`);
+    } catch {
+      toast.show("复制失败，请手动抄写");
+    }
   }
 
   const drawerUser = usersQuery.data?.items.find((user) => user.id === drawerUserId) ?? null;
@@ -163,18 +176,35 @@ export function UsersPage() {
           </p>
         </div>
         <div className="ml-auto flex flex-wrap gap-2.5">
-          {(invitesQuery.data ?? []).map((invite) => (
-            <span
-              key={invite.codePrefix}
-              className={
-                invite.used
-                  ? "rounded-[2px] border border-rule px-[9px] py-[5px] font-mono text-[11px] tracking-[0.08em] text-ink-faint line-through opacity-60"
-                  : "rounded-[2px] border border-rule px-[9px] py-[5px] font-mono text-[11px] tracking-[0.08em] text-ink-muted"
-              }
-            >
-              {invite.codePrefix}
-            </span>
-          ))}
+          {(invitesQuery.data ?? []).map((invite) => {
+            const code = inviteCodes[invite.codePrefix] ?? null;
+            return (
+              <button
+                key={invite.codePrefix}
+                type="button"
+                title={code ? "点击复制完整邀请码" : "完整码仅在生成时展示一次"}
+                className={
+                  invite.used
+                    ? "rounded-[2px] border border-rule px-[9px] py-[5px] font-mono text-[11px] tracking-[0.08em] text-ink-faint opacity-60"
+                    : "rounded-[2px] border border-rule px-[9px] py-[5px] font-mono text-[11px] tracking-[0.08em] text-ink-muted transition-colors hover:border-vermilion hover:text-vermilion"
+                }
+                onClick={() => {
+                  if (!code) {
+                    toast.show("完整码仅在生成时展示一次，请重新生成");
+                    return;
+                  }
+                  void copyInviteCode(code);
+                }}
+              >
+                <span className={invite.used ? "line-through" : ""}>
+                  {code ?? invite.codePrefix}
+                </span>
+                <span className="ml-[7px] font-sans text-[10px] tracking-[0.04em]">
+                  {invite.used ? "已用" : "未用"}
+                </span>
+              </button>
+            );
+          })}
         </div>
         <button
           type="button"

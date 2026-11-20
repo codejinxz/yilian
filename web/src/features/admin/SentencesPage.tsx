@@ -382,7 +382,7 @@ export function SentencesPage() {
  * 题目编辑弹窗（原型 430px .modal）：中文、难度、标签、解析、归属题库与状态可改；
  * 参考译文与语块只读（原型注明：直接改译文会破坏 chunks 与 ref 的一致性）。
  */
-function SentenceEditModal({
+export function SentenceEditModal({
   sentence,
   banks,
   onClose,
